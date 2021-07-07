@@ -19,14 +19,16 @@ number_of_events: 1
 #0 for importing the pickle files
 key_data: 0
 #NewEngland or NineBusSystem
-grid: NineBusSystem
-#svm, clf, mlp, or rnn, dnn
+grid: NewEngland
+#svm, clf, mlp, or rnn, dnn, ensb
 ml_algorithm:
   - svm
-  - clf
-  - mlp
-  - rnn
-  - dnn
+  #- clf
+  #- mlp
+  #- rnn
+  #- dnn
+  #- ensb
+
 #this parameters are required only in case
 #of choosing any deep learning method
 epochs: 10
@@ -34,6 +36,8 @@ batch_size: 32
 optimizer: Adam
 learning_rate: 0.01
 n_steps: 1
-
+#Parameter to adjust reduced features
+reduced: 0
+#0 for normal features, 1 for reduced
 
 
