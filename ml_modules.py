@@ -158,7 +158,7 @@ def predict_with_svm(X_train,
 
     #Break Down Plot
     # newengland_svm_exp = dx.Explainer(svm_classifier, X_test, y_test, 
-    #               label = "Titanic RF Pipeline")
+    #               label = "Smart Grid New England Pipeline")
     
     # instance = newengland_svm_exp.predict_parts(X_test.iloc[1], 
     #          type = 'break_down')
