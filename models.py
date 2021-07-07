@@ -10,8 +10,8 @@ import sys
 import math
 import os
 
-sys.path.append(r"C:\Program Files\DIgSILENT\PowerFactory 2019\Python\3.7")
-import powerfactory as pf
+#sys.path.append(r"C:\Program Files\DIgSILENT\PowerFactory 2019\Python\3.7")
+#import powerfactory as pf
 
 
 class Data:

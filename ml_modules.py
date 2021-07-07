@@ -157,12 +157,12 @@ def predict_with_svm(X_train,
     importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
 
     #Break Down Plot
-    newengland_svm_exp = dx.Explainer(svm_classifier, X_test, y_test, 
-                  label = "Titanic RF Pipeline")
+    # newengland_svm_exp = dx.Explainer(svm_classifier, X_test, y_test, 
+    #               label = "Titanic RF Pipeline")
     
-    instance = newengland_svm_exp.predict_parts(X_test.iloc[1], 
-             type = 'break_down')
-    instance.plot(max_vars = 30)
+    # instance = newengland_svm_exp.predict_parts(X_test.iloc[1], 
+    #          type = 'break_down')
+    # instance.plot(max_vars = 30)
     
 
     
