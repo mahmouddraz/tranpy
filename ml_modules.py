@@ -6,7 +6,7 @@ import shap
 import dalex as dx
 from timeit import default_timer as timer
 from tensorflow.keras.callbacks import Callback
-from keras import backend as K
+from tensorflow.keras import backend as K
 from sklearn import tree
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.model_selection import KFold, GridSearchCV
@@ -30,14 +30,7 @@ for i in range(77):
         feature_names.append('bus_'+str(bus)+':phi')
         bus += 1
 
-index_featurer_names = {}
-bus=1
-for i in range(77):
-    if (i % 2 == 0):
-        index_featurer_names[i] = ('bus_'+str(bus)+':u')
-    else:
-        index_featurer_names[i] = ('bus_'+str(bus)+':phi')
-        bus += 1
+
 
 def predict_with_svm(X_train,
                      y_train,
@@ -104,7 +97,7 @@ def predict_with_svm(X_train,
                   np.sqrt(mse(y_test, y_hat_shuffle)), "\n")
 
         svmxai = SmartGridExplainer(
-            X_train=X_train, X_test=X_test, model=svm_classifier, grid=grid)
+            X_train=X_train, X_test=X_test,y_train=y_train, y_test=y_test, model=svm_classifier, grid=grid)
 
         spobj = svmxai.generateGlobalLimeExplanations()
 
@@ -113,13 +106,7 @@ def predict_with_svm(X_train,
         
         #Get SHAPS
         topshaps = svmxai.get_top_SHAP_important_features(shaps,X_test.shape[1] )
-        names = index_featurer_names
-        shap_feats_score = []
-        list1 =  [x[0] for x in topshaps]
-        list1 = list(map(lambda x: names[x], list1))
-
-        list2 =  [x[1] for x in topshaps]
-        result = list(zip(list1,list2))
+       
 
             
 
@@ -153,16 +140,18 @@ def predict_with_svm(X_train,
         df.to_excel(filepath, index=False)
 
     #Permutation Importances
-    perm = PermutationImportance(svm_classifier).fit(X_test, y_test)
-    importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
+        # perm = PermutationImportance(svm_classifier).fit(X_test, y_test)
+        # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
 
-    #Break Down Plot
-    # newengland_svm_exp = dx.Explainer(svm_classifier, X_test, y_test, 
-    #               label = "Smart Grid New England Pipeline")
-    
-    # instance = newengland_svm_exp.predict_parts(X_test.iloc[1], 
-    #          type = 'break_down')
-    # instance.plot(max_vars = 30)
+   
+
+    #Break Down
+    #svmxai.generate_breakdown_explainer(1)
+
+    #Surrogate
+    svmxai.generate_surrogate_explainer()
+
+
     
 
     
@@ -254,12 +243,19 @@ def predict_with_mlp(X_train,
 
         print('MLP START')
         mlpxai = SmartGridExplainer(
-            X_train=X_train, X_test=X_test, model=mlp, grid=grid)
+            X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test, model=mlp, grid=grid)
         mlpxai.generateLocalLimeExplanation(2)
 
         spobj = mlpxai.generateGlobalLimeExplanations()
 
         shap = mlpxai.generateGlobalShapExplanations()
+
+
+        #Break Down
+        mlpxai.generate_breakdown_explainer(1)
+
+        #Surrogate
+        mlpxai.generate_surrogate_explainer()
 
         
 
@@ -372,14 +368,19 @@ def predict_with_clf(X_train,
 
         print('CLF START')
         clfxai = SmartGridExplainer(
-            X_train=X_train, X_test=X_test, model=clf, grid=grid)
+            X_train=X_train, X_test=X_test,  y_train=y_train, y_test=y_test, model=clf, grid=grid)
         clfxai.generateLocalLimeExplanation(2)
 
         spobj = clfxai.generateGlobalLimeExplanations()
 
         shap = clfxai.generateGlobalShapExplanations()
 
-        
+
+        #Break Down
+        clfxai.generate_breakdown_explainer(1)
+
+        #Surrogate
+        clfxai.generate_surrogate_explainer()
 
         # perm = PermutationImportance(clf).fit(X_test, y_test)
         # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
@@ -578,25 +579,21 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
 
         print(model._name, ' START')
         nnxai = SmartGridExplainer(
-            X_train=np.array(dataset.X_train.values), X_test=np.array(dataset.X_test.values), model=model, grid=grid)
+            X_train=np.array(dataset.X_train.values), X_test=np.array(dataset.X_test.values), 
+            y_train=dataset.y_train.values, y_test=dataset.y_test.values,  model=model, grid=grid)
         nnxai.generateLocalLimeExplanation(2)
 
         spobj = nnxai.generateGlobalLimeExplanations()
 
         shap = nnxai.generateGlobalShapExplanations()
 
+        nnxai.generate_breakdown_explainer(dataset.y_test,1)
+
         
-
-
         
 
         #Permutation Importance for dnn
-        # dnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
-        #                         dnn_model_ensemble,
-        #                         epochs=10,
-        #                         verbose=False)
-        # dnn_clf._estimator_type = "classifier"
-        # dnn_clf.fit(dataset.X_train, dataset.y_train)
+        
         # perm = PermutationImportance(dnn_clf).fit(dataset.X_test, dataset.y_test)
         # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
         # print(importances)
@@ -605,7 +602,31 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
         # filepath = 'permutationimportance_dnn.xlsx'
         # df.to_excel(filepath, index=False)
 
-        
+        #Break Down For DNN
+        # dnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
+        #                         dnn_model_ensemble,
+        #                         epochs=10,
+        #                         verbose=False)
+        # dnn_clf._estimator_type = "classifier"
+        # dnn_clf.fit(dataset.X_train, dataset.y_train)
+        # nnxai.model = dnn_clf
+        # nnxai.generate_breakdown_explainer(dataset.y_test,1)
+
+
+
+        #Break Down For RNN
+        # rnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
+        #                         rnn_model_ensemble,
+        #                         epochs=10,
+        #                         verbose=False)
+        # rnn_clf._estimator_type = "classifier"
+        # X = dataset.X_train.values
+        # Y = dataset.y_train.values
+        # X = X.reshape(X.shape[0], 1, X.shape[1])
+        # Y = Y.reshape(Y.shape[0], 1)
+        # rnn_clf.fit(X, Y)
+        # nnxai.model = rnn_clf
+        # nnxai.generate_breakdown_explainer(dataset.y_test,1)
 
         if(reduced == 1 and model.name == 'DNN'):
                 # Reduce features
@@ -737,13 +758,19 @@ def predict_with_ensemble(X_train,
         
 
 
-        ensbxai = SmartGridExplainer(X_train=X_train, X_test=X_test, model=ensb, grid=grid)
+        ensbxai = SmartGridExplainer(X_train=X_train, X_test=X_test,y_train=y_train,y_test=y_test, model=ensb, grid=grid)
         ensbxai.generateLocalLimeExplanation(2)
         spobj = ensbxai.generateGlobalLimeExplanations()
         shap = ensbxai.generateGlobalShapExplanations()
 
-        
+        #Break Down
+        ensbxai.generate_breakdown_explainer(1)
 
+        #Surrogate
+        ensbxai.generate_surrogate_explainer()
+    
+
+        
         
 
         if(reduced == 1):
@@ -774,11 +801,14 @@ def predict_with_ensemble(X_train,
         filepath = 'ensb_score.xlsx'
         df.to_excel(filepath, index=False)
 
-    perm = PermutationImportance(ensb).fit(X_test, y_test)
-    importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
-    df = pd.DataFrame(importances)
-    filepath = 'permutationimportance_ensb.xlsx'
-    df.to_excel(filepath, index=False)
+    #Perm Importance
+    # perm = PermutationImportance(ensb).fit(X_test, y_test)
+    # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
+    # df = pd.DataFrame(importances)
+    # filepath = 'permutationimportance_ensb.xlsx'
+    # df.to_excel(filepath, index=False)
+
+    
 
     print('ENSB END')
     return classification_report(y_test, preds), confusion_matrix(y_test, preds)
@@ -798,9 +828,11 @@ def dnn_model_ensemble():
 
 
 def rnn_model_ensemble():
+    tf.keras.backend.clear_session()
     model = tf.keras.Sequential([
             tf.keras.layers.LSTM(150, activation='tanh',
-                                 input_shape=(1,77),
+                                 input_shape=(1,
+                                              77),
                                  return_sequences=True),
             tf.keras.layers.LSTM(150, activation='tanh',
                                  return_sequences=True),

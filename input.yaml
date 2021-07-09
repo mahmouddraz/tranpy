@@ -22,12 +22,12 @@ key_data: 0
 grid: NewEngland
 #svm, clf, mlp, or rnn, dnn, ensb
 ml_algorithm:
-  - svm
+  #- svm
   #- clf
   #- mlp
   #- rnn
   #- dnn
-  #- ensb
+  - ensb
 
 #this parameters are required only in case
 #of choosing any deep learning method

@@ -7,18 +7,33 @@ import matplotlib.pyplot as plt
 import shap
 import warnings
 import pickle
+import dalex as dx
 from lime import lime_tabular
 from lime import submodular_pick
 from timeit import default_timer as timer
 from matplotlib.backends.backend_pdf import PdfPages
 from pathlib import Path
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import r2_score
+from tensorflow.python.keras.backend import dtype
 
+index_featurer_names = {}
+bus=1
+for i in range(77):
+    if (i % 2 == 0):
+        index_featurer_names[i] = ('bus_'+str(bus)+':u')
+    else:
+        index_featurer_names[i] = ('bus_'+str(bus)+':phi')
+        bus += 1
 
 class SmartGridExplainer:
-    def __init__(self, X_train, X_test, model,grid):
+    def __init__(self, X_train, X_test,y_train,y_test, model,grid):
         self.X_train = X_train
         self.X_test = X_test
+        self.y_train = y_train
+        self.y_test = y_test
         self.model = model
+        self.grid = grid
         feature_names = []
         bus = 1
         if(grid == 'NineBusSystem'):
@@ -54,7 +69,7 @@ class SmartGridExplainer:
         stable = result
         unstable = 1 - result
         distribution = np.concatenate((unstable,stable),axis=1)
-        
+        print('distr: ', distribution.shape)
         return distribution
     
     def rnn_model_predict(self,x):
@@ -218,6 +233,77 @@ class SmartGridExplainer:
             pdf.savefig( bbox_inches='tight')
             plt.close()
         return shap_values
+
+    def generate_breakdown_explainer(self,i):
+        
+        
+        
+        model_name = type(self.model).__name__
+        model = self.model
+        if(model_name == 'Sequential'):
+            X = pd.DataFrame.from_records(self.X_test)
+
+            model_name = self.model.name
+            if(self.model.name == 'DNN'):
+                instc = self.X_test[i].reshape((1,-1))
+                dnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
+                                        dnn_model_create,
+                                        input=self.X_test.shape[1],
+                                        epochs=10,
+                                        verbose=False)
+                dnn_clf._estimator_type = "classifier"
+                dnn_clf.fit(self.X_train, self.y_train)
+                model = dnn_clf
+            elif(self.model.name == 'RNN'):
+                print("")
+        else:
+            instc = self.X_test.iloc[i]
+            X = self.X_test
+        
+        smartgrid_exp = dx.Explainer(model, X, self.y_test,
+                    label = ("Smart Grid New England " + model_name +  " Pipeline on instance: " + str(i)))
+        
+        X.columns = self.feature_names
+        instance = smartgrid_exp.predict_parts(instc, 
+                type = 'break_down')
+        fig = instance.plot(max_vars=30, show=False)
+        
+        
+        
+        fig.write_image("explainer_outputs/Break_Down/"+model_name+"_"+str(i)+"_"+self.grid+".svg")
+    
+
+    def generate_surrogate_explainer(self):
+        print("Predicting with original Model")
+        predictions = self.model.predict(self.X_train)
+
+        logreg = LogisticRegression(solver='lbfgs',max_iter=5000)
+        logreg.fit(self.X_train,predictions)
+
+        logrespredictions = logreg.predict(self.X_test)
+        complexmodelpredictions = self.model.predict(self.X_test)
+        score = r2_score(logrespredictions,complexmodelpredictions)
+
+        print(logreg.score(self.X_test,self.y_test))
+        coef = logreg.coef_[0]
+        coef = list(map(abs, coef))
+        
+        sort_index = np.argsort(coef)[::-1]
+        sort_features = list(map((lambda x: index_featurer_names[x]),sort_index))
+        sort_vals  = np.sort(coef)[::-1]
+        
+
+        
+        result = dict(zip(sort_features,sort_vals))
+        df = pd.DataFrame.from_records([result])
+        df = df.T
+        
+        name =  type(self.model).__name__+"_"+self.grid+".xlsx"
+        filepath = 'explainer_outputs/Surrogate/'+name
+        df.to_excel(filepath)
+        
+        print()
+
 
     #Get the indexes of the most improtant features
     def get_top_LIME_important_features(self,spobj,m):
@@ -386,3 +472,14 @@ def df_to_singlerow(df, shuffle=False, batch_size=32):
     return dataset
  
 
+def dnn_model_create(input):
+    tf.keras.backend.clear_session()
+    model= tf.keras.Sequential([
+                       tf.keras.layers.Dense(10,activation='relu',input_shape=[input]),
+                       tf.keras.layers.Dense(1,activation='sigmoid')
+    ])
+    model.compile(
+                optimizer='Adam',
+                loss='binary_crossentropy',
+                metrics=['accuracy'])
+    return model
