@@ -1,2 +1,2 @@
 # tranpy 
-Tranpy is a tool for predicting the transient dynamics of power systems using data-driven methods.
+The purpose of this code is to explore the use of data-driven approaches to predict electromagnetic and mechanical stability and to explain the decisions made by the models used for their prediction.
