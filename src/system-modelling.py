@@ -1,4 +1,4 @@
-mode# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """
 Created on Mon Mar  4 14:13:12 2019
 

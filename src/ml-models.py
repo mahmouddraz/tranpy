@@ -22,14 +22,13 @@ from eli5 import explain_weights_df
 from collections import Counter
 
 feature_names = []
-bus=1
+bus = 1
 for i in range(77):
     if (i % 2 == 0):
-        feature_names.append('bus_'+str(bus)+':u')
+        feature_names.append('bus_' + str(bus) + ':u')
     else:
-        feature_names.append('bus_'+str(bus)+':phi')
+        feature_names.append('bus_' + str(bus) + ':phi')
         bus += 1
-
 
 
 def predict_with_svm(X_train,
@@ -50,11 +49,11 @@ def predict_with_svm(X_train,
     :returns TypeError: if arguments data sets is not numpy array
      """
     scores = []
-    if reduced ==0:
-        n=1
-    else: 
-        n=50
-    
+    if reduced == 0:
+        n = 1
+    else:
+        n = 50
+
     for i in range(n):
 
         svm_classifier = SVC(kernel='rbf', probability=True)
@@ -97,19 +96,14 @@ def predict_with_svm(X_train,
                   np.sqrt(mse(y_test, y_hat_shuffle)), "\n")
 
         svmxai = SmartGridExplainer(
-            X_train=X_train, X_test=X_test,y_train=y_train, y_test=y_test, model=svm_classifier, grid=grid)
+            X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test, model=svm_classifier, grid=grid)
 
-        spobj = svmxai.generateGlobalLimeExplanations()
+        spobj = svmxai.generate_global_lime_explanations()
 
-        shaps = svmxai.generateGlobalShapExplanations()
+        shaps = svmxai.generate_global_shap_explanations()
 
-        
-        #Get SHAPS
-        topshaps = svmxai.get_top_SHAP_important_features(shaps,X_test.shape[1] )
-       
-
-            
-
+        # Get SHAPS
+        topshaps = get_top_SHAP_important_features(shaps, X_test.shape[1])
 
         indexes = []
         for m in range(1, X_test.shape[1]):
@@ -117,11 +111,11 @@ def predict_with_svm(X_train,
 
         indexeslime = []
         for m in range(1, X_test.shape[1]):
-            indexeslime.append(svmxai.get_top_important_features_LIME(spobj, m))
+            indexeslime.append(get_top_important_features_LIME(spobj, m))
 
         scoreins = []
 
-        if(reduced == 1):
+        if (reduced == 1):
             for index in indexeslime:
                 print('Number of n: ', len(index))
                 predictions = svmxai.predict_with_modified_features(
@@ -131,7 +125,7 @@ def predict_with_svm(X_train,
                 scoreins.append(accuracy['accuracy'])
                 print(accuracy['accuracy'])
         scores.append(scoreins)
-    if(reduced==1):
+    if (reduced == 1):
         print(i)
         accuracies = np.array(scores)
         result = accuracies.mean(axis=0)
@@ -139,31 +133,16 @@ def predict_with_svm(X_train,
         filepath = 'svm_score_lime.xlsx'
         df.to_excel(filepath, index=False)
 
-    #Permutation Importances
-        # perm = PermutationImportance(svm_classifier).fit(X_test, y_test)
-        # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
+    # Permutation Importances
+    # perm = PermutationImportance(svm_classifier).fit(X_test, y_test)
+    # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
 
-   
+    # Break Down
+    # svmxai.generate_breakdown_explainer(1)
 
-    #Break Down
-    #svmxai.generate_breakdown_explainer(1)
-
-    #Surrogate
+    # Surrogate
     svmxai.generate_surrogate_explainer()
 
-
-    
-
-    
-    
-    
-    
-
-
-
-
-    
-    
     return classification_report(y_test, y_predict_smv), confusion_matrix(y_test, y_predict_smv)
 
 
@@ -187,11 +166,11 @@ def predict_with_mlp(X_train,
     """
 
     scores = []
-    if reduced ==0:
-        n=1
-    else: 
-        n=50
-    
+    if reduced == 0:
+        n = 1
+    else:
+        n = 50
+
     for i in range(n):
 
         mlp = MLPClassifier()
@@ -201,7 +180,7 @@ def predict_with_mlp(X_train,
         start = timer()
         mlp.fit(X_train, y_train)
         end = timer()
-        trainingTime = end-start
+        trainingTime = end - start
 
         start = timer()
         y_predict_mlp = mlp.predict(X_test)
@@ -244,36 +223,31 @@ def predict_with_mlp(X_train,
         print('MLP START')
         mlpxai = SmartGridExplainer(
             X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test, model=mlp, grid=grid)
-        mlpxai.generateLocalLimeExplanation(2)
+        mlpxai.generate_local_lime_explanation(2)
 
-        spobj = mlpxai.generateGlobalLimeExplanations()
+        spobj = mlpxai.generate_global_lime_explanations()
 
-        shap = mlpxai.generateGlobalShapExplanations()
+        shap = mlpxai.generate_global_shap_explanations()
 
-
-        #Break Down
+        # Break Down
         mlpxai.generate_breakdown_explainer(1)
 
-        #Surrogate
+        # Surrogate
         mlpxai.generate_surrogate_explainer()
 
-        
-
-    
         indexes = []
         for m in range(1, X_test.shape[1]):
             indexes.append(
                 mlpxai.get_top_important_features_SHAP(shap, m))
-        
 
         indexeslime = []
         for m in range(1, X_test.shape[1]):
-            indexeslime.append(mlpxai.get_top_important_features_LIME(spobj, m))
+            indexeslime.append(get_top_important_features_LIME(spobj, m))
 
         scoreins = []
 
         print()
-        if(reduced == 1):
+        if (reduced == 1):
             for index in indexeslime:
                 print('Number of n: ', len(index))
                 predictions = mlpxai.predict_with_modified_features(
@@ -282,10 +256,10 @@ def predict_with_mlp(X_train,
                     y_test, predictions, output_dict=True)
                 scoreins.append(accuracy['accuracy'])
                 print(classification_report(y_test, predictions))
-        
+
         scores.append(scoreins)
     print(i)
-    if(reduced==1):
+    if (reduced == 1):
         result = np.array(scores)
         result = result.mean(axis=0)
         df = pd.DataFrame(result)
@@ -293,8 +267,6 @@ def predict_with_mlp(X_train,
         df.to_excel(filepath, index=False)
         print('MLP END')
 
-
-    
 
 def predict_with_clf(X_train,
                      y_train,
@@ -323,10 +295,10 @@ def predict_with_clf(X_train,
     """
     scores = []
     accscores = []
-    if reduced ==0:
-        n=1
-    else: 
-        n=50
+    if reduced == 0:
+        n = 1
+    else:
+        n = 50
     for i in range(n):
         clf = tree.DecisionTreeClassifier()
         start = timer()
@@ -337,9 +309,9 @@ def predict_with_clf(X_train,
         start = timer()
         y_predict_clf = clf.predict(X_test)
         end = timer()
-        predictionTime = end-start
+        predictionTime = end - start
         accuracy = classification_report(
-                        y_test, y_predict_clf, output_dict=True)
+            y_test, y_predict_clf, output_dict=True)
         accscores.append(accuracy['accuracy'])
         print(classification_report(y_test, y_predict_clf))
         print(confusion_matrix(y_test, y_predict_clf))
@@ -368,18 +340,17 @@ def predict_with_clf(X_train,
 
         print('CLF START')
         clfxai = SmartGridExplainer(
-            X_train=X_train, X_test=X_test,  y_train=y_train, y_test=y_test, model=clf, grid=grid)
-        clfxai.generateLocalLimeExplanation(2)
+            X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test, model=clf, grid=grid)
+        clfxai.generate_local_lime_explanation(2)
 
-        spobj = clfxai.generateGlobalLimeExplanations()
+        spobj = clfxai.generate_global_lime_explanations()
 
-        shap = clfxai.generateGlobalShapExplanations()
+        shap = clfxai.generate_global_shap_explanations()
 
-
-        #Break Down
+        # Break Down
         clfxai.generate_breakdown_explainer(1)
 
-        #Surrogate
+        # Surrogate
         clfxai.generate_surrogate_explainer()
 
         # perm = PermutationImportance(clf).fit(X_test, y_test)
@@ -388,22 +359,17 @@ def predict_with_clf(X_train,
         # filepath = 'permutationimportance_clf.xlsx'
         # df.to_excel(filepath, index=False)
 
-        
-
         indexes = []
         for m in range(1, X_test.shape[1]):
             indexes.append(clfxai.get_top_important_features_SHAP(shap, m))
-        
+
         indexeslime = []
         for m in range(1, X_test.shape[1]):
-            indexeslime.append(clfxai.get_top_important_features_LIME(spobj, m))
-        
-
-            
+            indexeslime.append(get_top_important_features_LIME(spobj, m))
 
         scoreins = []
         print()
-        if(reduced == 1):
+        if (reduced == 1):
             for index in indexeslime:
                 print('Number of n: ', len(index))
                 predictions = clfxai.predict_with_modified_features(
@@ -413,8 +379,8 @@ def predict_with_clf(X_train,
                 scoreins.append(accuracy['accuracy'])
                 print(accuracy['accuracy'])
         scores.append(scoreins)
-    
-    if(reduced==1):
+
+    if (reduced == 1):
         print(i)
         accuracies = np.array(scores)
         print()
@@ -424,7 +390,6 @@ def predict_with_clf(X_train,
         df.to_excel(filepath, index=False)
 
     print('CLF END')
-    
 
 
 def df_to_dataset(df, shuffle=True, batch_size=32):
@@ -513,10 +478,10 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
 
     reduced = config_data['reduced']
     scores = []
-    if reduced ==0:
-        n=1
-    else: 
-        n=50
+    if reduced == 0:
+        n = 1
+    else:
+        n = 50
     for i in range(n):
         tf.keras.backend.clear_session()
         # Predicting with reduced Dataset
@@ -532,14 +497,14 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
         model.compile(optimizer=config_data['optimizer'], metrics=['accuracy'],
                       loss=tf.losses.binary_crossentropy),
 
-        #callbacks_list = [StopTraining()]
+        # callbacks_list = [StopTraining()]
         if algorithm == 'dnn':
 
             start = timer()
             model.fit(train_ds, validation_data=val_ds,
                       epochs=config_data['epochs'])
             end = timer()
-            trainingtime = end-start
+            trainingtime = end - start
             model._name = "DNN"
 
             test_ds = dataset.test
@@ -550,7 +515,7 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
             start = timer()
             model.evaluate(test_ds)
             end = timer()
-            predictiontime = end-start
+            predictiontime = end - start
             print(trainingtime, predictiontime)
 
         elif algorithm == 'rnn':
@@ -579,21 +544,18 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
 
         print(model._name, ' START')
         nnxai = SmartGridExplainer(
-            X_train=np.array(dataset.X_train.values), X_test=np.array(dataset.X_test.values), 
-            y_train=dataset.y_train.values, y_test=dataset.y_test.values,  model=model, grid=grid)
-        nnxai.generateLocalLimeExplanation(2)
+            X_train=np.array(dataset.X_train.values), X_test=np.array(dataset.X_test.values),
+            y_train=dataset.y_train.values, y_test=dataset.y_test.values, model=model, grid=grid)
+        nnxai.generate_local_lime_explanation(2)
 
-        spobj = nnxai.generateGlobalLimeExplanations()
+        spobj = nnxai.generate_global_lime_explanations()
 
-        shap = nnxai.generateGlobalShapExplanations()
+        shap = nnxai.generate_global_shap_explanations()
 
-        nnxai.generate_breakdown_explainer(dataset.y_test,1)
+        nnxai.generate_breakdown_explainer(dataset.y_test, 1)
 
-        
-        
+        # Permutation Importance for dnn
 
-        #Permutation Importance for dnn
-        
         # perm = PermutationImportance(dnn_clf).fit(dataset.X_test, dataset.y_test)
         # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
         # print(importances)
@@ -602,7 +564,7 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
         # filepath = 'permutationimportance_dnn.xlsx'
         # df.to_excel(filepath, index=False)
 
-        #Break Down For DNN
+        # Break Down For DNN
         # dnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
         #                         dnn_model_ensemble,
         #                         epochs=10,
@@ -612,9 +574,7 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
         # nnxai.model = dnn_clf
         # nnxai.generate_breakdown_explainer(dataset.y_test,1)
 
-
-
-        #Break Down For RNN
+        # Break Down For RNN
         # rnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
         #                         rnn_model_ensemble,
         #                         epochs=10,
@@ -628,8 +588,8 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
         # nnxai.model = rnn_clf
         # nnxai.generate_breakdown_explainer(dataset.y_test,1)
 
-        if(reduced == 1 and model.name == 'DNN'):
-                # Reduce features
+        if (reduced == 1 and model.name == 'DNN'):
+            # Reduce features
             print("DNN REDUCED")
             indexes = []
             for m in range(1, dataset.X_test.shape[1]):
@@ -662,11 +622,11 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
 
                 accuracy = model.evaluate(test_ds, return_dict=True)
                 scoreins.append(accuracy['accuracy'])
-          
-            
-            
 
-        elif(reduced == 1 and model.name == 'RNN'):
+
+
+
+        elif (reduced == 1 and model.name == 'RNN'):
             print('REDUCED RNN')
 
             indexes = []
@@ -675,7 +635,7 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
                 indexes.append(
                     nnxai.get_top_important_features_SHAP(shap, m))
             scoreins = []
-            
+
             for index in indexes:
                 X_train = np.array(dataset.X_train.values)
                 X_test = np.array(dataset.X_test.values)
@@ -686,16 +646,16 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
                 unimportant_columns = [
                     item for item in test_ds if item not in important_columns]
 
-                #X_test[:, [important_columns]] = 0
+                # X_test[:, [important_columns]] = 0
                 X_test[:, [unimportant_columns]] = 0
 
                 testX = np.reshape(X_test, (dataset.X_test.shape[0], config_data['n_steps'],
                                             dataset.X_test.shape[1]))
 
-                accuracy = model.evaluate(testX,dataset.y_test, return_dict=True)
+                accuracy = model.evaluate(testX, dataset.y_test, return_dict=True)
                 scoreins.append(accuracy['accuracy'])
 
-    if(reduced==1):
+    if (reduced == 1):
         scores.append(scoreins)
         result = np.array(scores)
         result = result.mean(axis=0)
@@ -705,75 +665,62 @@ def predict_with_nn(dataset, algorithm, config_data, grid):
         return model
 
 
-
 def predict_with_ensemble(X_train,
-                     y_train,
-                     X_test,
-                     y_test,
-                     data_set,
-                     reduced,
-                     grid,
-                     config_data,
-                     cross_validation=False):
+                          y_train,
+                          X_test,
+                          y_test,
+                          data_set,
+                          reduced,
+                          grid,
+                          config_data,
+                          cross_validation=False):
     print('predicting with ensemble')
     scores = []
-    if reduced ==0:
-        n=1
-    else: 
-        n=50
+    if reduced == 0:
+        n = 1
+    else:
+        n = 50
     for i in range(n):
         svm_classifier = SVC(kernel='rbf', probability=True)
-        
+
         mlp = MLPClassifier()
-        
+
         clf = tree.DecisionTreeClassifier()
 
-        
         dnn_clf = tf.keras.wrappers.scikit_learn.KerasClassifier(
-                                dnn_model_ensemble,
-                                epochs=10,
-                                verbose=False)
+            dnn_model_ensemble,
+            epochs=10,
+            verbose=False)
         dnn_clf._estimator_type = "classifier"
 
-        
-        
-        estimators = [('svm',svm_classifier),('MLP',mlp),('dt',clf),('dnn',dnn_clf)]
+        estimators = [('svm', svm_classifier), ('MLP', mlp), ('dt', clf), ('dnn', dnn_clf)]
 
-        
-        
-
-        ensb = VotingClassifier(estimators,voting='soft',flatten_transform=True)
+        ensb = VotingClassifier(estimators, voting='soft', flatten_transform=True)
         start = timer()
         ensb.fit(X_train, y_train)
         end = timer()
-        trainingtime = end-start
+        trainingtime = end - start
         start = timer()
-        preds =  ensb.predict(X_test)
+        preds = ensb.predict(X_test)
         end = timer()
-        predictiontime = end-start
+        predictiontime = end - start
         print(classification_report(y_test, preds))
         print(confusion_matrix(y_test, preds))
-        print(trainingtime,predictiontime)
+        print(trainingtime, predictiontime)
 
-        
+        ensbxai = SmartGridExplainer(X_train=X_train, X_test=X_test, y_train=y_train, y_test=y_test, model=ensb,
+                                     grid=grid)
+        ensbxai.generate_local_lime_explanation(2)
+        spobj = ensbxai.generate_global_lime_explanations()
+        shap = ensbxai.generate_global_shap_explanations()
 
-
-        ensbxai = SmartGridExplainer(X_train=X_train, X_test=X_test,y_train=y_train,y_test=y_test, model=ensb, grid=grid)
-        ensbxai.generateLocalLimeExplanation(2)
-        spobj = ensbxai.generateGlobalLimeExplanations()
-        shap = ensbxai.generateGlobalShapExplanations()
-
-        #Break Down
+        # Break Down
         ensbxai.generate_breakdown_explainer(1)
 
-        #Surrogate
+        # Surrogate
         ensbxai.generate_surrogate_explainer()
-    
 
-        
-        
-
-        if(reduced == 1):
+        if (reduced == 1):
 
             indexes = []
             for m in range(1, X_test.shape[1]):
@@ -782,7 +729,7 @@ def predict_with_ensemble(X_train,
 
             scoreins = []
             print()
-            if(reduced == 1):
+            if (reduced == 1):
                 for index in indexes:
                     print('Number of n: ', len(index))
                     predictions = ensbxai.predict_with_modified_features(
@@ -792,7 +739,7 @@ def predict_with_ensemble(X_train,
                     scoreins.append(accuracy['accuracy'])
                     print(accuracy['accuracy'])
             scores.append(scoreins)
-    if(reduced==1):
+    if (reduced == 1):
         print(i)
         accuracies = np.array(scores)
         print()
@@ -801,54 +748,48 @@ def predict_with_ensemble(X_train,
         filepath = 'ensb_score.xlsx'
         df.to_excel(filepath, index=False)
 
-    #Perm Importance
+    # Perm Importance
     # perm = PermutationImportance(ensb).fit(X_test, y_test)
     # importances = explain_weights_df(perm, feature_names=feature_names,targets=['unstable','stable'])
     # df = pd.DataFrame(importances)
     # filepath = 'permutationimportance_ensb.xlsx'
     # df.to_excel(filepath, index=False)
 
-    
-
     print('ENSB END')
     return classification_report(y_test, preds), confusion_matrix(y_test, preds)
 
-    
+
 def dnn_model_ensemble():
     tf.keras.backend.clear_session()
-    model= tf.keras.Sequential([
-                       tf.keras.layers.Dense(10,activation='relu',input_shape=[77]),
-                       tf.keras.layers.Dense(1,activation='sigmoid')
+    model = tf.keras.Sequential([
+        tf.keras.layers.Dense(10, activation='relu', input_shape=[77]),
+        tf.keras.layers.Dense(1, activation='sigmoid')
     ])
     model.compile(
-                optimizer='Adam',
-                loss='binary_crossentropy',
-                metrics=['accuracy'])
+        optimizer='Adam',
+        loss='binary_crossentropy',
+        metrics=['accuracy'])
     return model
 
 
 def rnn_model_ensemble():
     tf.keras.backend.clear_session()
     model = tf.keras.Sequential([
-            tf.keras.layers.LSTM(150, activation='tanh',
-                                 input_shape=(1,
-                                              77),
-                                 return_sequences=True),
-            tf.keras.layers.LSTM(150, activation='tanh',
-                                 return_sequences=True),
-            tf.keras.layers.LSTM(150, activation='tanh',
-                                 return_sequences=False),
-            tf.keras.layers.Dense(units=1, activation='sigmoid')
+        tf.keras.layers.LSTM(150, activation='tanh',
+                             input_shape=(1,
+                                          77),
+                             return_sequences=True),
+        tf.keras.layers.LSTM(150, activation='tanh',
+                             return_sequences=True),
+        tf.keras.layers.LSTM(150, activation='tanh',
+                             return_sequences=False),
+        tf.keras.layers.Dense(units=1, activation='sigmoid')
     ])
     model.compile(
-            optimizer='Adam',
-            loss='binary_crossentropy',
-            metrics=['accuracy'])
+        optimizer='Adam',
+        loss='binary_crossentropy',
+        metrics=['accuracy'])
     return model
-
-
-
-
 
 
 class ModelCallbacks(tf.keras.callbacks.Callback):

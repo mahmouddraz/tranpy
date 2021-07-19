@@ -22,6 +22,7 @@ def model_grid(config_data):
     Returns:
         model: data and of the grid
     """
+    global model
     start = time.time()
     for grid in config_data['grid']:
         model = Model(grid, simulation_time=config_data['simulation_time'])
