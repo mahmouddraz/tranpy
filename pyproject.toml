@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tranpy-ai"
-version = "0.1.0"
+version = "0.1.1"
 description = "Power System Transient Stability Analysis with Machine Learning and Explainability"
 readme = "README.md"
 license = {text = "MIT"}
