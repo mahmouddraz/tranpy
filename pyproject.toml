@@ -9,7 +9,7 @@ description = "Power System Transient Stability Analysis with Machine Learning a
 readme = "README.md"
 license = {text = "MIT"}
 authors = [
-    { name = "Mahmoud Draz", email = "m-draz@tu-berlin.de" }
+    { name = "Mahmoud Draz", email = "m.draz@tu-berlin.de" }
 ]
 requires-python = ">=3.8"
 dependencies = [

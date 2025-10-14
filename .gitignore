@@ -190,3 +190,4 @@ htmlcov/
 #!/tranpy/data/keep_this_file.json
 PUBLISHING.md
 docs/GITHUB_PAGES_SETUP.md
+examples/00_installation_test.ipynb
