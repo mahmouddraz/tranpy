@@ -1,0 +1,844 @@
+{
+  "version": "0.1.0",
+  "description": "TranPy Pretrained Models Registry - Stability Prediction Models",
+  "models": {
+    "newengland": {
+      "adaboost": {
+        "model_id": "adaboost_ne39",
+        "model_type": "AdaBoostClassifier",
+        "grid": "NewEngland",
+        "description": "AdaBoostClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_AdaBoostClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-uFUt9cnJGOc050SYoxyXiY7InBbvZVR",
+          "direct_link": "https://drive.google.com/uc?id=1-uFUt9cnJGOc050SYoxyXiY7InBbvZVR"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "dt": {
+        "model_id": "dt_ne39",
+        "model_type": "DecisionTreeClassifier",
+        "grid": "NewEngland",
+        "description": "DecisionTreeClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_DecisionTreeClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-r0LcM6B6QHgmB5Lz7EdbumBQWRkMztt",
+          "direct_link": "https://drive.google.com/uc?id=1-r0LcM6B6QHgmB5Lz7EdbumBQWRkMztt"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "dummy": {
+        "model_id": "dummy_ne39",
+        "model_type": "DummyClassifier",
+        "grid": "NewEngland",
+        "description": "DummyClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_DummyClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10J-RPLE2prntIyIl_8nMfk1o81GBWmqd",
+          "direct_link": "https://drive.google.com/uc?id=10J-RPLE2prntIyIl_8nMfk1o81GBWmqd"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "et": {
+        "model_id": "et_ne39",
+        "model_type": "ExtraTreesClassifier",
+        "grid": "NewEngland",
+        "description": "ExtraTreesClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_ExtraTreesClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-nphJo9JCkIKEFguBD3x6bp82kpjOS1a",
+          "direct_link": "https://drive.google.com/uc?id=1-nphJo9JCkIKEFguBD3x6bp82kpjOS1a"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "gnb": {
+        "model_id": "gnb_ne39",
+        "model_type": "GaussianNB",
+        "grid": "NewEngland",
+        "description": "GaussianNB trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_GaussianNB.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10LSHl8Uh44pOHwuD95IvTLsUQDM01o7R",
+          "direct_link": "https://drive.google.com/uc?id=10LSHl8Uh44pOHwuD95IvTLsUQDM01o7R"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "gpc": {
+        "model_id": "gpc_ne39",
+        "model_type": "GaussianProcessClassifier",
+        "grid": "NewEngland",
+        "description": "GaussianProcessClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_GaussianProcessClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-uc2KpcgaR_MFhxBXUDNEi1DmVKGauDx",
+          "direct_link": "https://drive.google.com/uc?id=1-uc2KpcgaR_MFhxBXUDNEi1DmVKGauDx"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "gbc": {
+        "model_id": "gbc_ne39",
+        "model_type": "GradientBoostingClassifier",
+        "grid": "NewEngland",
+        "description": "GradientBoostingClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_GradientBoostingClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-qR0e_0fO1utyOAP3C7PkwO0WgHLfUOP",
+          "direct_link": "https://drive.google.com/uc?id=1-qR0e_0fO1utyOAP3C7PkwO0WgHLfUOP"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "knn": {
+        "model_id": "knn_ne39",
+        "model_type": "KNeighborsClassifier",
+        "grid": "NewEngland",
+        "description": "KNeighborsClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_KNeighborsClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1--7WI6jd8nc3WT3tf1iWJuH5pMvEuf-T",
+          "direct_link": "https://drive.google.com/uc?id=1--7WI6jd8nc3WT3tf1iWJuH5pMvEuf-T"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "lgbm": {
+        "model_id": "lgbm_ne39",
+        "model_type": "LGBMClassifier",
+        "grid": "NewEngland",
+        "description": "LGBMClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_LGBMClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-Z5d612e1WtiSkMAgAImw272giOvX8J9",
+          "direct_link": "https://drive.google.com/uc?id=1-Z5d612e1WtiSkMAgAImw272giOvX8J9"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "lda": {
+        "model_id": "lda_ne39",
+        "model_type": "LinearDiscriminantAnalysis",
+        "grid": "NewEngland",
+        "description": "LinearDiscriminantAnalysis trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_LinearDiscriminantAnalysis.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10G7gLClpQgHFZDCsRHafP3naI10_Byit",
+          "direct_link": "https://drive.google.com/uc?id=10G7gLClpQgHFZDCsRHafP3naI10_Byit"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "lr": {
+        "model_id": "lr_ne39",
+        "model_type": "LogisticRegression",
+        "grid": "NewEngland",
+        "description": "LogisticRegression trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_LogisticRegression.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-6Z2O7CKJuQQkoZt3T1LCxHQQLkZOjyx",
+          "direct_link": "https://drive.google.com/uc?id=1-6Z2O7CKJuQQkoZt3T1LCxHQQLkZOjyx"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "mlp": {
+        "model_id": "mlp_ne39",
+        "model_type": "MLPClassifier",
+        "grid": "NewEngland",
+        "description": "MLPClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_MLPClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-tZMjvtiWG7Ii4haR_6KMKnpfC7SAsPG",
+          "direct_link": "https://drive.google.com/uc?id=1-tZMjvtiWG7Ii4haR_6KMKnpfC7SAsPG"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "qda": {
+        "model_id": "qda_ne39",
+        "model_type": "QuadraticDiscriminantAnalysis",
+        "grid": "NewEngland",
+        "description": "QuadraticDiscriminantAnalysis trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_QuadraticDiscriminantAnalysis.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10A5RLKEygtJ4cXcpD4lJPMW8gzBtGIPM",
+          "direct_link": "https://drive.google.com/uc?id=10A5RLKEygtJ4cXcpD4lJPMW8gzBtGIPM"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "rf": {
+        "model_id": "rf_ne39",
+        "model_type": "RandomForestClassifier",
+        "grid": "NewEngland",
+        "description": "RandomForestClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_RandomForestClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-oHiWvnB2R_fjQZVzpoOP_OhY9TrA0hR",
+          "direct_link": "https://drive.google.com/uc?id=1-oHiWvnB2R_fjQZVzpoOP_OhY9TrA0hR"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "ridge": {
+        "model_id": "ridge_ne39",
+        "model_type": "RidgeClassifier",
+        "grid": "NewEngland",
+        "description": "RidgeClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_RidgeClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10423O2faDk6mSEZGaBh5v-cI9y38i96Q",
+          "direct_link": "https://drive.google.com/uc?id=10423O2faDk6mSEZGaBh5v-cI9y38i96Q"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "sgd": {
+        "model_id": "sgd_ne39",
+        "model_type": "SGDClassifier",
+        "grid": "NewEngland",
+        "description": "SGDClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_SGDClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10Eg0BLgnx5gO80TpCD0GC_6q1uCmpidJ",
+          "direct_link": "https://drive.google.com/uc?id=10Eg0BLgnx5gO80TpCD0GC_6q1uCmpidJ"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "svc": {
+        "model_id": "svc_ne39",
+        "model_type": "SVC",
+        "grid": "NewEngland",
+        "description": "SVC trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_SVC.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "10O-oNZmhMAPyj-JyKDlK4EnGMV3c5ldp",
+          "direct_link": "https://drive.google.com/uc?id=10O-oNZmhMAPyj-JyKDlK4EnGMV3c5ldp"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "xgb": {
+        "model_id": "xgb_ne39",
+        "model_type": "XGBClassifier",
+        "grid": "NewEngland",
+        "description": "XGBClassifier trained on New England 39-bus system",
+        "size_kb": 100,
+        "filename": "NewEngland_XGBClassifier.pkl",
+        "google_drive": {
+          "folder_id": "138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK",
+          "folder_link": "https://drive.google.com/drive/folders/138fnNAw1JZR7-FMjjKFBn2j47ziQaKTK?usp=drive_link",
+          "file_id": "1-hXtPjypaSvdpjE4TnmpGuh-KJdvvK2t",
+          "direct_link": "https://drive.google.com/uc?id=1-hXtPjypaSvdpjE4TnmpGuh-KJdvvK2t"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      }
+    },
+    "ninebussystem": {
+      "adaboost": {
+        "model_id": "adaboost_9bus",
+        "model_type": "AdaBoostClassifier",
+        "grid": "NineBusSystem",
+        "description": "AdaBoostClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_AdaBoostClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10s3KEK9x54D0rx3E4CAwnAAwE_kXWQhJ",
+          "direct_link": "https://drive.google.com/uc?id=10s3KEK9x54D0rx3E4CAwnAAwE_kXWQhJ"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "dt": {
+        "model_id": "dt_9bus",
+        "model_type": "DecisionTreeClassifier",
+        "grid": "NineBusSystem",
+        "description": "DecisionTreeClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_DecisionTreeClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10t6XkoWm5qLdO8GXNlP_qUYKCGeQgTGp",
+          "direct_link": "https://drive.google.com/uc?id=10t6XkoWm5qLdO8GXNlP_qUYKCGeQgTGp"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "dummy": {
+        "model_id": "dummy_9bus",
+        "model_type": "DummyClassifier",
+        "grid": "NineBusSystem",
+        "description": "DummyClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_DummyClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "11R_0isaPTXpy0fdfXdYwlWOKGbEagGps",
+          "direct_link": "https://drive.google.com/uc?id=11R_0isaPTXpy0fdfXdYwlWOKGbEagGps"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "et": {
+        "model_id": "et_9bus",
+        "model_type": "ExtraTreesClassifier",
+        "grid": "NineBusSystem",
+        "description": "ExtraTreesClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_ExtraTreesClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10Wu7IaOA5bF262eazHj64bV9Hk84Ve-X",
+          "direct_link": "https://drive.google.com/uc?id=10Wu7IaOA5bF262eazHj64bV9Hk84Ve-X"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "gnb": {
+        "model_id": "gnb_9bus",
+        "model_type": "GaussianNB",
+        "grid": "NineBusSystem",
+        "description": "GaussianNB trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_GaussianNB.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "11F97EPwD9OBTO5tmAG58mht4vsJ3Alxt",
+          "direct_link": "https://drive.google.com/uc?id=11F97EPwD9OBTO5tmAG58mht4vsJ3Alxt"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "gpc": {
+        "model_id": "gpc_9bus",
+        "model_type": "GaussianProcessClassifier",
+        "grid": "NineBusSystem",
+        "description": "GaussianProcessClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_GaussianProcessClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10tUSZkN10j1cl_1pD9jgOjH-X1egXRu2",
+          "direct_link": "https://drive.google.com/uc?id=10tUSZkN10j1cl_1pD9jgOjH-X1egXRu2"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "gbc": {
+        "model_id": "gbc_9bus",
+        "model_type": "GradientBoostingClassifier",
+        "grid": "NineBusSystem",
+        "description": "GradientBoostingClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_GradientBoostingClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10pc1qvjHZwj7eZIx4WeeHWP_VAqVl2Wc",
+          "direct_link": "https://drive.google.com/uc?id=10pc1qvjHZwj7eZIx4WeeHWP_VAqVl2Wc"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "knn": {
+        "model_id": "knn_9bus",
+        "model_type": "KNeighborsClassifier",
+        "grid": "NineBusSystem",
+        "description": "KNeighborsClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_KNeighborsClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "1-XDhWcPHtng94YKRJkrCmaaB1DU3SubH",
+          "direct_link": "https://drive.google.com/uc?id=1-XDhWcPHtng94YKRJkrCmaaB1DU3SubH"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "lgbm": {
+        "model_id": "lgbm_9bus",
+        "model_type": "LGBMClassifier",
+        "grid": "NineBusSystem",
+        "description": "LGBMClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_LGBMClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10WQ3e_RcqZUznM8kFXGZiFpD1ZNjjT8N",
+          "direct_link": "https://drive.google.com/uc?id=10WQ3e_RcqZUznM8kFXGZiFpD1ZNjjT8N"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "lda": {
+        "model_id": "lda_9bus",
+        "model_type": "LinearDiscriminantAnalysis",
+        "grid": "NineBusSystem",
+        "description": "LinearDiscriminantAnalysis trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_LinearDiscriminantAnalysis.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "1157cTCWguxW8OW0FQYwWfSxLydoCkv1s",
+          "direct_link": "https://drive.google.com/uc?id=1157cTCWguxW8OW0FQYwWfSxLydoCkv1s"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "lr": {
+        "model_id": "lr_9bus",
+        "model_type": "LogisticRegression",
+        "grid": "NineBusSystem",
+        "description": "LogisticRegression trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_LogisticRegression.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "1-VfyGvRhd9MylrE632Lip-t-2qD9NvzL",
+          "direct_link": "https://drive.google.com/uc?id=1-VfyGvRhd9MylrE632Lip-t-2qD9NvzL"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "mlp": {
+        "model_id": "mlp_9bus",
+        "model_type": "MLPClassifier",
+        "grid": "NineBusSystem",
+        "description": "MLPClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_MLPClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10nV6MLP4OUz8uUNr4EBdA3Q3otInXP0t",
+          "direct_link": "https://drive.google.com/uc?id=10nV6MLP4OUz8uUNr4EBdA3Q3otInXP0t"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "qda": {
+        "model_id": "qda_9bus",
+        "model_type": "QuadraticDiscriminantAnalysis",
+        "grid": "NineBusSystem",
+        "description": "QuadraticDiscriminantAnalysis trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_QuadraticDiscriminantAnalysis.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "11FPISGeJpqynPGiFm_rHhKKJ88bdMuug",
+          "direct_link": "https://drive.google.com/uc?id=11FPISGeJpqynPGiFm_rHhKKJ88bdMuug"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "rf": {
+        "model_id": "rf_9bus",
+        "model_type": "RandomForestClassifier",
+        "grid": "NineBusSystem",
+        "description": "RandomForestClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_RandomForestClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10ZkXH8awndDUAmcXijKsFj7eYwQLE1Tp",
+          "direct_link": "https://drive.google.com/uc?id=10ZkXH8awndDUAmcXijKsFj7eYwQLE1Tp"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "ridge": {
+        "model_id": "ridge_9bus",
+        "model_type": "RidgeClassifier",
+        "grid": "NineBusSystem",
+        "description": "RidgeClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_RidgeClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "112yMf4UXaBIL2nNTcmaabrNVII2mHHzJ",
+          "direct_link": "https://drive.google.com/uc?id=112yMf4UXaBIL2nNTcmaabrNVII2mHHzJ"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "sgd": {
+        "model_id": "sgd_9bus",
+        "model_type": "SGDClassifier",
+        "grid": "NineBusSystem",
+        "description": "SGDClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_SGDClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10xihphfKThxrD3dohWsoYY31rRTX8ny9",
+          "direct_link": "https://drive.google.com/uc?id=10xihphfKThxrD3dohWsoYY31rRTX8ny9"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "svc": {
+        "model_id": "svc_9bus",
+        "model_type": "SVC",
+        "grid": "NineBusSystem",
+        "description": "SVC trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_SVC.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10vDhI0ccF0tIE9bm1lvedbQA9o3zZvXm",
+          "direct_link": "https://drive.google.com/uc?id=10vDhI0ccF0tIE9bm1lvedbQA9o3zZvXm"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      },
+      "xgb": {
+        "model_id": "xgb_9bus",
+        "model_type": "XGBClassifier",
+        "grid": "NineBusSystem",
+        "description": "XGBClassifier trained on IEEE 9-bus system",
+        "size_kb": 100,
+        "filename": "NineBusSystem_XGBClassifier.pkl",
+        "google_drive": {
+          "folder_id": "1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC",
+          "folder_link": "https://drive.google.com/drive/folders/1-6kg5QOF0nKNi7mNUm0-KpuGhNOpMsjC?usp=drive_link",
+          "file_id": "10Zl2WXov0yXmS7mtEMWNzfNvvNmi9KKF",
+          "direct_link": "https://drive.google.com/uc?id=10Zl2WXov0yXmS7mtEMWNzfNvvNmi9KKF"
+        },
+        "performance": {
+          "accuracy": null,
+          "f1_score": null,
+          "precision": null,
+          "recall": null,
+          "training_date": "2024-10-13"
+        },
+        "bundled": false,
+        "download_on_demand": true
+      }
+    }
+  },
+  "notes": {
+    "google_drive_setup": "Individual file IDs need to be extracted from Google Drive and added to each model's 'file_id' field. The folder links are provided for reference.",
+    "download_instructions": "To get individual file IDs: Right-click each file in Google Drive > Get link > Share > Copy link. Extract the ID from the URL.",
+    "bundled_models": "Currently no models are bundled to keep package size small. Users download models on first use.",
+    "total_models": "36 models total: 18 for NewEngland, 18 for NineBusSystem"
+  }
+}

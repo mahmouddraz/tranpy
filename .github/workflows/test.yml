@@ -1,0 +1,44 @@
+name: Tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Test on Python ${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.8", "3.9", "3.10", "3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e ".[dev]"
+
+    - name: Lint with ruff (if available)
+      run: |
+        pip install ruff || true
+        ruff check . --exit-zero || true
+      continue-on-error: true
+
+    - name: Test import
+      run: |
+        python -c "import tranpy; print(f'TranPy version: {tranpy.__version__}')"
+
+    - name: Run basic tests
+      run: |
+        python -c "from tranpy.datasets import load_newengland; print('✓ Datasets work')"
+        python -c "from tranpy.models import RandomForestClassifier; print('✓ Models work')"
+        python -c "from tranpy.utils import get_logger; print('✓ Utils work')"

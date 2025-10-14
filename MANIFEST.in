@@ -1,0 +1,18 @@
+# Include important package files
+include README.md
+include LICENSE
+include pyproject.toml
+
+# Include data files
+recursive-include src/tranpy/data/datasets *.json *.pickle
+recursive-include src/tranpy/data/models *.json *.md
+
+# Exclude pretrained models (download from Google Drive instead)
+global-exclude src/tranpy/data/models/pretrained/*.pkl
+prune src/tranpy/data/models/pretrained
+
+# Exclude unnecessary files
+global-exclude __pycache__
+global-exclude *.py[co]
+global-exclude .DS_Store
+global-exclude *.so

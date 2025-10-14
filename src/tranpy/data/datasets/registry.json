@@ -1,0 +1,52 @@
+{
+  "version": "0.1.0",
+  "description": "TranPy Dataset Registry - Power System Stability Datasets",
+  "datasets": {
+    "NewEngland": {
+      "name": "New England 39-Bus System",
+      "description": "IEEE New England 39-bus test system for transient stability analysis. Contains voltage magnitudes and phase angles post-fault for stability prediction.",
+      "grid_type": "NewEngland",
+      "n_buses": 39,
+      "n_features": 78,
+      "feature_description": "39 voltage magnitudes (bus_X:u) + 39 phase angles (bus_X:phi)",
+      "size_mb": 8.9,
+      "format": "pickle",
+      "google_drive": {
+        "file_id": "1eXtw44VXhYM0jQyJGGY5Eevdrg8yui0w",
+        "direct_link": "https://drive.google.com/uc?export=download&id=1eXtw44VXhYM0jQyJGGY5Eevdrg8yui0w",
+        "view_link": "https://drive.google.com/file/d/1eXtw44VXhYM0jQyJGGY5Eevdrg8yui0w/view?usp=drive_link"
+      },
+      "filename": "NewEngland.pickle",
+      "bundled": true,
+      "local_path": "datasets/NewEngland.pickle",
+      "metadata": {
+        "system_type": "Transmission System",
+        "voltage_level": "High Voltage",
+        "typical_use": "Transient stability analysis, ML benchmarking"
+      }
+    },
+    "NineBusSystem": {
+      "name": "IEEE 9-Bus System",
+      "description": "IEEE 9-bus test system (also known as WSCC 9-bus system) for transient stability analysis. Standard benchmark for power system studies.",
+      "grid_type": "NineBusSystem",
+      "n_buses": 9,
+      "n_features": 18,
+      "feature_description": "9 voltage magnitudes (bus_X:u) + 9 phase angles (bus_X:phi)",
+      "size_mb": 2.1,
+      "format": "pickle",
+      "google_drive": {
+        "file_id": "1-4LrEqmDP6-EcLpL0-6tvzsNSSJOLzG1",
+        "direct_link": "https://drive.google.com/uc?export=download&id=1-4LrEqmDP6-EcLpL0-6tvzsNSSJOLzG1",
+        "view_link": "https://drive.google.com/file/d/1-4LrEqmDP6-EcLpL0-6tvzsNSSJOLzG1/view?usp=drive_link"
+      },
+      "filename": "NineBusSystem.pickle",
+      "bundled": true,
+      "local_path": "datasets/NineBusSystem.pickle",
+      "metadata": {
+        "system_type": "Distribution System",
+        "voltage_level": "Medium Voltage",
+        "typical_use": "Educational purposes, algorithm testing"
+      }
+    }
+  }
+}

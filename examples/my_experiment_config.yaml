@@ -1,0 +1,20 @@
+grid: NewEngland
+simulation_time: 10.0
+number_of_events: 200
+fault_clearing_time__cycles:
+- 10
+- 12
+max_load_change:
+- 60
+- 60
+simulation_engine: mock
+path: simulation_results
+key_data: 1
+ml_algorithm:
+- svm
+epochs: 10
+batch_size: 32
+optimizer: Adam
+learning_rate: 0.01
+n_steps: 1
+reduced: 0
