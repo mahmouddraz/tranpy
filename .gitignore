@@ -163,8 +163,7 @@ docs/_build/
 .ipynb_checkpoints
 
 # Local datasets and caches used by this project
-/tranpy/data/datasets/
-/tranpy/data/models/
+# Note: Dataset pickle files in src/tranpy/data/datasets/ are tracked and should be committed
 /tranpy/data/__pycache__/
 /src/tranpy/data/__pycache__/
 
@@ -178,9 +177,14 @@ docs/_build/
 # Examples and outputs
 /examples/**/outputs/
 
-# Ignore Python pickles and caches
+# Ignore Python pickles and caches (except bundled datasets)
 *.pickle
 *.pkl
+
+# Exception: Include dataset pickle files that should be bundled with the package
+!src/tranpy/data/datasets/*.pickle
+!src/tranpy/data/datasets/*.json
+!src/tranpy/data/models/*.json
 
 # Misc
 coverage/
