@@ -146,6 +146,9 @@ papers/
 # Logs
 *.log
 
+.env.local
+*.env
+
 # profiling
 profiler.out
 
