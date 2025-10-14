@@ -87,13 +87,11 @@ docs = [
 where = ["src"]
 
 [tool.setuptools.package-data]
-tranpy = [
+"*" = [
     "data/datasets/*.pickle",
-    "data/datasets/registry.json",
-    "data/models/registry.json",
-    "data/models/README.md",
-    # Pretrained models excluded - download from Google Drive instead
-    # "data/models/pretrained/*.pkl"
+    "data/datasets/*.json",
+    "data/models/*.json",
+    "data/models/*.md",
 ]
 
 [tool.black]
