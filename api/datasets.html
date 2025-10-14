@@ -1,0 +1,691 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Datasets Module &mdash; TranPy 0.1.0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../_static/css/theme.css?v=e59714d7" />
+
+  
+      <script src="../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../_static/documentation_options.js?v=01f34227"></script>
+      <script src="../_static/doctools.js?v=9bcbadda"></script>
+      <script src="../_static/sphinx_highlight.js?v=dc90522c"></script>
+    <script src="../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../genindex.html" />
+    <link rel="search" title="Search" href="../search.html" />
+    <link rel="next" title="Models Module" href="models.html" />
+    <link rel="prev" title="Quick Start" href="../quickstart.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <p class="caption" role="heading"><span class="caption-text">Guides</span></p>
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="../installation.html">Installation Guide</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#requirements">Requirements</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#basic-installation">Basic Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#installation-with-optional-features">Installation with Optional Features</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#explainability-features">Explainability Features</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#neural-network-support">Neural Network Support</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#boosting-models">Boosting Models</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#all-features">All Features</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#development-installation">Development Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#verify-installation">Verify Installation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../installation.html#troubleshooting">Troubleshooting</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#powerfactory-issues">PowerFactory Issues</a></li>
+<li class="toctree-l3"><a class="reference internal" href="../installation.html#missing-optional-dependencies">Missing Optional Dependencies</a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="../quickstart.html">Quick Start</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#load-a-dataset">Load a Dataset</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#train-a-model">Train a Model</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#pretrained-models">Pretrained Models</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#explainability">Explainability</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#simulation">Simulation</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#logging">Logging</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#complete-example">Complete Example</a></li>
+<li class="toctree-l2"><a class="reference internal" href="../quickstart.html#api-reference">API Reference</a></li>
+</ul>
+</li>
+</ul>
+<p class="caption" role="heading"><span class="caption-text">API Reference</span></p>
+<ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Datasets Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#dataset-loaders">Dataset Loaders</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#tranpy.datasets.load_dataset"><code class="docutils literal notranslate"><span class="pre">load_dataset()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tranpy.datasets.load_newengland"><code class="docutils literal notranslate"><span class="pre">load_newengland()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tranpy.datasets.load_ieee9bus"><code class="docutils literal notranslate"><span class="pre">load_ieee9bus()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="#tranpy.datasets.list_available_datasets"><code class="docutils literal notranslate"><span class="pre">list_available_datasets()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#dataset-classes">Dataset Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="#tranpy.datasets.StabilityDataset"><code class="docutils literal notranslate"><span class="pre">StabilityDataset</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.data"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.data</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.target"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.target</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.feature_names"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.feature_names</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.target_names"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.target_names</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.DESCR"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.DESCR</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.grid_name"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.grid_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.frame"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.frame</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id0"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.data</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id5"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.target</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id6"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.feature_names</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id7"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.target_names</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id8"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.DESCR</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id9"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.grid_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#id10"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.frame</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.to_frame"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.to_frame()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="#tranpy.datasets.StabilityDataset.__init__"><code class="docutils literal notranslate"><span class="pre">StabilityDataset.__init__()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="#utilities">Utilities</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="models.html">Models Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="models.html#base-classes">Base Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="models.html#classical-models">Classical Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.RandomForestClassifier"><code class="docutils literal notranslate"><span class="pre">RandomForestClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RandomForestClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">RandomForestClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RandomForestClassifier.fit"><code class="docutils literal notranslate"><span class="pre">RandomForestClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RandomForestClassifier.predict"><code class="docutils literal notranslate"><span class="pre">RandomForestClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RandomForestClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">RandomForestClassifier.predict_proba()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.SVMClassifier"><code class="docutils literal notranslate"><span class="pre">SVMClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.SVMClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">SVMClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.SVMClassifier.fit"><code class="docutils literal notranslate"><span class="pre">SVMClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.SVMClassifier.predict"><code class="docutils literal notranslate"><span class="pre">SVMClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.SVMClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">SVMClassifier.predict_proba()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.SVMClassifier.get_support_vectors"><code class="docutils literal notranslate"><span class="pre">SVMClassifier.get_support_vectors()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier.fit"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier.predict"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier.predict_proba()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier.get_feature_importances"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier.get_feature_importances()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DecisionTreeClassifier.tree_"><code class="docutils literal notranslate"><span class="pre">DecisionTreeClassifier.tree_</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.AdaBoostClassifier"><code class="docutils literal notranslate"><span class="pre">AdaBoostClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.AdaBoostClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">AdaBoostClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.AdaBoostClassifier.fit"><code class="docutils literal notranslate"><span class="pre">AdaBoostClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.AdaBoostClassifier.predict"><code class="docutils literal notranslate"><span class="pre">AdaBoostClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.AdaBoostClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">AdaBoostClassifier.predict_proba()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.GradientBoostingClassifier"><code class="docutils literal notranslate"><span class="pre">GradientBoostingClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.GradientBoostingClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">GradientBoostingClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.GradientBoostingClassifier.fit"><code class="docutils literal notranslate"><span class="pre">GradientBoostingClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.GradientBoostingClassifier.predict"><code class="docutils literal notranslate"><span class="pre">GradientBoostingClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.GradientBoostingClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">GradientBoostingClassifier.predict_proba()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.ExtraTreesClassifier"><code class="docutils literal notranslate"><span class="pre">ExtraTreesClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.ExtraTreesClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">ExtraTreesClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.ExtraTreesClassifier.fit"><code class="docutils literal notranslate"><span class="pre">ExtraTreesClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.ExtraTreesClassifier.predict"><code class="docutils literal notranslate"><span class="pre">ExtraTreesClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.ExtraTreesClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">ExtraTreesClassifier.predict_proba()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#naive-bayes-models">Naive Bayes Models</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.GaussianNB"><code class="docutils literal notranslate"><span class="pre">GaussianNB</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#nearest-neighbors">Nearest Neighbors</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.KNeighborsClassifier"><code class="docutils literal notranslate"><span class="pre">KNeighborsClassifier</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#gaussian-process">Gaussian Process</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.GaussianProcessClassifier"><code class="docutils literal notranslate"><span class="pre">GaussianProcessClassifier</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#linear-models">Linear Models</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.LogisticRegression"><code class="docutils literal notranslate"><span class="pre">LogisticRegression</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RidgeClassifier"><code class="docutils literal notranslate"><span class="pre">RidgeClassifier</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.SGDClassifier"><code class="docutils literal notranslate"><span class="pre">SGDClassifier</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#discriminant-analysis">Discriminant Analysis</a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.LinearDiscriminantAnalysis"><code class="docutils literal notranslate"><span class="pre">LinearDiscriminantAnalysis</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.QuadraticDiscriminantAnalysis"><code class="docutils literal notranslate"><span class="pre">QuadraticDiscriminantAnalysis</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#boosting-models">Boosting Models</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="models.html#neural-networks">Neural Networks</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.DNNClassifier"><code class="docutils literal notranslate"><span class="pre">DNNClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DNNClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">DNNClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DNNClassifier.fit"><code class="docutils literal notranslate"><span class="pre">DNNClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DNNClassifier.predict"><code class="docutils literal notranslate"><span class="pre">DNNClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DNNClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">DNNClassifier.predict_proba()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.DNNClassifier.get_training_history"><code class="docutils literal notranslate"><span class="pre">DNNClassifier.get_training_history()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.RNNClassifier"><code class="docutils literal notranslate"><span class="pre">RNNClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RNNClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">RNNClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RNNClassifier.fit"><code class="docutils literal notranslate"><span class="pre">RNNClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RNNClassifier.predict"><code class="docutils literal notranslate"><span class="pre">RNNClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RNNClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">RNNClassifier.predict_proba()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.RNNClassifier.get_training_history"><code class="docutils literal notranslate"><span class="pre">RNNClassifier.get_training_history()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="models.html#ensemble-models">Ensemble Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.EnsembleClassifier"><code class="docutils literal notranslate"><span class="pre">EnsembleClassifier</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.EnsembleClassifier.__init__"><code class="docutils literal notranslate"><span class="pre">EnsembleClassifier.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.EnsembleClassifier.fit"><code class="docutils literal notranslate"><span class="pre">EnsembleClassifier.fit()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.EnsembleClassifier.predict"><code class="docutils literal notranslate"><span class="pre">EnsembleClassifier.predict()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.EnsembleClassifier.predict_proba"><code class="docutils literal notranslate"><span class="pre">EnsembleClassifier.predict_proba()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="models.html#tranpy.models.EnsembleClassifier.get_estimator_predictions"><code class="docutils literal notranslate"><span class="pre">EnsembleClassifier.get_estimator_predictions()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="models.html#pretrained-models">Pretrained Models</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.load_pretrained"><code class="docutils literal notranslate"><span class="pre">load_pretrained()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.list_pretrained_models"><code class="docutils literal notranslate"><span class="pre">list_pretrained_models()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.save_model"><code class="docutils literal notranslate"><span class="pre">save_model()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="models.html#tranpy.models.load_model"><code class="docutils literal notranslate"><span class="pre">load_model()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="explainers.html">Explainers Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="explainers.html#base-classes">Base Classes</a></li>
+<li class="toctree-l2"><a class="reference internal" href="explainers.html#shap-explainer">SHAP Explainer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer.__init__"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer.explain_instance"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer.explain_instance()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer.explain_global"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer.explain_global()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer.plot_summary"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer.plot_summary()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer.plot_waterfall"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer.plot_waterfall()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.SHAPExplainer.get_top_features"><code class="docutils literal notranslate"><span class="pre">SHAPExplainer.get_top_features()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="explainers.html#lime-explainer">LIME Explainer</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="explainers.html#tranpy.explainers.LIMEExplainer"><code class="docutils literal notranslate"><span class="pre">LIMEExplainer</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.LIMEExplainer.__init__"><code class="docutils literal notranslate"><span class="pre">LIMEExplainer.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.LIMEExplainer.explain_instance"><code class="docutils literal notranslate"><span class="pre">LIMEExplainer.explain_instance()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.LIMEExplainer.explain_global"><code class="docutils literal notranslate"><span class="pre">LIMEExplainer.explain_global()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.LIMEExplainer.plot_global_explanations"><code class="docutils literal notranslate"><span class="pre">LIMEExplainer.plot_global_explanations()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="explainers.html#tranpy.explainers.LIMEExplainer.get_top_features"><code class="docutils literal notranslate"><span class="pre">LIMEExplainer.get_top_features()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="explainers.html#dalex-explainer">DALEX Explainer</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="simulation.html">Simulation Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html#power-system-simulator">Power System Simulator</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.PowerSystemSimulator"><code class="docutils literal notranslate"><span class="pre">PowerSystemSimulator</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.PowerSystemSimulator.__init__"><code class="docutils literal notranslate"><span class="pre">PowerSystemSimulator.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.PowerSystemSimulator.connect"><code class="docutils literal notranslate"><span class="pre">PowerSystemSimulator.connect()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.PowerSystemSimulator.run"><code class="docutils literal notranslate"><span class="pre">PowerSystemSimulator.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html#mock-simulation-engine">Mock Simulation Engine</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.MockSimulationEngine"><code class="docutils literal notranslate"><span class="pre">MockSimulationEngine</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.MockSimulationEngine.__init__"><code class="docutils literal notranslate"><span class="pre">MockSimulationEngine.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.MockSimulationEngine.run"><code class="docutils literal notranslate"><span class="pre">MockSimulationEngine.run()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html#results-classes">Results Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults"><code class="docutils literal notranslate"><span class="pre">SimulationResults</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.grid_name"><code class="docutils literal notranslate"><span class="pre">SimulationResults.grid_name</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.simulation_time"><code class="docutils literal notranslate"><span class="pre">SimulationResults.simulation_time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.events"><code class="docutils literal notranslate"><span class="pre">SimulationResults.events</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.metadata"><code class="docutils literal notranslate"><span class="pre">SimulationResults.metadata</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.add_event"><code class="docutils literal notranslate"><span class="pre">SimulationResults.add_event()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.to_dataframe"><code class="docutils literal notranslate"><span class="pre">SimulationResults.to_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.get_events_dataframe"><code class="docutils literal notranslate"><span class="pre">SimulationResults.get_events_dataframe()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.save"><code class="docutils literal notranslate"><span class="pre">SimulationResults.save()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.load"><code class="docutils literal notranslate"><span class="pre">SimulationResults.load()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.get_statistics"><code class="docutils literal notranslate"><span class="pre">SimulationResults.get_statistics()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.SimulationResults.__init__"><code class="docutils literal notranslate"><span class="pre">SimulationResults.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult"><code class="docutils literal notranslate"><span class="pre">EventResult</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.event_info"><code class="docutils literal notranslate"><span class="pre">EventResult.event_info</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.bus_snapshot_at_fault"><code class="docutils literal notranslate"><span class="pre">EventResult.bus_snapshot_at_fault</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.bus_snapshot_at_clearing"><code class="docutils literal notranslate"><span class="pre">EventResult.bus_snapshot_at_clearing</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.generator_snapshot"><code class="docutils literal notranslate"><span class="pre">EventResult.generator_snapshot</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.time_series_data"><code class="docutils literal notranslate"><span class="pre">EventResult.time_series_data</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.is_stable"><code class="docutils literal notranslate"><span class="pre">EventResult.is_stable</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.stability_label"><code class="docutils literal notranslate"><span class="pre">EventResult.stability_label</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventResult.__init__"><code class="docutils literal notranslate"><span class="pre">EventResult.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo"><code class="docutils literal notranslate"><span class="pre">EventInfo</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.event_id"><code class="docutils literal notranslate"><span class="pre">EventInfo.event_id</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.event_types"><code class="docutils literal notranslate"><span class="pre">EventInfo.event_types</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.event_locations"><code class="docutils literal notranslate"><span class="pre">EventInfo.event_locations</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.event_times"><code class="docutils literal notranslate"><span class="pre">EventInfo.event_times</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.fault_time"><code class="docutils literal notranslate"><span class="pre">EventInfo.fault_time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.clearing_time"><code class="docutils literal notranslate"><span class="pre">EventInfo.clearing_time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.fault_impedance"><code class="docutils literal notranslate"><span class="pre">EventInfo.fault_impedance</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.load_change"><code class="docutils literal notranslate"><span class="pre">EventInfo.load_change</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventInfo.__init__"><code class="docutils literal notranslate"><span class="pre">EventInfo.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.BusSnapshot"><code class="docutils literal notranslate"><span class="pre">BusSnapshot</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.BusSnapshot.time"><code class="docutils literal notranslate"><span class="pre">BusSnapshot.time</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.BusSnapshot.voltages"><code class="docutils literal notranslate"><span class="pre">BusSnapshot.voltages</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.BusSnapshot.angles"><code class="docutils literal notranslate"><span class="pre">BusSnapshot.angles</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.BusSnapshot.to_feature_array"><code class="docutils literal notranslate"><span class="pre">BusSnapshot.to_feature_array()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.BusSnapshot.__init__"><code class="docutils literal notranslate"><span class="pre">BusSnapshot.__init__()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.GeneratorSnapshot"><code class="docutils literal notranslate"><span class="pre">GeneratorSnapshot</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.GeneratorSnapshot.active_powers"><code class="docutils literal notranslate"><span class="pre">GeneratorSnapshot.active_powers</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.GeneratorSnapshot.reactive_powers"><code class="docutils literal notranslate"><span class="pre">GeneratorSnapshot.reactive_powers</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.GeneratorSnapshot.out_of_step"><code class="docutils literal notranslate"><span class="pre">GeneratorSnapshot.out_of_step</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.GeneratorSnapshot.__init__"><code class="docutils literal notranslate"><span class="pre">GeneratorSnapshot.__init__()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html#dataset-generation">Dataset Generation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.generate_dataset_from_simulation"><code class="docutils literal notranslate"><span class="pre">generate_dataset_from_simulation()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.DatasetGenerator"><code class="docutils literal notranslate"><span class="pre">DatasetGenerator</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.DatasetGenerator.__init__"><code class="docutils literal notranslate"><span class="pre">DatasetGenerator.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.DatasetGenerator.generate"><code class="docutils literal notranslate"><span class="pre">DatasetGenerator.generate()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.DatasetGenerator.save_dataset"><code class="docutils literal notranslate"><span class="pre">DatasetGenerator.save_dataset()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.DatasetGenerator.get_statistics"><code class="docutils literal notranslate"><span class="pre">DatasetGenerator.get_statistics()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html#event-generation">Event Generation</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator"><code class="docutils literal notranslate"><span class="pre">EventGenerator</span></code></a><ul>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator.__init__"><code class="docutils literal notranslate"><span class="pre">EventGenerator.__init__()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator.generate_fault_location"><code class="docutils literal notranslate"><span class="pre">EventGenerator.generate_fault_location()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator.generate_fault_time"><code class="docutils literal notranslate"><span class="pre">EventGenerator.generate_fault_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator.generate_clearing_time"><code class="docutils literal notranslate"><span class="pre">EventGenerator.generate_clearing_time()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator.generate_load_change"><code class="docutils literal notranslate"><span class="pre">EventGenerator.generate_load_change()</span></code></a></li>
+<li class="toctree-l4"><a class="reference internal" href="simulation.html#tranpy.simulation.EventGenerator.generate_fault_impedance"><code class="docutils literal notranslate"><span class="pre">EventGenerator.generate_fault_impedance()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="simulation.html#powerfactory-configuration">PowerFactory Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.configure_powerfactory_path"><code class="docutils literal notranslate"><span class="pre">configure_powerfactory_path()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.is_powerfactory_available"><code class="docutils literal notranslate"><span class="pre">is_powerfactory_available()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="simulation.html#tranpy.simulation.import_powerfactory"><code class="docutils literal notranslate"><span class="pre">import_powerfactory()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="data.html">Data Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="data.html#cache-management">Cache Management</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.cache.get_cache_dir"><code class="docutils literal notranslate"><span class="pre">get_cache_dir()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.cache.get_models_cache_dir"><code class="docutils literal notranslate"><span class="pre">get_models_cache_dir()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.cache.get_datasets_cache_dir"><code class="docutils literal notranslate"><span class="pre">get_datasets_cache_dir()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.cache.get_cache_info"><code class="docutils literal notranslate"><span class="pre">get_cache_info()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.cache.clear_cache"><code class="docutils literal notranslate"><span class="pre">clear_cache()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="data.html#download-utilities">Download Utilities</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.download.download_from_google_drive"><code class="docutils literal notranslate"><span class="pre">download_from_google_drive()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.download.get_google_drive_direct_link"><code class="docutils literal notranslate"><span class="pre">get_google_drive_direct_link()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="data.html#tranpy.data.download.extract_file_id_from_link"><code class="docutils literal notranslate"><span class="pre">extract_file_id_from_link()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="utils.html">Utilities Module</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="utils.html#logging">Logging</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.get_logger"><code class="docutils literal notranslate"><span class="pre">get_logger()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.configure_logging"><code class="docutils literal notranslate"><span class="pre">configure_logging()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.set_level"><code class="docutils literal notranslate"><span class="pre">set_level()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="utils.html#configuration">Configuration</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.config.load_config"><code class="docutils literal notranslate"><span class="pre">load_config()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.config.save_config"><code class="docutils literal notranslate"><span class="pre">save_config()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.config.get_default_config"><code class="docutils literal notranslate"><span class="pre">get_default_config()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="utils.html#i-o-utilities">I/O Utilities</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.io.save_results"><code class="docutils literal notranslate"><span class="pre">save_results()</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="utils.html#tranpy.utils.io.load_results"><code class="docutils literal notranslate"><span class="pre">load_results()</span></code></a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content style-external-links">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Datasets Module</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="../_sources/api/datasets.rst.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="datasets-module">
+<h1>Datasets Module<a class="headerlink" href="#datasets-module" title="Link to this heading"></a></h1>
+<p>The datasets module provides pre-built power system stability datasets and utilities for loading and managing data.</p>
+<section id="dataset-loaders">
+<h2>Dataset Loaders<a class="headerlink" href="#dataset-loaders" title="Link to this heading"></a></h2>
+<dl class="py function">
+<dt class="sig sig-object py" id="tranpy.datasets.load_dataset">
+<span class="sig-prename descclassname"><span class="pre">tranpy.datasets.</span></span><span class="sig-name descname"><span class="pre">load_dataset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">grid</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">return_X_y</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">test_size</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">random_state</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">as_frame</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">False</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/tranpy/datasets/loaders.html#load_dataset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tranpy.datasets.load_dataset" title="Link to this definition"></a></dt>
+<dd><p>Load a power system stability dataset.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>grid</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></span>) – Grid name (‘NewEngland’ or ‘NineBusSystem’)</p></li>
+<li><p><strong>return_X_y</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) – If True, return (data, target) instead of StabilityDataset</p></li>
+<li><p><strong>test_size</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">float</span></code></a>]</span>) – If provided, split into train/test sets</p></li>
+<li><p><strong>random_state</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/functions.html#int" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">int</span></code></a>]</span>) – Random seed for train/test split</p></li>
+<li><p><strong>as_frame</strong> (<span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/functions.html#bool" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">bool</span></code></a></span>) – If True, return data as pandas DataFrame</p></li>
+</ul>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Union</span></code>[<a class="reference internal" href="#tranpy.datasets.StabilityDataset" title="tranpy.datasets.base.StabilityDataset"><code class="xref py py-class docutils literal notranslate"><span class="pre">StabilityDataset</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a>, <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a>], <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>[<a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a>, <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a>, <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a>, <a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a>]]</span></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p><ul class="simple">
+<li><p>StabilityDataset object (default)</p></li>
+<li><p>(X, y) if return_X_y=True</p></li>
+<li><p>(X_train, X_test, y_train, y_test) if test_size is provided</p></li>
+</ul>
+</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Load full dataset</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">dataset</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">&#39;NewEngland&#39;</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Get X, y arrays</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X</span><span class="p">,</span> <span class="n">y</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span><span class="s1">&#39;NewEngland&#39;</span><span class="p">,</span> <span class="n">return_X_y</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="gp">&gt;&gt;&gt;</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="c1"># Get train/test split</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">load_dataset</span><span class="p">(</span>
+<span class="gp">... </span>    <span class="s1">&#39;NewEngland&#39;</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">,</span> <span class="n">random_state</span><span class="o">=</span><span class="mi">42</span>
+<span class="gp">... </span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tranpy.datasets.load_newengland">
+<span class="sig-prename descclassname"><span class="pre">tranpy.datasets.</span></span><span class="sig-name descname"><span class="pre">load_newengland</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/tranpy/datasets/loaders.html#load_newengland"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tranpy.datasets.load_newengland" title="Link to this definition"></a></dt>
+<dd><p>Load New England 39-bus power system dataset.</p>
+<p>This is a convenience wrapper around load_dataset(‘NewEngland’, <a href="#id1"><span class="problematic" id="id2">**</span></a>kwargs).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>**kwargs</strong> – Arguments passed to load_dataset()</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Union</span></code>[<a class="reference internal" href="#tranpy.datasets.StabilityDataset" title="tranpy.datasets.base.StabilityDataset"><code class="xref py py-class docutils literal notranslate"><span class="pre">StabilityDataset</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>]</span></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>StabilityDataset or tuple depending on kwargs</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Load full dataset</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">dataset</span> <span class="o">=</span> <span class="n">load_newengland</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span>
+<span class="go">StabilityDataset(grid=&#39;NewEngland&#39;, n_samples=..., n_features=78)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Get train/test split</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">load_newengland</span><span class="p">(</span><span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tranpy.datasets.load_ieee9bus">
+<span class="sig-prename descclassname"><span class="pre">tranpy.datasets.</span></span><span class="sig-name descname"><span class="pre">load_ieee9bus</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="o"><span class="pre">**</span></span><span class="n"><span class="pre">kwargs</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/tranpy/datasets/loaders.html#load_ieee9bus"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tranpy.datasets.load_ieee9bus" title="Link to this definition"></a></dt>
+<dd><p>Load IEEE 9-bus power system dataset.</p>
+<p>This is a convenience wrapper around load_dataset(‘NineBusSystem’, <a href="#id3"><span class="problematic" id="id4">**</span></a>kwargs).</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters<span class="colon">:</span></dt>
+<dd class="field-odd"><p><strong>**kwargs</strong> – Arguments passed to load_dataset()</p>
+</dd>
+<dt class="field-even">Return type<span class="colon">:</span></dt>
+<dd class="field-even"><p><span class="sphinx_autodoc_typehints-type"><code class="xref py py-data docutils literal notranslate"><span class="pre">Union</span></code>[<a class="reference internal" href="#tranpy.datasets.StabilityDataset" title="tranpy.datasets.base.StabilityDataset"><code class="xref py py-class docutils literal notranslate"><span class="pre">StabilityDataset</span></code></a>, <a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Tuple" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Tuple</span></code></a>]</span></p>
+</dd>
+<dt class="field-odd">Returns<span class="colon">:</span></dt>
+<dd class="field-odd"><p>StabilityDataset or tuple depending on kwargs</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Load full dataset</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">dataset</span> <span class="o">=</span> <span class="n">load_ieee9bus</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="nb">print</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span>
+<span class="go">StabilityDataset(grid=&#39;NineBusSystem&#39;, n_samples=..., n_features=18)</span>
+</pre></div>
+</div>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="c1"># Get train/test split</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="n">X_train</span><span class="p">,</span> <span class="n">X_test</span><span class="p">,</span> <span class="n">y_train</span><span class="p">,</span> <span class="n">y_test</span> <span class="o">=</span> <span class="n">load_ieee9bus</span><span class="p">(</span><span class="n">test_size</span><span class="o">=</span><span class="mf">0.2</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+<dl class="py function">
+<dt class="sig sig-object py" id="tranpy.datasets.list_available_datasets">
+<span class="sig-prename descclassname"><span class="pre">tranpy.datasets.</span></span><span class="sig-name descname"><span class="pre">list_available_datasets</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/tranpy/datasets/loaders.html#list_available_datasets"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tranpy.datasets.list_available_datasets" title="Link to this definition"></a></dt>
+<dd><p>List all available datasets from registry.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a>[<a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Dict" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">Dict</span></code></a>]</span></p>
+</dd>
+<dt class="field-even">Returns<span class="colon">:</span></dt>
+<dd class="field-even"><p>List of dictionaries with dataset information</p>
+</dd>
+</dl>
+<p class="rubric">Examples</p>
+<div class="doctest highlight-default notranslate"><div class="highlight"><pre><span></span><span class="gp">&gt;&gt;&gt; </span><span class="n">datasets</span> <span class="o">=</span> <span class="n">list_available_datasets</span><span class="p">()</span>
+<span class="gp">&gt;&gt;&gt; </span><span class="k">for</span> <span class="n">ds</span> <span class="ow">in</span> <span class="n">datasets</span><span class="p">:</span>
+<span class="gp">... </span>    <span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">&quot;</span><span class="si">{</span><span class="n">ds</span><span class="p">[</span><span class="s1">&#39;name&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">ds</span><span class="p">[</span><span class="s1">&#39;n_features&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> features, </span><span class="si">{</span><span class="n">ds</span><span class="p">[</span><span class="s1">&#39;size_mb&#39;</span><span class="p">]</span><span class="si">}</span><span class="s2"> MB&quot;</span><span class="p">)</span>
+</pre></div>
+</div>
+</dd></dl>
+
+</section>
+<section id="dataset-classes">
+<h2>Dataset Classes<a class="headerlink" href="#dataset-classes" title="Link to this heading"></a></h2>
+<dl class="py class">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset">
+<em class="property"><span class="k"><span class="pre">class</span></span><span class="w"> </span></em><span class="sig-prename descclassname"><span class="pre">tranpy.datasets.</span></span><span class="sig-name descname"><span class="pre">StabilityDataset</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">feature_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DESCR</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frame</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="reference internal" href="../_modules/tranpy/datasets/base.html#StabilityDataset"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tranpy.datasets.StabilityDataset" title="Link to this definition"></a></dt>
+<dd><p>Bases: <a class="reference external" href="https://docs.python.org/3/library/functions.html#object" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">object</span></code></a></p>
+<p>Container for power system stability datasets.</p>
+<p>Similar to sklearn’s Bunch objects, this class holds dataset components
+with convenient attribute access.</p>
+<dl class="field-list simple">
+</dl>
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.data">
+<span class="sig-name descname"><span class="pre">data</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.data" title="Link to this definition"></a></dt>
+<dd><p>Feature matrix (n_samples, n_features)</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.target">
+<span class="sig-name descname"><span class="pre">target</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.target" title="Link to this definition"></a></dt>
+<dd><p>Target labels (n_samples,)</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.feature_names">
+<span class="sig-name descname"><span class="pre">feature_names</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.feature_names" title="Link to this definition"></a></dt>
+<dd><p>Names of features</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.target_names">
+<span class="sig-name descname"><span class="pre">target_names</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.target_names" title="Link to this definition"></a></dt>
+<dd><p>Names of target classes</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.DESCR">
+<span class="sig-name descname"><span class="pre">DESCR</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.DESCR" title="Link to this definition"></a></dt>
+<dd><p>Dataset description</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.grid_name">
+<span class="sig-name descname"><span class="pre">grid_name</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.grid_name" title="Link to this definition"></a></dt>
+<dd><p>Name of the grid system</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.frame">
+<span class="sig-name descname"><span class="pre">frame</span></span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.frame" title="Link to this definition"></a></dt>
+<dd><p>Optional pandas DataFrame with all data</p>
+</dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id0">
+<span class="sig-name descname"><span class="pre">data</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a></em><a class="headerlink" href="#id0" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id5">
+<span class="sig-name descname"><span class="pre">target</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://numpy.org/doc/stable/reference/generated/numpy.ndarray.html#numpy.ndarray" title="(in NumPy v2.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">ndarray</span></code></a></em><a class="headerlink" href="#id5" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id6">
+<span class="sig-name descname"><span class="pre">feature_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#id6" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id7">
+<span class="sig-name descname"><span class="pre">target_names</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.List" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">List</span></code></a><span class="pre">[</span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a><span class="pre">]</span></em><a class="headerlink" href="#id7" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id8">
+<span class="sig-name descname"><span class="pre">DESCR</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><a class="headerlink" href="#id8" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id9">
+<span class="sig-name descname"><span class="pre">grid_name</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/stdtypes.html#str" title="(in Python v3.14)"><code class="xref py py-class docutils literal notranslate"><span class="pre">str</span></code></a></em><a class="headerlink" href="#id9" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py attribute">
+<dt class="sig sig-object py" id="id10">
+<span class="sig-name descname"><span class="pre">frame</span></span><em class="property"><span class="p"><span class="pre">:</span></span><span class="w"> </span><a class="reference external" href="https://docs.python.org/3/library/typing.html#typing.Optional" title="(in Python v3.14)"><code class="xref py py-data docutils literal notranslate"><span class="pre">Optional</span></code></a><span class="pre">[</span><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></a><span class="pre">]</span></em><em class="property"><span class="w"> </span><span class="p"><span class="pre">=</span></span><span class="w"> </span><span class="pre">None</span></em><a class="headerlink" href="#id10" title="Link to this definition"></a></dt>
+<dd></dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.to_frame">
+<span class="sig-name descname"><span class="pre">to_frame</span></span><span class="sig-paren">(</span><span class="sig-paren">)</span><a class="reference internal" href="../_modules/tranpy/datasets/base.html#StabilityDataset.to_frame"><span class="viewcode-link"><span class="pre">[source]</span></span></a><a class="headerlink" href="#tranpy.datasets.StabilityDataset.to_frame" title="Link to this definition"></a></dt>
+<dd><p>Convert dataset to pandas DataFrame.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Return type<span class="colon">:</span></dt>
+<dd class="field-odd"><p><span class="sphinx_autodoc_typehints-type"><a class="reference external" href="https://pandas.pydata.org/docs/reference/api/pandas.DataFrame.html#pandas.DataFrame" title="(in pandas v2.3.3)"><code class="xref py py-class docutils literal notranslate"><span class="pre">DataFrame</span></code></a></span></p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="py method">
+<dt class="sig sig-object py" id="tranpy.datasets.StabilityDataset.__init__">
+<span class="sig-name descname"><span class="pre">__init__</span></span><span class="sig-paren">(</span><em class="sig-param"><span class="n"><span class="pre">data</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">feature_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">target_names</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">DESCR</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">grid_name</span></span></em>, <em class="sig-param"><span class="n"><span class="pre">frame</span></span><span class="o"><span class="pre">=</span></span><span class="default_value"><span class="pre">None</span></span></em><span class="sig-paren">)</span><a class="headerlink" href="#tranpy.datasets.StabilityDataset.__init__" title="Link to this definition"></a></dt>
+<dd><dl class="field-list simple">
+</dl>
+</dd></dl>
+
+</dd></dl>
+
+</section>
+<section id="utilities">
+<h2>Utilities<a class="headerlink" href="#utilities" title="Link to this heading"></a></h2>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="../quickstart.html" class="btn btn-neutral float-left" title="Quick Start" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="models.html" class="btn btn-neutral float-right" title="Models Module" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
