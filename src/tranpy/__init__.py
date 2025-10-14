@@ -18,7 +18,15 @@ Example usage:
     >>> accuracy = model.score(X_test, y_test)
 """
 
-__version__ = "0.1.0"
+try:
+    from importlib.metadata import version, PackageNotFoundError
+    try:
+        __version__ = version("tranpy-ai")
+    except PackageNotFoundError:
+        __version__ = "0.0.0+unknown"
+except ImportError:
+    # Python < 3.8
+    __version__ = "0.0.0+unknown"
 
 # Import main modules
 from . import datasets
