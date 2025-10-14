@@ -1,2 +1,2 @@
-certifi==2021.5.30
+certifi==2024.7.4
 wincertstore==0.2
