@@ -119,3 +119,28 @@ explainer (the price of explaining in the original feature units).
 * Bundled and downloadable data files are pinned by SHA-256 in
   `src/tranpy/resources/registry.json`; `.npz` files are written byte-for-byte
   reproducibly, so re-running `scripts/convert_legacy_data.py` reproduces the checksums.
+
+## Early prediction on the recorded events (notebook 07)
+
+500 PowerFactory events per system, 5 stratified folds (seed 42), windows measured from
+fault inception. Mean cross-validated accuracy:
+
+| Model (input) | 9-bus 0.05 s | 0.2 s | 0.8 s | 39-bus 0.05 s | 0.2 s | 0.8 s |
+|---|---:|---:|---:|---:|---:|---:|
+| random forest (features) | 0.966 | 0.970 | 0.996 | 0.980 | 0.988 | 0.988 |
+| XGBoost (features) | 0.974 | 0.970 | 0.986 | 0.984 | 0.978 | 0.988 |
+| LightGBM (features) | 0.978 | 0.968 | 0.986 | 0.978 | 0.978 | 0.994 |
+| logistic regression (features) | 0.954 | 0.962 | 0.998 | 0.876 | 0.884 | 0.996 |
+| dense network (sequence) | 0.968 | 0.968 | 0.988 | 0.904 | 0.966 | 0.994 |
+| TCN (sequence) | 0.970 | 0.964 | 0.988 | 0.812 | 0.962 | 0.988 |
+| LSTM (sequence) | 0.958 | 0.964 | 0.994 | 0.858 | 0.940 | 0.984 |
+| Transformer (sequence) | 0.962 | 0.966 | 0.988 | 0.842 | 0.940 | 0.986 |
+
+With 500 events the tree ensembles on trajectory features are best at short windows;
+sequence networks catch up from about 0.4 s. The networks were not tuned and are
+data-limited at this sample size; conclusions about them need the full event sets.
+
+**Effect of D9 on real data.** The same random forest with windows measured from the
+detected clearing instead of inception reaches 0.998 (9-bus) and 0.990 (39-bus) already at
+0.05 s, against 0.966 and 0.980 from inception: clearing-based windows overstate early
+accuracy, most strongly on the 9-bus system at short windows.
