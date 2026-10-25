@@ -42,7 +42,9 @@ from tranpy_core.errors import DataError
 from tranpy_core.features import segments as seg
 
 __all__ = [
+    "data_registry",
     "detect_fault_timing",
+    "flatten_powerfactory_column",
     "list_datasets",
     "load_events",
     "load_ieee_9bus",
@@ -65,7 +67,8 @@ _ELEMENT_SUFFIXES = (".ElmSym", ".ElmTerm", ".ElmLne", ".ElmLod", ".ElmTr2", ".E
 
 
 @cache
-def _registry() -> dict[str, Any]:
+def data_registry() -> dict[str, Any]:
+    """Contents of the bundled ``resources/registry.json`` (files, checksums, URLs)."""
     text = resources.files("tranpy").joinpath("resources/registry.json").read_text(encoding="utf-8")
     data: dict[str, Any] = json.loads(text)
     return data
@@ -82,8 +85,8 @@ def list_datasets() -> pd.DataFrame:
     """Available datasets with their size and whether they are bundled."""
     rows = []
     for kind, entries in (
-        ("snapshots", _registry()["snapshots"]),
-        ("events", _registry()["events"]),
+        ("snapshots", data_registry()["snapshots"]),
+        ("events", data_registry()["events"]),
     ):
         for key, entry in entries.items():
             rows.append(
@@ -102,7 +105,7 @@ def list_datasets() -> pd.DataFrame:
 def load_snapshots(system: str | PowerSystem) -> TabularDataset:
     """Bundled snapshot dataset of ``system`` (checksum verified)."""
     key = get_system(system).key
-    entry = _registry()["snapshots"].get(key)
+    entry = data_registry()["snapshots"].get(key)
     if entry is None:
         raise DataError(f"no snapshot dataset for system {key!r}")
     path = _resource_path(entry["filename"])
@@ -142,7 +145,7 @@ def load_events(
     """
     spec = get_system(system)
     if source is None:
-        entry = _registry()["events"][spec.key]
+        entry = data_registry()["events"][spec.key]
         if not entry.get("url") or not entry.get("sha256"):
             raise DataError(
                 f"the {spec.key} event dataset has no registered download yet. Pass "
@@ -167,7 +170,8 @@ def load_events(
     return dataset
 
 
-def _flatten_column(column: Any) -> str:
+def flatten_powerfactory_column(column: Any) -> str:
+    """Channel name ``"<element>|<variable>"`` from a two-row PowerFactory CSV header."""
     element = str(column[0]).split("\\")[-1]
     for suffix in _ELEMENT_SUFFIXES:
         element = element.replace(suffix, "")
@@ -204,7 +208,7 @@ def read_event_csvs(
     channel_names: tuple[str, ...] | None = None
     for event_id, path in available:
         frame = pd.read_csv(path, header=[0, 1])
-        names = tuple(_flatten_column(c) for c in frame.columns)
+        names = tuple(flatten_powerfactory_column(c) for c in frame.columns)
         if channel_names is None:
             channel_names = names
         elif names != channel_names:
