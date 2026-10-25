@@ -39,7 +39,10 @@ def test_run_early_prediction(mock_events: SignalDataset, caplog: pytest.LogCapt
     again = run_early_prediction(
         mock_events, models, reference="fault_start", windows_s=(0.05, 0.4), n_splits=3, seed=0
     )
-    pd.testing.assert_frame_equal(result.reset_index(drop=True), again.reset_index(drop=True))
+    pd.testing.assert_frame_equal(
+        result.drop(columns="fit_time_s").reset_index(drop=True),
+        again.drop(columns="fit_time_s").reset_index(drop=True),
+    )
     absolute = run_early_prediction(
         mock_events,
         {"lr": LogisticRegression()},
@@ -50,9 +53,40 @@ def test_run_early_prediction(mock_events: SignalDataset, caplog: pytest.LogCapt
     assert absolute["n_events"].iloc[0] == mock_events.n_samples
 
 
+@pytest.mark.requires_neural
+def test_sequence_models_share_folds_with_feature_models(mock_events: SignalDataset) -> None:
+    pytest.importorskip("tensorflow")
+    result = run_early_prediction(
+        mock_events,
+        {"lr": LogisticRegression(max_iter=500)},
+        sequence_models={
+            "dense": make_pipeline("dense_network", hidden_units=(4,), epochs=1),
+            "lstm": make_pipeline("lstm_network", lstm_units=(4,), dense_units=4, epochs=1),
+        },
+        reference="fault_start",
+        windows_s=(0.2,),
+        n_splits=2,
+        sequence_settings={"step_s": 0.05},
+    )
+    assert result.set_index("model")["input"].to_dict() == {
+        "lr": "features",
+        "dense": "sequence",
+        "lstm": "sequence",
+    }
+    assert (result["fit_time_s"] > 0).all()
+    assert result.loc[result.model == "lstm", "n_features"].iloc[0] % 7 == 0
+
+
 def test_skips_and_errors(mock_events: SignalDataset, caplog: pytest.LogCaptureFixture) -> None:
     with pytest.raises(ConfigurationError):
         run_early_prediction(mock_events, {}, reference="fault_start")
+    with pytest.raises(ConfigurationError, match="used twice"):
+        run_early_prediction(
+            mock_events,
+            {"m": LogisticRegression()},
+            sequence_models={"m": LogisticRegression()},
+            reference="fault_start",
+        )
     one_class = mock_events.subset(np.flatnonzero(mock_events.labels == 0)[:12])
     with caplog.at_level(logging.INFO):
         empty = run_early_prediction(

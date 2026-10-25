@@ -18,6 +18,7 @@ baseline values (subscript 0 below).
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Literal
 
@@ -29,10 +30,16 @@ from tranpy.datasets import FAULT_CLEAR, FAULT_START
 from tranpy.vocabulary import ElementKind, Variable, element_kind
 from tranpy_core.data import SignalDataset, TabularDataset
 from tranpy_core.errors import ConfigurationError, DataError
-from tranpy_core.features import crop_to_window
+from tranpy_core.features import crop_to_window, resample_to_grid
 from tranpy_core.features import segments as seg
 
-__all__ = ["TrajectoryFeatures", "WindowReference", "window_end_times"]
+__all__ = [
+    "DEFAULT_SEQUENCE_CHANNELS",
+    "TrajectoryFeatures",
+    "TrajectorySequence",
+    "WindowReference",
+    "window_end_times",
+]
 
 WindowReference = Literal["fault_start", "fault_clear", "absolute"]
 FloatArray = npt.NDArray[np.float64]
@@ -124,6 +131,78 @@ class TrajectoryFeatures:
             ),
             sample_ids=data.sample_ids,
             metadata={"window_s": self.window_s, "reference": self.reference},
+        )
+
+
+DEFAULT_SEQUENCE_CHANNELS: tuple[str, ...] = (
+    f"G*|{Variable.ROTOR_ANGLE_DEG.value}",
+    f"G*|{Variable.ROTOR_SPEED_PU.value}",
+    f"Bus*|{Variable.BUS_VOLTAGE_PU.value}",
+)
+"""Rotor angles, rotor speeds and bus voltage magnitudes."""
+
+
+@dataclass(frozen=True)
+class TrajectorySequence:
+    """Raw signals on a uniform time grid, for sequence models (the time dimension).
+
+    Each event is cropped to its observation window and linearly resampled onto
+    ``reference - history_s ... reference + window_s`` with spacing ``step_s``. The result
+    is a feature table in time-major order (all channels of step 0, then step 1, ...);
+    ``metadata["n_steps"]`` tells sequence models how to reshape it (the
+    ``*_network`` registry models take ``n_steps``). Nothing after the window end is used.
+
+    Attributes:
+        window_s: observation time after the reference instant.
+        reference: ``"fault_start"``, ``"fault_clear"`` or ``"absolute"``.
+        step_s: grid spacing.
+        history_s: pre-reference time included (pre-fault baseline).
+        channels: shell-style channel patterns (default: :data:`DEFAULT_SEQUENCE_CHANNELS`).
+    """
+
+    window_s: float
+    reference: WindowReference
+    step_s: float = 0.02
+    history_s: float = 0.1
+    channels: Sequence[str] = DEFAULT_SEQUENCE_CHANNELS
+
+    def __post_init__(self) -> None:
+        problems = []
+        if self.window_s <= 0 or self.step_s <= 0 or self.history_s < 0:
+            problems.append("need window_s > 0, step_s > 0 and history_s >= 0")
+        if self.reference not in ("fault_start", "fault_clear", "absolute"):
+            problems.append(f"unknown reference {self.reference!r}")
+        if problems:
+            raise ConfigurationError("invalid trajectory sequence settings:", tuple(problems))
+        object.__setattr__(self, "channels", tuple(self.channels))
+
+    @property
+    def n_steps(self) -> int:
+        return int(np.floor((self.window_s + self.history_s) / self.step_s + 1e-9)) + 1
+
+    def transform(self, dataset: SignalDataset) -> TabularDataset:
+        data = dataset.select_channels(self.channels)
+        end = window_end_times(data, self.window_s, self.reference)
+        data = crop_to_window(data, end)
+        start = end - self.window_s - self.history_s
+        grid = resample_to_grid(data, start, step=self.step_s, n_steps=self.n_steps)
+        names = tuple(f"t{k:03d}|{c}" for k in range(self.n_steps) for c in data.channel_names)
+        return TabularDataset(
+            features=grid.reshape(data.n_samples, -1),
+            labels=data.labels,
+            feature_names=names,
+            label_names=data.label_names,
+            name=f"{data.name}_sequence",
+            description=(
+                f"{self.n_steps} x {data.n_channels} resampled signals of {data.name} "
+                f"(window_s={self.window_s}, reference={self.reference}, step_s={self.step_s})"
+            ),
+            sample_ids=data.sample_ids,
+            metadata={
+                "n_steps": self.n_steps,
+                "n_channels": data.n_channels,
+                "step_s": self.step_s,
+            },
         )
 
 

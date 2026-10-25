@@ -110,3 +110,18 @@ def test_window_statistics() -> None:
     np.testing.assert_allclose(full.features[1, full.feature_names.index("B|y__min")], -2.0)
     with pytest.raises(ConfigurationError, match="unknown statistics"):
         WindowStatistics(statistics=("median",))  # type: ignore[arg-type]
+
+
+def test_resample_to_grid_interpolates_and_holds_edges() -> None:
+    from tranpy_core.features import resample_to_grid
+
+    ds = _ramp_dataset()  # channel A|x equals time
+    grid = resample_to_grid(ds, [0.05, -0.5], step=0.25, n_steps=4)
+    assert grid.shape == (2, 4, 2)
+    np.testing.assert_allclose(grid[0, :, 0], [0.05, 0.30, 0.55, 0.80])
+    np.testing.assert_allclose(grid[1, :, 0], [0.0, 0.0, 0.0, 0.25])  # held before the start
+    np.testing.assert_allclose(grid[0, :, 1], -grid[0, :, 0])
+    late = resample_to_grid(ds, 5.0, step=0.1, n_steps=2)
+    np.testing.assert_allclose(late[:, :, 0], [[1.0, 1.0], [2.0, 2.0]])  # held after the end
+    with pytest.raises(ConfigurationError):
+        resample_to_grid(ds, 0.0, step=0, n_steps=3)

@@ -134,3 +134,24 @@ def test_settings_validation_and_missing_annotations(mock_events: SignalDataset)
         TrajectoryFeatures(window_s=0.2, reference="fault_clear").transform(nan_clear)
     unannotated = mock_events.replace(annotations={})
     assert TrajectoryFeatures().transform(unannotated).n_samples == mock_events.n_samples
+
+
+def test_trajectory_sequence_shape_and_causality(mock_events: SignalDataset) -> None:
+    from tranpy.features import TrajectorySequence
+
+    rep = TrajectorySequence(window_s=0.2, reference="fault_start", step_s=0.05, history_s=0.1)
+    assert rep.n_steps == 7
+    table = rep.transform(mock_events)
+    n_channels = table.metadata["n_channels"]
+    assert table.features.shape == (mock_events.n_samples, 7 * n_channels)
+    assert table.feature_names[0].startswith("t000|")
+    assert table.feature_names[n_channels].startswith("t001|")
+    ends = window_end_times(mock_events, 0.2, "fault_start")
+    future = mock_events.time > ends[mock_events.sample_index]
+    values = mock_events.values.copy()
+    values[future] = 1e6
+    tampered = rep.transform(mock_events.replace(values=values))
+    np.testing.assert_array_equal(tampered.features, table.features)
+    with pytest.raises(ConfigurationError) as info:
+        TrajectorySequence(window_s=0, reference="later")  # type: ignore[arg-type]
+    assert len(info.value.problems) == 2

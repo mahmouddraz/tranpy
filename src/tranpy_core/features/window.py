@@ -19,7 +19,7 @@ from tranpy_core.data.dataset import SignalDataset, TabularDataset
 from tranpy_core.errors import ConfigurationError, DataError
 from tranpy_core.features import segments as seg
 
-__all__ = ["SignalFeatureExtractor", "WindowStatistics", "crop_to_window"]
+__all__ = ["SignalFeatureExtractor", "WindowStatistics", "crop_to_window", "resample_to_grid"]
 
 Statistic = Literal["mean", "std", "min", "max", "first", "last", "range"]
 
@@ -114,3 +114,32 @@ class WindowStatistics:
             description=f"window statistics of {data.name}",
             sample_ids=data.sample_ids,
         )
+
+
+def resample_to_grid(
+    dataset: SignalDataset, start: npt.ArrayLike, *, step: float, n_steps: int
+) -> npt.NDArray[np.float64]:
+    """Linearly interpolate every sample onto its own uniform time grid.
+
+    Sample ``i`` is evaluated at ``start[i] + k * step`` for ``k = 0..n_steps-1``; values
+    outside the recording are held at the first/last recorded value. Returns an array of
+    shape ``(n_samples, n_steps, n_channels)``.
+    """
+    if step <= 0 or n_steps < 1:
+        raise ConfigurationError(f"need step > 0 and n_steps >= 1, got {step}, {n_steps}")
+    starts = np.broadcast_to(np.asarray(start, dtype=np.float64), (dataset.n_samples,))
+    out = np.empty((dataset.n_samples, n_steps, dataset.n_channels))
+    offsets_k = np.arange(n_steps) * step
+    for i in range(dataset.n_samples):
+        lo, hi = int(dataset.offsets[i]), int(dataset.offsets[i + 1])
+        t = dataset.time[lo:hi]
+        grid = starts[i] + offsets_k
+        # index of the right neighbour, then linear weights, for all channels at once
+        right = np.clip(np.searchsorted(t, grid, side="right"), 1, t.size - 1)
+        left = right - 1
+        span = t[right] - t[left]
+        w = np.where(span > 0, (grid - t[left]) / np.where(span > 0, span, 1.0), 0.0)
+        w = np.clip(w, 0.0, 1.0)[:, None]
+        v = dataset.values[lo:hi]
+        out[i] = v[left] * (1.0 - w) + v[right] * w
+    return out
