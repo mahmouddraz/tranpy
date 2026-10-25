@@ -17,6 +17,7 @@ from types import MappingProxyType
 from typing import Any
 
 import numpy as np
+import pandas as pd
 import sklearn
 
 from tranpy_core.config import to_mapping
@@ -109,6 +110,18 @@ class ExperimentResult:
             "fit_times_s": dict(self.fit_times_s),
             "environment": dict(self.environment),
         }
+
+    def summary_frame(self) -> pd.DataFrame:
+        """One row per model: cross-validation means/stds (if run) and test scores."""
+        rows = {}
+        for key, scores in self.test_scores.items():
+            row: dict[str, Any] = dict(self.cv_summary.get(key, {}))
+            row.update(
+                {f"test_{k}": v for k, v in scores.as_dict().items() if k != "confusion_matrix"}
+            )
+            row["fit_time_s"] = self.fit_times_s[key]
+            rows[key] = row
+        return pd.DataFrame.from_dict(rows, orient="index")
 
     def save_json(self, path: str | Path) -> Path:
         """Write the result to ``path`` (only when called explicitly)."""

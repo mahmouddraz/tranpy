@@ -40,7 +40,11 @@ def mock_events_full() -> SignalDataset:
     """40 seeded 9-bus mock events, including the out-of-step label channels."""
     engine = MockEngine("ieee_9bus", simulation_time_s=3.0)
     sampler = ScenarioSampler(
-        n_lines=engine.n_lines, n_loads=engine.n_loads, simulation_time_s=3.0, clearing_cycles=20
+        n_lines=engine.n_lines,
+        n_loads=engine.n_loads,
+        simulation_time_s=3.0,
+        clearing_cycles=20,
+        operating_point=(0.6, 1.4),
     )
     return generate_events(engine, sampler.sample(40, seed=3))
 

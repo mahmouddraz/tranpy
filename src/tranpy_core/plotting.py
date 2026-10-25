@@ -151,9 +151,15 @@ def plot_metric_curves(
     title: str | None = None,
     logx: bool = False,
 ) -> Any:
-    """One line per ``group`` (fixed colour order, labelled at its last point), optional ±band."""
+    """One line per ``group`` (fixed colour order) with a legend, optional ±band.
+
+    With up to four groups every line is also labelled at its last point; labels that
+    would overlap are moved apart vertically. With ``logx`` the measured x values are used
+    as tick labels.
+    """
     fig, ax = _axes(ax)
     groups = list(dict.fromkeys(frame[group]))
+    ends: list[tuple[float, float, str]] = []
     for i, name in enumerate(groups):
         part = frame[frame[group] == name].sort_values(x)
         color = CATEGORICAL[i % len(CATEGORICAL)]
@@ -162,17 +168,14 @@ def plot_metric_curves(
             ax.fill_between(
                 part[x], part[y] - part[band], part[y] + part[band], color=color, alpha=0.15, lw=0
             )
-        ax.annotate(
-            str(name),
-            (part[x].iloc[-1], part[y].iloc[-1]),
-            xytext=(4, 0),
-            textcoords="offset points",
-            va="center",
-            fontsize=7,
-            color=SECONDARY,
-        )
+        ends.append((float(part[x].iloc[-1]), float(part[y].iloc[-1]), str(name)))
     if logx:
         ax.set_xscale("log")
+        ticks = sorted(set(frame[x]))
+        ax.set_xticks(ticks, [f"{v:g}" for v in ticks])
+        ax.minorticks_off()
+    if len(groups) <= 4:
+        _label_line_ends(ax, ends)
     ax.set_xlabel(xlabel or x)
     ax.set_ylabel(ylabel or y)
     if len(groups) > 1:
@@ -180,3 +183,25 @@ def plot_metric_curves(
     if title:
         ax.set_title(title)
     return fig
+
+
+def _label_line_ends(
+    ax: Any, ends: list[tuple[float, float, str]], min_gap_pt: float = 9.0
+) -> None:
+    """Annotate line ends, pushing labels apart so they do not overlap."""
+    fig = ax.figure
+    points_per_pixel = 72.0 / fig.dpi
+    placed: list[float] = []
+    for x_end, y_end, name in sorted(ends, key=lambda e: e[1]):
+        y_pt = ax.transData.transform((x_end, y_end))[1] * points_per_pixel
+        target = max([y_pt, *(p + min_gap_pt for p in placed)])
+        placed.append(target)
+        ax.annotate(
+            name,
+            (x_end, y_end),
+            xytext=(4, target - y_pt),
+            textcoords="offset points",
+            va="center",
+            fontsize=7,
+            color=SECONDARY,
+        )

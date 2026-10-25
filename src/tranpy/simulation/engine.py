@@ -47,6 +47,8 @@ class FaultScenario:
         load_change_pct: step change of that load in percent of its demand.
         trip_line: index of a line tripped ``trip_delay_s`` after clearing, or None.
         trip_delay_s: delay of the additional line trip.
+        operating_point: system loading relative to the base case. Supported by the mock
+            engine; the PowerFactory engine currently requires 1.0.
     """
 
     scenario_id: int
@@ -59,9 +61,12 @@ class FaultScenario:
     load_change_pct: float = 0.0
     trip_line: int | None = None
     trip_delay_s: float = 0.08
+    operating_point: float = 1.0
 
     def __post_init__(self) -> None:
         problems = []
+        if self.operating_point <= 0:
+            problems.append(f"operating_point must be > 0, got {self.operating_point}")
         if self.fault_line < 0:
             problems.append(f"fault_line must be >= 0, got {self.fault_line}")
         if self.fault_start_s < 0:
@@ -96,6 +101,7 @@ class ScenarioSampler:
         trip_adjacent_line: also trip the next line in the list after clearing.
         fault_resistance_ohm: (low, high) uniform range.
         fault_reactance_ohm: (low, high) uniform range.
+        operating_point: (low, high) uniform range of the system loading.
     """
 
     n_lines: int
@@ -108,6 +114,7 @@ class ScenarioSampler:
     trip_adjacent_line: bool = False
     fault_resistance_ohm: tuple[float, float] = (0.01, 0.01)
     fault_reactance_ohm: tuple[float, float] = (0.01, 0.01)
+    operating_point: tuple[float, float] = (1.0, 1.0)
 
     def __post_init__(self) -> None:
         problems = []
@@ -128,6 +135,10 @@ class ScenarioSampler:
             problems.append(
                 "fault_start_fraction must satisfy 0 <= low <= high < 1, "
                 f"got {self.fault_start_fraction}"
+            )
+        if not 0.0 < self.operating_point[0] <= self.operating_point[1]:
+            problems.append(
+                f"operating_point must satisfy 0 < low <= high, got {self.operating_point}"
             )
         for name in ("fault_resistance_ohm", "fault_reactance_ohm"):
             a, b = getattr(self, name)
@@ -150,6 +161,7 @@ class ScenarioSampler:
         )
         r_f = rng.uniform(*self.fault_resistance_ohm, size=n)
         x_f = rng.uniform(*self.fault_reactance_ohm, size=n)
+        loading = rng.uniform(*self.operating_point, size=n)
         duration = self.clearing_cycles / self.nominal_frequency_hz
         out = []
         for i in range(n):
@@ -167,6 +179,7 @@ class ScenarioSampler:
                     load_index=int(loads[i]),
                     load_change_pct=float(changes[i]),
                     trip_line=trip,
+                    operating_point=float(loading[i]),
                 )
             )
         return tuple(out)
@@ -252,5 +265,6 @@ def generate_events(
             "fault_resistance_ohm": [s.fault_resistance_ohm for s in scenarios],
             "fault_reactance_ohm": [s.fault_reactance_ohm for s in scenarios],
             "trip_line": [np.nan if s.trip_line is None else s.trip_line for s in scenarios],
+            "operating_point": [s.operating_point for s in scenarios],
         }
     )

@@ -42,7 +42,7 @@ FloatArray = npt.NDArray[np.float64]
 
 _BASE_MVA = 100.0
 _FAULT_IMPEDANCE_REF_OHM = 0.05
-_DEFAULT_ANGLE_SPREAD_RAD = {"ieee_9bus": 0.25, "new_england": 0.15}
+_DEFAULT_ANGLE_SPREAD_RAD = {"ieee_9bus": 0.25, "new_england": 0.25}
 
 
 @dataclass(frozen=True, eq=False)
@@ -130,11 +130,14 @@ class MockEngine:
         simulation_time_s: end of the simulation; recording starts at ``-0.1`` s.
         step_s: integration and output step.
         coupling_scale: multiplies all line couplings.
+        opened_line_fraction: share of a line's coupling that remains when it is opened
+            (parallel paths of the real network); 0 removes the line completely, which makes
+            the outcome depend on the faulted line alone.
         angle_spread_rad: spread of the pre-fault rotor angles, i.e. how heavily the
-            network is loaded (larger = less stable). Default per system: 0.25 for the
-            9-bus and 0.15 for the 39-bus network, which gives roughly 35 % unstable events
-            at 20 cycles (9-bus) and 25 % at 12 cycles (39-bus) clearing time, and no
-            unstable events for very short faults.
+            network is loaded (larger = less stable). Default 0.25 rad: with operating
+            points drawn from (0.6, 1.4) about 45 % of events are unstable at 20 cycles
+            (9-bus) or 12 cycles (39-bus) clearing time, almost none for very short faults,
+            and the outcome depends on fault duration and loading, not only on the line.
     """
 
     system_name: str = "ieee_9bus"
@@ -143,11 +146,14 @@ class MockEngine:
     step_s: float = 0.01
     coupling_scale: float = 1.0
     angle_spread_rad: float | None = None
+    opened_line_fraction: float = 0.4
     _network: MockNetwork = field(init=False, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         if self.step_s <= 0 or self.simulation_time_s <= self.step_s:
             raise ConfigurationError("need 0 < step_s < simulation_time_s")
+        if not 0.0 <= self.opened_line_fraction < 1.0:
+            raise ConfigurationError("opened_line_fraction must lie in [0, 1)")
         seed = self.network_seed
         if seed is None:
             seed = zlib.crc32(self.system.key.encode())
@@ -241,15 +247,18 @@ class MockEngine:
         near_bus = np.zeros((s, net.n_buses))
         for k, sc in enumerate(scenarios):
             a, b = net.lines[sc.fault_line]
-            b_post[k, a, b] = b_post[k, b, a] = 0.0
+            b_post[k, a, b] = b_post[k, b, a] = b_pre[a, b] * self.opened_line_fraction
             b_trip[k] = b_post[k]
             if sc.trip_line is not None:
                 c, d = net.lines[sc.trip_line]
-                b_trip[k, c, d] = b_trip[k, d, c] = 0.0
+                b_trip[k, c, d] = b_trip[k, d, c] = b_pre[c, d] * self.opened_line_fraction
             near_gen[k] = 0.3 * (b_pre[a] + b_pre[b]) / np.max(b_pre)
             near_gen[k, [a, b]] = 1.0
             near_bus[k] = net.bus_weights[:, a] + net.bus_weights[:, b]
-        pm = np.repeat(net.mechanical_power_pu[None], s, axis=0)
+        loading = np.array([sc.operating_point for sc in scenarios])
+        delta0 = net.initial_angle_rad[None, :] * loading[:, None]
+        diff0 = delta0[:, :, None] - delta0[:, None, :]
+        pm = net.emf_pu * (b_pre * net.emf_pu[None, :] * np.sin(diff0)).sum(axis=2)
         for k, sc in enumerate(scenarios):
             pm[k, net.load_generator[sc.load_index]] -= (
                 sc.load_change_pct / 100.0 * net.load_base_pu
@@ -279,7 +288,7 @@ class MockEngine:
         delta = np.empty((n_t, s, g))
         omega = np.empty((n_t, s, g))
         pe_rec = np.empty((n_t, s, g))
-        delta[0] = net.initial_angle_rad
+        delta[0] = delta0
         omega[0] = 1.0
         dt = self.step_s
         for k in range(n_t):

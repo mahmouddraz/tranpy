@@ -28,7 +28,7 @@ from tranpy.datasets import flatten_powerfactory_column
 from tranpy.simulation.engine import FaultScenario, SimulationResult
 from tranpy.systems import PowerSystem, get_system
 from tranpy.vocabulary import Variable
-from tranpy_core.errors import MissingDependencyError, SimulationError
+from tranpy_core.errors import ConfigurationError, MissingDependencyError, SimulationError
 
 __all__ = ["MONITORED_VARIABLES", "PowerFactoryEngine", "import_powerfactory"]
 
@@ -140,6 +140,11 @@ class PowerFactoryEngine:
         return [self._simulate_one(s) for s in scenarios]
 
     def _simulate_one(self, scenario: FaultScenario) -> SimulationResult:
+        if scenario.operating_point != 1.0:
+            raise ConfigurationError(
+                f"scenario {scenario.scenario_id}: operating_point != 1 is not supported by the "
+                "PowerFactory engine yet; set the loading in the study case instead"
+            )
         app = self.app
         lines, loads = self._elements["*.ElmLne"], self._elements["*.ElmLod"]
         folder = app.GetFromStudyCase("IntEvt")

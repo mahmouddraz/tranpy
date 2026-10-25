@@ -92,7 +92,7 @@ are downloaded on first use, verified by SHA-256 and cached (`TRANPY_CACHE_DIR`)
 
 ```bash
 uv sync --all-extras --group dev
-uv run pytest                      # 264 tests, branch coverage >= 90 %
+uv run pytest                      # 266 tests, branch coverage >= 90 %
 uv run pytest -m "not slow"        # skips the Gaussian-process snapshot entries
 uv run ruff check . && uv run ruff format --check .
 uv run mypy                        # strict

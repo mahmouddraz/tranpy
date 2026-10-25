@@ -272,3 +272,40 @@ def test_import_powerfactory(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) ->
     with pytest.raises(SimulationError, match="GetApplication"):
         pfmod.PowerFactoryEngine("ieee_9bus", python_path=tmp_path)
     monkeypatch.delitem(sys.modules, "powerfactory", raising=False)
+
+
+def test_outcome_depends_on_more_than_the_faulted_line() -> None:
+    """Guards against the degenerate mock where each line is always stable or unstable."""
+    engine = MockEngine("ieee_9bus", simulation_time_s=4.0)
+    sampler = ScenarioSampler(
+        n_lines=engine.n_lines,
+        n_loads=engine.n_loads,
+        simulation_time_s=4.0,
+        clearing_cycles=20,
+        operating_point=(0.6, 1.4),
+    )
+    events = generate_events(engine, sampler.sample(120, seed=0))
+    lines = np.asarray(events.annotations["fault_line"]).astype(int)
+    mixed = [line for line in np.unique(lines) if 0 < events.labels[lines == line].mean() < 1]
+    assert mixed
+    loading = np.asarray(events.annotations["operating_point"])
+    assert loading[events.labels == 1].mean() > loading[events.labels == 0].mean()
+
+
+def test_operating_point_validation_and_powerfactory_support() -> None:
+    from tranpy.simulation.powerfactory import PowerFactoryEngine
+
+    with pytest.raises(ConfigurationError, match="operating_point"):
+        FaultScenario(
+            scenario_id=0, fault_line=0, fault_start_s=0, clearing_duration_s=0.1, operating_point=0
+        )
+    with pytest.raises(ConfigurationError, match="operating_point"):
+        ScenarioSampler(n_lines=2, n_loads=1, operating_point=(1.2, 0.8))
+    with pytest.raises(ConfigurationError, match="opened_line_fraction"):
+        MockEngine(opened_line_fraction=1.0)
+    engine = PowerFactoryEngine("ieee_9bus", app=_FakeApp())
+    scenario = FaultScenario(
+        scenario_id=0, fault_line=0, fault_start_s=0.1, clearing_duration_s=0.1, operating_point=1.1
+    )
+    with pytest.raises(ConfigurationError, match="not supported"):
+        engine.simulate([scenario])
