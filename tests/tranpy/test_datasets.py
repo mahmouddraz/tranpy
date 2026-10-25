@@ -36,7 +36,9 @@ def test_bundled_snapshots(loader, shape: tuple[int, int], counts: list[int]) ->
     assert ds.features.shape == shape
     assert ds.class_counts().tolist() == counts
     assert ds.label_names == LABEL_NAMES == ("stable", "unstable")
-    assert ds.feature_names[0] == "F_0"
+    assert ds.feature_names[0] in ("Bus 1 voltage (p.u.)", "Bus 01 voltage (p.u.)")
+    assert ds.feature_names[-1].endswith("(deg, bus unknown)")
+    assert ds.metadata["legacy_feature_names"][0] == "F_0"
     assert ds.metadata["source_file"].endswith(".pickle")
     assert np.isfinite(ds.features).all()
 

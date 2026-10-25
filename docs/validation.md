@@ -68,7 +68,7 @@ reproducibility problem, **C** robustness, security or hygiene.
 | D15 | C | load change drawn with `randint(-max, max)` (excludes +max); clearing time used a hard-coded 50 Hz | asymmetric sampling | closed interval; system frequency |
 | D16 | C | three configuration systems; YAML round trip lost `random_seed` and `export_csv` | irreproducible configs | one typed loader that rejects unknown keys and reports all problems |
 | D17 | C | import-time side effects: pandas shim in `sys.modules`, `~/.tranpy` created when listing models, `print`/`input()` in library code; temporal loader read `GOOGLE_API_KEY` from `.env.local` found by relative paths | surprising behaviour, secret handling | removed; downloads use a checksum-pinned registry |
-| D18 | C | registry and docstrings: 78 / 18 features; data: 77 / 17; feature meaning unknown (`F_0..`) | documentation wrong | metadata corrected; semantics recorded as unknown |
+| D18 | C | registry and docstrings: 78 / 18 features (bus voltages and angles); data: 77 / 17 columns named only `F_0..` | documentation wrong; explanations unreadable | columns identified (below) and renamed; legacy names kept in the dataset metadata |
 | D19 | B | `RNNClassifier` reshaped `(n, f)` to `(n, n_steps, f)`, which fails for `n_steps > 1`; LSTM/TCN/Transformer fed 2-D data as sequences of length 1 | sequence models were not sequence models | `n_steps` splits each row into time steps (validated) |
 
 ## Intentional deviations (summary)
@@ -144,3 +144,23 @@ data-limited at this sample size; conclusions about them need the full event set
 detected clearing instead of inception reaches 0.998 (9-bus) and 0.990 (39-bus) already at
 0.05 s, against 0.966 and 0.980 from inception: clearing-based windows overstate early
 accuracy, most strongly on the 9-bus system at short windows.
+
+## Snapshot feature names
+
+The legacy snapshot columns were named `F_0 ... F_n`. Their meaning was recovered from the
+data:
+
+* The first `n_buses` columns (9-bus: 9, 39-bus: 39) are **bus voltage magnitudes in p.u., in
+  bus order 1..n, at fault inception**. Evidence: their per-bus means correlate with the
+  voltages of the recorded event trajectories at the detected fault inception with r = 0.98
+  (9-bus) and r = 0.995 (39-bus); at fault clearing the correlation drops to 0.79 and 0.53.
+  They are named `Bus k voltage (p.u.)`.
+* The remaining columns (8 and 38) are **bus voltage angles in degrees** of all buses but
+  one. The omitted (reference) bus and the order could not be determined: matching their
+  statistics against the recorded angles relative to each candidate reference bus does not
+  single out one bus (39-bus: best candidate Bus 31, the usual reference generator of the
+  PowerFactory model; 9-bus: Buses 7, 9 and 8 score almost equally). They are named
+  `Angle k (deg, bus unknown)` until the original generation script confirms the mapping.
+
+The values, labels and order of the data are unchanged; the regression snapshot is
+unaffected.

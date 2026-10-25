@@ -3,13 +3,13 @@
   "snapshots": {
     "new_england": {
       "filename": "new_england_snapshots.npz",
-      "sha256": "7669357fb6999904afac21b8affefa7c57df7fbfae794d683178feb0b5d58c2d",
+      "sha256": "688e96206d783d32c63b5dfe5481d4a86624a4b108bdbf252744db29d5a927eb",
       "n_samples": 5000,
       "bundled": true
     },
     "ieee_9bus": {
       "filename": "ieee_9bus_snapshots.npz",
-      "sha256": "0638ec9b4447f131db8dc5dd06fd38fc0ef06e53a298879926339fd8e31761b8",
+      "sha256": "dd738fc3a07d24585916e3e2c54fd237cdaa305029a15ba820c36b2810bccb9c",
       "n_samples": 5000,
       "bundled": true
     }

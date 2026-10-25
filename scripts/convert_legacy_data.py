@@ -37,6 +37,15 @@ def _install_pandas_shim() -> None:
         sys.modules["pandas.core.indexes.numeric"] = shim
 
 
+def snapshot_feature_names(n_buses: int, n_features: int) -> tuple[str, ...]:
+    """Readable names: verified bus voltages, then angles whose bus is not identified."""
+    width = 2 if n_buses >= 10 else 1
+    voltages = [f"Bus {k:0{width}d} voltage (p.u.)" for k in range(1, n_buses + 1)]
+    n_angles = n_features - n_buses
+    angles = [f"Angle {k:0{width}d} (deg, bus unknown)" for k in range(1, n_angles + 1)]
+    return tuple(voltages + angles)
+
+
 def convert_snapshots(legacy_dir: Path, out_dir: Path) -> None:
     _install_pandas_shim()
     for legacy_name, key in LEGACY.items():
@@ -49,7 +58,7 @@ def convert_snapshots(legacy_dir: Path, out_dir: Path) -> None:
         dataset = TabularDataset(
             features=features.to_numpy(np.float64),
             labels=labels,
-            feature_names=tuple(map(str, features.columns)),
+            feature_names=snapshot_feature_names(system.n_buses, features.shape[1]),
             label_names=LABEL_NAMES,
             name=key,
             description=(
@@ -61,7 +70,13 @@ def convert_snapshots(legacy_dir: Path, out_dir: Path) -> None:
                 "system": key,
                 "source_file": source.name,
                 "source_sha256": sha256_file(source),
-                "feature_semantics": "unknown: columns F_0..F_n of the legacy dataset",
+                "legacy_feature_names": list(map(str, features.columns)),
+                "feature_semantics": (
+                    "columns 0..n_buses-1: bus voltage magnitudes in bus order, at fault "
+                    "inception (verified against the recorded events, see docs/validation.md); "
+                    "remaining columns: bus voltage angles of all but one bus, the omitted "
+                    "(reference) bus and the order are not identified"
+                ),
             },
         )
         path = save_tabular(dataset, out_dir / f"{key}_snapshots.npz")
