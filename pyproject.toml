@@ -58,6 +58,7 @@ dev = [
     "types-PyYAML>=6.0",
 ]
 notebooks = ["jupyter>=1.0", "nbconvert>=7.16", "ipykernel>=6.29"]
+docs = ["sphinx>=7.0", "myst-parser>=3.0", "sphinx-rtd-theme>=2.0"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/tranpy_core", "src/tranpy"]
