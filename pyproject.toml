@@ -80,6 +80,7 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["T20"]
 "scripts/**" = ["T20"]
+"src/tranpy/cli.py" = ["T20"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -107,7 +108,7 @@ markers = [
 [tool.coverage.run]
 source = ["tranpy_core", "tranpy"]
 branch = true
-omit = ["*/tranpy/simulation/powerfactory.py"]
+omit = []
 
 [tool.coverage.report]
 fail_under = 90
