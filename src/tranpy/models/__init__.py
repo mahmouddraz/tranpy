@@ -36,7 +36,10 @@ if _LGBM_AVAILABLE:
 
 # Try to import neural network models (require TensorFlow)
 try:
-    from .neural import DNNClassifier, RNNClassifier
+    from .neural import (
+        DNNClassifier, RNNClassifier,
+        LSTMClassifier, TCNClassifier, TransformerClassifier,
+    )
     _NEURAL_AVAILABLE = True
 except ImportError:
     _NEURAL_AVAILABLE = False
@@ -86,7 +89,10 @@ if _LGBM_AVAILABLE:
     __all__.append('LGBMClassifier')
 
 if _NEURAL_AVAILABLE:
-    __all__.extend(['DNNClassifier', 'RNNClassifier'])
+    __all__.extend([
+        'DNNClassifier', 'RNNClassifier',
+        'LSTMClassifier', 'TCNClassifier', 'TransformerClassifier',
+    ])
 
 if _ENSEMBLE_AVAILABLE:
     __all__.append('EnsembleClassifier')

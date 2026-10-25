@@ -141,6 +141,19 @@ class DNNClassifier(StabilityClassifier):
             raise ValueError("Model not trained yet.")
         return self.history_.history
 
+    def get_params(self, deep=True):
+        """Get parameters for this estimator."""
+        return {
+            'hidden_layers': self.hidden_layers,
+            'activation': self.activation,
+            'output_activation': self.output_activation,
+            'optimizer': self.optimizer,
+            'loss': self.loss,
+            'epochs': self.epochs,
+            'batch_size': self.batch_size,
+            'validation_split': self.validation_split,
+        }
+
 
 class RNNClassifier(StabilityClassifier):
     """
@@ -291,3 +304,331 @@ class RNNClassifier(StabilityClassifier):
         if self.history_ is None:
             raise ValueError("Model not trained yet.")
         return self.history_.history
+
+
+class LSTMClassifier(StabilityClassifier):
+    """LSTM classifier for temporal stability prediction.
+
+    Takes raw time series trajectories as input (batch, timesteps, features)
+    and uses stacked LSTM layers with optional attention for classification.
+
+    Args:
+        lstm_units: List of LSTM layer sizes
+        dropout: Dropout rate between LSTM layers
+        use_attention: If True, apply attention after the last LSTM layer
+        dense_units: Hidden dense layer size before output
+        learning_rate: Learning rate
+        epochs: Number of training epochs
+        batch_size: Batch size
+        validation_split: Fraction of data for validation
+    """
+
+    def __init__(
+        self,
+        lstm_units: List[int] = [64, 32],
+        dropout: float = 0.2,
+        use_attention: bool = True,
+        dense_units: int = 32,
+        learning_rate: float = 1e-3,
+        epochs: int = 50,
+        batch_size: int = 32,
+        validation_split: float = 0.2,
+    ):
+        check_tensorflow()
+        super().__init__()
+        self.lstm_units = lstm_units
+        self.dropout = dropout
+        self.use_attention = use_attention
+        self.dense_units = dense_units
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.validation_split = validation_split
+        self.model_ = None
+        self.history_ = None
+        self.training_time_ = None
+
+    def _build_model(self, input_shape: Tuple[int, int]):
+        inputs = keras.layers.Input(shape=input_shape)
+        x = inputs
+
+        for i, units in enumerate(self.lstm_units):
+            return_sequences = (i < len(self.lstm_units) - 1) or self.use_attention
+            x = keras.layers.LSTM(units, return_sequences=return_sequences)(x)
+            if self.dropout > 0:
+                x = keras.layers.Dropout(self.dropout)(x)
+
+        if self.use_attention:
+            attention = keras.layers.Dense(1, activation='tanh')(x)
+            attention = keras.layers.Flatten()(attention)
+            attention = keras.layers.Activation('softmax')(attention)
+            attention = keras.layers.RepeatVector(self.lstm_units[-1])(attention)
+            attention = keras.layers.Permute([2, 1])(attention)
+            x = keras.layers.Multiply()([x, attention])
+            x = keras.layers.Lambda(lambda z: tf.reduce_sum(z, axis=1))(x)
+
+        x = keras.layers.Dense(self.dense_units, activation='relu')(x)
+        x = keras.layers.Dropout(self.dropout)(x)
+        outputs = keras.layers.Dense(1, activation='sigmoid')(x)
+
+        model = keras.Model(inputs, outputs)
+        opt = keras.optimizers.Adam(learning_rate=self.learning_rate)
+        model.compile(optimizer=opt, loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> 'LSTMClassifier':
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+
+        self.model_ = self._build_model(X.shape[1:])
+        start = timer()
+        self.history_ = self.model_.fit(
+            X, y, epochs=self.epochs, batch_size=self.batch_size,
+            validation_split=self.validation_split, verbose=0,
+            callbacks=[keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)],
+        )
+        self.training_time_ = timer() - start
+        self.n_features_in_ = X.shape[-1]
+        self.is_fitted_ = True
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        proba = self.model_.predict(X, verbose=0)
+        return (proba > 0.5).astype(int).flatten()
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        proba = self.model_.predict(X, verbose=0)
+        return np.column_stack([1 - proba, proba])
+
+
+class TCNClassifier(StabilityClassifier):
+    """Temporal Convolutional Network classifier for stability prediction.
+
+    Uses dilated causal 1D convolutions to capture temporal patterns
+    at multiple scales without recurrence.
+
+    Args:
+        n_filters: Number of filters per convolutional layer
+        kernel_size: Kernel size for 1D convolutions
+        dilation_rates: List of dilation rates
+        dropout: Dropout rate
+        dense_units: Hidden dense layer size before output
+        learning_rate: Learning rate
+        epochs: Number of training epochs
+        batch_size: Batch size
+        validation_split: Fraction of data for validation
+    """
+
+    def __init__(
+        self,
+        n_filters: int = 64,
+        kernel_size: int = 3,
+        dilation_rates: List[int] = [1, 2, 4, 8, 16],
+        dropout: float = 0.2,
+        dense_units: int = 32,
+        learning_rate: float = 1e-3,
+        epochs: int = 50,
+        batch_size: int = 32,
+        validation_split: float = 0.2,
+    ):
+        check_tensorflow()
+        super().__init__()
+        self.n_filters = n_filters
+        self.kernel_size = kernel_size
+        self.dilation_rates = dilation_rates
+        self.dropout = dropout
+        self.dense_units = dense_units
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.validation_split = validation_split
+        self.model_ = None
+        self.history_ = None
+        self.training_time_ = None
+
+    def _build_model(self, input_shape: Tuple[int, int]):
+        inputs = keras.layers.Input(shape=input_shape)
+        x = inputs
+
+        for dilation in self.dilation_rates:
+            conv = keras.layers.Conv1D(
+                self.n_filters, self.kernel_size,
+                padding='causal', dilation_rate=dilation, activation='relu',
+            )(x)
+            conv = keras.layers.Dropout(self.dropout)(conv)
+            conv = keras.layers.Conv1D(
+                self.n_filters, self.kernel_size,
+                padding='causal', dilation_rate=dilation, activation='relu',
+            )(conv)
+            conv = keras.layers.Dropout(self.dropout)(conv)
+
+            if x.shape[-1] != self.n_filters:
+                x = keras.layers.Conv1D(self.n_filters, 1)(x)
+            x = keras.layers.Add()([x, conv])
+
+        x = keras.layers.GlobalAveragePooling1D()(x)
+        x = keras.layers.Dense(self.dense_units, activation='relu')(x)
+        x = keras.layers.Dropout(self.dropout)(x)
+        outputs = keras.layers.Dense(1, activation='sigmoid')(x)
+
+        model = keras.Model(inputs, outputs)
+        opt = keras.optimizers.Adam(learning_rate=self.learning_rate)
+        model.compile(optimizer=opt, loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> 'TCNClassifier':
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+
+        self.model_ = self._build_model(X.shape[1:])
+        start = timer()
+        self.history_ = self.model_.fit(
+            X, y, epochs=self.epochs, batch_size=self.batch_size,
+            validation_split=self.validation_split, verbose=0,
+            callbacks=[keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)],
+        )
+        self.training_time_ = timer() - start
+        self.n_features_in_ = X.shape[-1]
+        self.is_fitted_ = True
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        proba = self.model_.predict(X, verbose=0)
+        return (proba > 0.5).astype(int).flatten()
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        proba = self.model_.predict(X, verbose=0)
+        return np.column_stack([1 - proba, proba])
+
+
+class TransformerClassifier(StabilityClassifier):
+    """Transformer-based classifier for stability prediction.
+
+    Uses multi-head self-attention with positional encoding to capture
+    temporal dependencies in trajectory data.
+
+    Args:
+        d_model: Model dimension (embedding size)
+        n_heads: Number of attention heads
+        n_layers: Number of transformer encoder layers
+        ff_dim: Feed-forward network dimension
+        dropout: Dropout rate
+        dense_units: Hidden dense layer size before output
+        learning_rate: Learning rate
+        epochs: Number of training epochs
+        batch_size: Batch size
+        validation_split: Fraction of data for validation
+    """
+
+    def __init__(
+        self,
+        d_model: int = 64,
+        n_heads: int = 4,
+        n_layers: int = 2,
+        ff_dim: int = 128,
+        dropout: float = 0.1,
+        dense_units: int = 32,
+        learning_rate: float = 1e-3,
+        epochs: int = 50,
+        batch_size: int = 32,
+        validation_split: float = 0.2,
+    ):
+        check_tensorflow()
+        super().__init__()
+        self.d_model = d_model
+        self.n_heads = n_heads
+        self.n_layers = n_layers
+        self.ff_dim = ff_dim
+        self.dropout = dropout
+        self.dense_units = dense_units
+        self.learning_rate = learning_rate
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.validation_split = validation_split
+        self.model_ = None
+        self.history_ = None
+        self.training_time_ = None
+
+    def _build_model(self, input_shape: Tuple[int, int]):
+        inputs = keras.layers.Input(shape=input_shape)
+
+        # Project to d_model dimension
+        x = keras.layers.Dense(self.d_model)(inputs)
+
+        # Learned positional encoding
+        seq_len = input_shape[0]
+        positions = keras.layers.Embedding(seq_len, self.d_model)(
+            tf.range(seq_len)
+        )
+        x = x + positions
+
+        # Transformer encoder blocks
+        for _ in range(self.n_layers):
+            attn_output = keras.layers.MultiHeadAttention(
+                num_heads=self.n_heads, key_dim=self.d_model // self.n_heads,
+            )(x, x)
+            attn_output = keras.layers.Dropout(self.dropout)(attn_output)
+            x = keras.layers.LayerNormalization(epsilon=1e-6)(x + attn_output)
+
+            ff_output = keras.layers.Dense(self.ff_dim, activation='relu')(x)
+            ff_output = keras.layers.Dense(self.d_model)(ff_output)
+            ff_output = keras.layers.Dropout(self.dropout)(ff_output)
+            x = keras.layers.LayerNormalization(epsilon=1e-6)(x + ff_output)
+
+        x = keras.layers.GlobalAveragePooling1D()(x)
+        x = keras.layers.Dense(self.dense_units, activation='relu')(x)
+        x = keras.layers.Dropout(self.dropout)(x)
+        outputs = keras.layers.Dense(1, activation='sigmoid')(x)
+
+        model = keras.Model(inputs, outputs)
+        opt = keras.optimizers.Adam(learning_rate=self.learning_rate)
+        model.compile(optimizer=opt, loss='binary_crossentropy', metrics=['accuracy'])
+        return model
+
+    def fit(self, X: np.ndarray, y: np.ndarray) -> 'TransformerClassifier':
+        X = np.asarray(X)
+        y = np.asarray(y)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+
+        self.model_ = self._build_model(X.shape[1:])
+        start = timer()
+        self.history_ = self.model_.fit(
+            X, y, epochs=self.epochs, batch_size=self.batch_size,
+            validation_split=self.validation_split, verbose=0,
+            callbacks=[keras.callbacks.EarlyStopping(patience=10, restore_best_weights=True)],
+        )
+        self.training_time_ = timer() - start
+        self.n_features_in_ = X.shape[-1]
+        self.is_fitted_ = True
+        return self
+
+    def predict(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        proba = self.model_.predict(X, verbose=0)
+        return (proba > 0.5).astype(int).flatten()
+
+    def predict_proba(self, X: np.ndarray) -> np.ndarray:
+        X = np.asarray(X)
+        if X.ndim == 2:
+            X = X[:, np.newaxis, :]
+        proba = self.model_.predict(X, verbose=0)
+        return np.column_stack([1 - proba, proba])
