@@ -87,7 +87,9 @@ def run_early_prediction(
                 "window %.3f s: %d non-finite feature values replaced by 0", window, n_bad
             )
             X = np.nan_to_num(X, nan=0.0, posinf=0.0, neginf=0.0)
-        splits = min(n_splits, int(np.min(np.bincount(table.labels))))
+        splits = min(
+            n_splits, int(np.min(np.bincount(table.labels, minlength=len(table.label_names))))
+        )
         if splits < 2:
             logger.info("window %.3f s: fewer than 2 events in a class, skipped", window)
             continue
@@ -112,7 +114,11 @@ def run_early_prediction(
 
 
 def find_knee_point(results: pd.DataFrame, model: str, metric: str = "accuracy") -> float:
-    """Window length at the maximum curvature of ``metric`` versus window (diminishing returns)."""
+    """Window length at the maximum curvature of ``metric`` versus window (diminishing returns).
+
+    As in earlier versions, derivatives are taken over the *index* of the sorted windows,
+    i.e. the windows are treated as equally spaced (they are roughly log-spaced by default).
+    """
     curve = results[results["model"] == model].sort_values("window_s")
     x = curve["window_s"].to_numpy(np.float64)
     y = curve[f"{metric}_mean"].to_numpy(np.float64)
@@ -120,8 +126,7 @@ def find_knee_point(results: pd.DataFrame, model: str, metric: str = "accuracy")
         raise ConfigurationError(f"no results for model {model!r}")
     if x.size < 3:
         return float(x[-1])
-    x_norm = (x - x.min()) / (x.max() - x.min())
     y_norm = (y - y.min()) / (y.max() - y.min() + 1e-10)
-    dy = np.gradient(y_norm, x_norm)
-    curvature = np.abs(np.gradient(dy, x_norm)) / (1 + dy**2) ** 1.5
+    dy = np.gradient(y_norm)
+    curvature = np.abs(np.gradient(dy)) / (1 + dy**2) ** 1.5
     return float(x[int(np.argmax(curvature[1:-1])) + 1])

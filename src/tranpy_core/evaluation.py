@@ -9,6 +9,7 @@ refitted on each training fold and never sees the test fold.
 from __future__ import annotations
 
 import time
+import warnings
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
@@ -63,6 +64,9 @@ def positive_scores(model: Any, X: npt.ArrayLike) -> npt.NDArray[np.float64]:
         except (AttributeError, NotImplementedError):
             proba = None
         if proba is not None:
+            if proba.ndim == 2 and proba.shape[1] == 1 and hasattr(model, "classes_"):
+                # trained on one class only: P(positive) is 1 or 0 for every sample
+                return np.full(proba.shape[0], float(np.asarray(model.classes_)[0] == 1))
             if proba.ndim != 2 or proba.shape[1] != 2:
                 raise ModelError(f"expected probabilities of shape (n, 2), got {proba.shape}")
             return proba[:, 1]
@@ -78,9 +82,13 @@ def evaluate(model: Any, X: npt.ArrayLike, y: npt.ArrayLike) -> Scores:
     scores = positive_scores(model, X)
     auc = float(roc_auc_score(y_true, scores)) if np.unique(y_true).size == 2 else float("nan")
     cm = confusion_matrix(y_true, y_pred, labels=[0, 1])
+    with warnings.catch_warnings():
+        # single-class evaluation sets are legitimate (e.g. small folds); metrics stay defined
+        warnings.simplefilter("ignore", category=UserWarning)
+        balanced = float(balanced_accuracy_score(y_true, y_pred))
     return Scores(
         accuracy=float(accuracy_score(y_true, y_pred)),
-        balanced_accuracy=float(balanced_accuracy_score(y_true, y_pred)),
+        balanced_accuracy=balanced,
         precision=float(precision_score(y_true, y_pred, zero_division=0)),
         recall=float(recall_score(y_true, y_pred, zero_division=0)),
         f1=float(f1_score(y_true, y_pred, zero_division=0)),
