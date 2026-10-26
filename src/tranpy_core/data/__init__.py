@@ -10,7 +10,7 @@ from tranpy_core.data.shards import (
     iter_shards,
     map_shards,
 )
-from tranpy_core.data.split import Split, kfold_splits, train_test_split
+from tranpy_core.data.split import Split, kfold_splits, repeated_kfold_splits, train_test_split
 from tranpy_core.data.storage import (
     load_dataset_file,
     load_signals,
@@ -39,6 +39,7 @@ __all__ = [
     "load_signals",
     "load_tabular",
     "map_shards",
+    "repeated_kfold_splits",
     "save_signals",
     "save_tabular",
     "sha256_file",

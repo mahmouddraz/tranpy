@@ -139,3 +139,33 @@ def test_training_predictions_do_not_depend_on_test_rows(perm: list[int]) -> Non
     np.testing.assert_array_equal(base.predict_proba(stacked)[:160], base.predict_proba(X[:160]))
     # predictions are row-wise: permuting the test rows permutes their predictions
     np.testing.assert_allclose(base.predict_proba(X_test), base.predict_proba(X[160:])[perm])
+
+
+def test_repeated_cross_validation_and_corrected_interval(toy: TabularDataset) -> None:
+    from tranpy_core.data import repeated_kfold_splits
+    from tranpy_core.errors import ConfigurationError
+
+    single = repeated_kfold_splits(toy.labels, n_splits=4, n_repeats=1, seed=3)
+    plain = kfold_splits(toy.labels, n_splits=4, seed=3)
+    assert all(np.array_equal(a.test, b.test) for a, b in zip(single, plain, strict=True))
+    repeated = repeated_kfold_splits(toy.labels, n_splits=4, n_repeats=3, seed=3)
+    assert len(repeated) == 12
+    assert not np.array_equal(repeated[0].test, repeated[4].test)
+    with pytest.raises(ConfigurationError):
+        repeated_kfold_splits(toy.labels, n_splits=4, n_repeats=0, seed=3)
+    cv = cross_validate(
+        make_pipeline("logistic_regression"), toy.features, toy.labels, n_splits=4, n_repeats=3
+    )
+    summary = cv.summary()
+    assert len(cv.folds) == 12
+    assert cv.test_to_train == pytest.approx(1 / 3, rel=0.05)
+    acc = np.array([f.accuracy for f in cv.folds])
+    naive = 2.2 * acc.std(ddof=1) / np.sqrt(acc.size)
+    assert summary["accuracy_ci95"] > naive  # corrected interval is wider than the naive one
+    one_fold = cross_validate(
+        DummyClassifier(),
+        toy.features,
+        toy.labels,
+        splits=[kfold_splits(toy.labels, n_splits=2, seed=0)[0]],
+    )
+    assert math.isnan(one_fold.summary()["accuracy_ci95"])

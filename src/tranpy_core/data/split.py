@@ -16,7 +16,7 @@ from sklearn.model_selection import train_test_split as _sk_train_test_split
 from tranpy_core.errors import ConfigurationError
 from tranpy_core.random import Seed, spawn_seed
 
-__all__ = ["Split", "kfold_splits", "train_test_split"]
+__all__ = ["Split", "kfold_splits", "repeated_kfold_splits", "train_test_split"]
 
 IntArray = npt.NDArray[np.int64]
 
@@ -97,3 +97,28 @@ def kfold_splits(
     else:
         folds = KFold(n_splits=n_splits, shuffle=True, random_state=random_state).split(placeholder)
     return [Split(train=tr, test=te) for tr, te in folds]
+
+
+def repeated_kfold_splits(
+    labels: npt.ArrayLike,
+    *,
+    n_splits: int,
+    n_repeats: int,
+    seed: Seed,
+    groups: npt.ArrayLike | None = None,
+    stratify: bool = True,
+) -> list[Split]:
+    """``n_repeats`` independent shuffles of k-fold splits (``n_splits * n_repeats`` splits).
+
+    Repeat 0 is exactly ``kfold_splits(..., seed=seed)``; repeat ``r`` uses seed ``seed + r``.
+    """
+    if n_repeats < 1:
+        raise ConfigurationError(f"n_repeats must be at least 1, got {n_repeats}")
+    base = spawn_seed(seed)
+    return [
+        split
+        for r in range(n_repeats)
+        for split in kfold_splits(
+            labels, n_splits=n_splits, seed=base + r, groups=groups, stratify=stratify
+        )
+    ]

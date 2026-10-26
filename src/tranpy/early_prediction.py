@@ -40,9 +40,9 @@ from tranpy_core.data import (
     ShardManifest,
     SignalDataset,
     TabularDataset,
-    kfold_splits,
     load_tabular,
     map_shards,
+    repeated_kfold_splits,
     save_tabular,
 )
 from tranpy_core.errors import ConfigurationError
@@ -213,10 +213,15 @@ def evaluate_window_tables(
     *,
     sequence_models: Mapping[str, BaseEstimator] | None = None,
     n_splits: int = 5,
+    n_repeats: int = 1,
     seed: Seed = 42,
     min_events: int = 10,
 ) -> pd.DataFrame:
-    """Cross-validate feature models and sequence models on the same folds per window."""
+    """Cross-validate feature models and sequence models on the same folds per window.
+
+    With ``n_repeats > 1`` the k-fold split is repeated with different shuffles, which
+    makes the reported 95 % confidence intervals (``<metric>_ci95``) meaningful.
+    """
     models = dict(models or {})
     sequence_models = dict(sequence_models or {})
     if not models and not sequence_models:
@@ -235,7 +240,7 @@ def evaluate_window_tables(
         if splits < 2:
             logger.info("window %.3f s: fewer than 2 events in a class, skipped", window)
             continue
-        folds = kfold_splits(base.labels, n_splits=splits, seed=seed)
+        folds = repeated_kfold_splits(base.labels, n_splits=splits, n_repeats=n_repeats, seed=seed)
         jobs: list[tuple[str, str, Pipeline, TabularDataset]] = []
         if models:
             table = tables[(window, "features")]
@@ -273,7 +278,7 @@ def evaluate_window_tables(
         "n_events",
         "n_features",
         "n_splits",
-        *(f"{m}_{s}" for m in METRICS for s in ("mean", "std")),
+        *(f"{m}_{s}" for m in METRICS for s in ("mean", "std", "ci95")),
         "fit_time_s",
     ]
     return pd.DataFrame(rows, columns=columns)
@@ -287,6 +292,7 @@ def run_early_prediction(
     sequence_models: Mapping[str, BaseEstimator] | None = None,
     windows_s: Sequence[float] = DEFAULT_WINDOWS_S,
     n_splits: int = 5,
+    n_repeats: int = 1,
     seed: Seed = 42,
     min_events: int = 10,
     feature_settings: Mapping[str, Any] | None = None,
@@ -306,6 +312,7 @@ def run_early_prediction(
             ``lstm_network``); their ``n_steps`` is set automatically.
         windows_s: observation windows in seconds after ``reference``.
         n_splits: cross-validation folds (reduced to the smallest class size if needed).
+        n_repeats: repetitions of the k-fold split (for confidence intervals).
         seed: seed of the fold assignment (shared by all models).
         min_events: windows with fewer usable events are skipped.
         feature_settings: extra keyword arguments for :class:`TrajectoryFeatures`.
@@ -333,6 +340,7 @@ def run_early_prediction(
         models,
         sequence_models=sequence_models,
         n_splits=n_splits,
+        n_repeats=n_repeats,
         seed=seed,
         min_events=min_events,
     )

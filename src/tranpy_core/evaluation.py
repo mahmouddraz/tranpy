@@ -17,6 +17,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+from scipy.stats import t as student_t
 from sklearn.base import clone
 from sklearn.metrics import (
     accuracy_score,
@@ -28,7 +29,7 @@ from sklearn.metrics import (
     roc_auc_score,
 )
 
-from tranpy_core.data.split import Split, kfold_splits
+from tranpy_core.data.split import Split, repeated_kfold_splits
 from tranpy_core.errors import ModelError
 from tranpy_core.random import Seed
 
@@ -100,19 +101,36 @@ def evaluate(model: Any, X: npt.ArrayLike, y: npt.ArrayLike) -> Scores:
 
 @dataclass(frozen=True)
 class CrossValidationResult:
-    """Per-fold scores and fit times."""
+    """Per-fold scores and fit times.
+
+    ``test_to_train`` is the mean ratio of test to training samples; it enters the
+    corrected confidence interval in :meth:`summary`.
+    """
 
     folds: tuple[Scores, ...]
     fit_times_s: tuple[float, ...]
+    test_to_train: float = 0.25
 
     def summary(self) -> dict[str, float]:
-        """Mean and standard deviation per metric, ignoring NaN folds."""
+        """Mean, standard deviation and 95 % confidence half-width per metric.
+
+        NaN folds are ignored. The interval is the corrected resampled t interval of
+        Nadeau and Bengio (2003): the variance across folds is inflated by
+        ``1/n + n_test/n_train`` because folds share training data, which plain
+        ``std/sqrt(n)`` ignores. Use repeated cross-validation for a usable interval.
+        """
         out: dict[str, float] = {}
         for metric in METRICS:
             values = np.array([getattr(f, metric) for f in self.folds], dtype=np.float64)
             finite = values[np.isfinite(values)]
-            out[f"{metric}_mean"] = float(finite.mean()) if finite.size else float("nan")
-            out[f"{metric}_std"] = float(finite.std()) if finite.size else float("nan")
+            n = finite.size
+            out[f"{metric}_mean"] = float(finite.mean()) if n else float("nan")
+            out[f"{metric}_std"] = float(finite.std()) if n else float("nan")
+            if n >= 2:
+                variance = float(finite.var(ddof=1)) * (1.0 / n + self.test_to_train)
+                out[f"{metric}_ci95"] = float(student_t.ppf(0.975, n - 1) * np.sqrt(variance))
+            else:
+                out[f"{metric}_ci95"] = float("nan")
         return out
 
     def to_frame(self) -> pd.DataFrame:
@@ -132,14 +150,17 @@ def cross_validate(
     seed: Seed = 0,
     groups: npt.ArrayLike | None = None,
     splits: list[Split] | None = None,
+    n_repeats: int = 1,
 ) -> CrossValidationResult:
-    """Stratified k-fold cross-validation of a (cloned) estimator or pipeline."""
+    """Stratified (repeated) k-fold cross-validation of a (cloned) estimator or pipeline."""
     X_arr = np.asarray(X)
     y_arr = np.asarray(y)
     folds = (
         splits
         if splits is not None
-        else kfold_splits(y_arr, n_splits=n_splits, seed=seed, groups=groups)
+        else repeated_kfold_splits(
+            y_arr, n_splits=n_splits, n_repeats=n_repeats, seed=seed, groups=groups
+        )
     )
     scores: list[Scores] = []
     times: list[float] = []
@@ -149,7 +170,8 @@ def cross_validate(
         fold_model.fit(X_arr[split.train], y_arr[split.train])
         times.append(time.perf_counter() - t0)
         scores.append(evaluate(fold_model, X_arr[split.test], y_arr[split.test]))
-    return CrossValidationResult(folds=tuple(scores), fit_times_s=tuple(times))
+    ratio = float(np.mean([s.test.size / max(s.train.size, 1) for s in folds]))
+    return CrossValidationResult(folds=tuple(scores), fit_times_s=tuple(times), test_to_train=ratio)
 
 
 def scores_frame(results: Mapping[str, Scores]) -> pd.DataFrame:
