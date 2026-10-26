@@ -44,3 +44,11 @@ papers/
 .vscode/
 .DS_Store
 Thumbs.db
+
+# Local assistant and publishing notes (not part of the package)
+AGENTS.md
+CLAUDE.md
+.claude/
+.agents/
+skills/
+PUBLISHING.md

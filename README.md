@@ -103,8 +103,7 @@ uv run mypy                        # strict
 model on every bundled dataset. If a change is intended, run
 `uv run python -m tests.update_snapshot` and give the reason in the commit message.
 
-Documentation: [architecture](docs/architecture.md), [data](docs/data.md), [validation](docs/validation.md),
-[agent guide](AGENTS.md).
+Documentation: [architecture](docs/architecture.md), [data](docs/data.md), [validation](docs/validation.md).
 
 ## License
 
