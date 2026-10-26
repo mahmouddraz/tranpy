@@ -62,7 +62,8 @@ def test_snapshot_checksum_is_enforced(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_list_datasets() -> None:
     table = list_datasets()
     assert set(table["kind"]) == {"snapshots", "events"}
-    assert table[table["kind"] == "snapshots"]["bundled"].all()
+    assert (table[table["kind"] == "snapshots"]["location"] == "bundled").all()
+    assert table[table["kind"] == "events"]["location"].str.startswith("https://").all()
 
 
 def test_systems_and_vocabulary() -> None:
@@ -134,31 +135,8 @@ def test_load_events_from_npz_and_registry(
     assert load_events("ieee_9bus", source=path).n_samples == mock_events_full.n_samples
     with pytest.raises(DataError, match="not 'new_england'"):
         load_events("new_england", source=path)
-    with pytest.raises(DataError, match="no registered download"):
+    with pytest.raises(DataError, match="open_event_shards"):
         load_events("ieee_9bus")
-
-
-def test_load_events_downloads_registered_file(
-    mock_events_full: SignalDataset,
-    tmp_path: Path,
-    isolated_cache: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from tranpy_core.data import sha256_file
-
-    path = save_signals(mock_events_full, tmp_path / "remote.npz")
-    reg = data_registry()
-    patched = {
-        **reg,
-        "events": {
-            **reg["events"],
-            "ieee_9bus": {"filename": "ev.npz", "url": path.as_uri(), "sha256": sha256_file(path)},
-        },
-    }
-    monkeypatch.setattr("tranpy.datasets.data_registry", lambda: patched)
-    events = load_events("ieee_9bus")
-    assert events.n_samples == mock_events_full.n_samples
-    assert (isolated_cache / "ev.npz").exists()
 
 
 def test_labels_from_out_of_step_flags_and_angle_fallback(mock_events_full: SignalDataset) -> None:

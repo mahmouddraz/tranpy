@@ -65,7 +65,8 @@ def test_open_registered_shards(
     manifest = open_event_shards("ieee_9bus")
     assert "local_dir" not in manifest.metadata
     assert manifest.shard_url(manifest.shards[0]).startswith("file://")
-    monkeypatch.setattr("tranpy.datasets.data_registry", lambda: reg)
+    unregistered = {**reg, "events": {**reg["events"], "ieee_9bus": {"n_samples": 0}}}
+    monkeypatch.setattr("tranpy.datasets.data_registry", lambda: unregistered)
     with pytest.raises(DataError, match="no sharded event dataset"):
         open_event_shards("ieee_9bus")
 

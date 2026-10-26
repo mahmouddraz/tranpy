@@ -16,19 +16,414 @@
   },
   "events": {
     "new_england": {
-      "filename": "new_england_events.npz",
-      "sha256": "1399887ed83231fcad7fae056d07fd854034f0791802adf404564f5350bab66f",
-      "url": null,
-      "n_samples": 500,
-      "size_bytes": 328049795
+      "manifest_url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england_events-manifest.json",
+      "manifest_sha256": "14aa246c43bed83e8ce6fc68e8c8a6984dd22184405bb900993b1d95207ecd38",
+      "n_samples": 7999,
+      "release": "data-v1"
     },
     "ieee_9bus": {
-      "filename": "ieee_9bus_events.npz",
-      "sha256": "5a7a1d783855231e9985e154fe22b760aef9855c48ca89afddb0acc832a7fff3",
-      "url": null,
-      "n_samples": 500,
-      "size_bytes": 281825822
+      "manifest_url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus_events-manifest.json",
+      "manifest_sha256": "ffc3aa9727a9d676400c3c67c804bf6e266bc884e6a69a93a7aa5f68bc4471c6",
+      "n_samples": 10000,
+      "release": "data-v1"
     }
   },
-  "pretrained": {}
+  "pretrained": {
+    "new_england__adaboost": {
+      "system": "new_england",
+      "model": "adaboost",
+      "filename": "new_england__adaboost.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__adaboost.skops",
+      "sha256": "92b2dd89f4ef85ceae80abd1748571581411c4713441f57f992ea7b8c7480a5a",
+      "test_accuracy": 0.967,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__decision_tree": {
+      "system": "new_england",
+      "model": "decision_tree",
+      "filename": "new_england__decision_tree.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__decision_tree.skops",
+      "sha256": "d923fe2a7aebdc8a848568a447fdb1e55b802af6adb3888a809c248c12c14e5d",
+      "test_accuracy": 0.965,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__dummy": {
+      "system": "new_england",
+      "model": "dummy",
+      "filename": "new_england__dummy.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__dummy.skops",
+      "sha256": "3306c743fc39575219457c56e09775bbb12490364068b73a5579a0bc4e7d4145",
+      "test_accuracy": 0.53,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__extra_trees": {
+      "system": "new_england",
+      "model": "extra_trees",
+      "filename": "new_england__extra_trees.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__extra_trees.skops",
+      "sha256": "4f40389356f516c6916e9a70158f480ea2810ce749906a727a3be588a166144e",
+      "test_accuracy": 0.98,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__gaussian_nb": {
+      "system": "new_england",
+      "model": "gaussian_nb",
+      "filename": "new_england__gaussian_nb.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__gaussian_nb.skops",
+      "sha256": "65e67e2cb7dff0b7bc7309ba4fa80907cc9c65283a6dd1e58849c71b88dd7eeb",
+      "test_accuracy": 0.687,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__gaussian_process": {
+      "system": "new_england",
+      "model": "gaussian_process",
+      "filename": "new_england__gaussian_process.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__gaussian_process.skops",
+      "sha256": "651ec7b3e60c1aedde2e2adf4bdde198497e6978504eb9083a4dbd48d7f23018",
+      "test_accuracy": 0.969,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__gradient_boosting": {
+      "system": "new_england",
+      "model": "gradient_boosting",
+      "filename": "new_england__gradient_boosting.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__gradient_boosting.skops",
+      "sha256": "d4a111eea950dcb3917c7f6e482c7802ef0c3004d657e0ac75bc3dd1cb1a6a38",
+      "test_accuracy": 0.976,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__knn": {
+      "system": "new_england",
+      "model": "knn",
+      "filename": "new_england__knn.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__knn.skops",
+      "sha256": "596caf246f688ae73d400d2947ca2cb3d459e18ae07c4cc332733b8bec0064a6",
+      "test_accuracy": 0.973,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__lda": {
+      "system": "new_england",
+      "model": "lda",
+      "filename": "new_england__lda.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__lda.skops",
+      "sha256": "0717774cec2debb641b331b4cb31ee882ed72077e3ee024793a82d490630793f",
+      "test_accuracy": 0.966,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__lightgbm": {
+      "system": "new_england",
+      "model": "lightgbm",
+      "filename": "new_england__lightgbm.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__lightgbm.skops",
+      "sha256": "e78e0094e2d678a52a73440c83007fa6f7b06bc405ec43c57c4586c5e3977585",
+      "test_accuracy": 0.983,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__logistic_regression": {
+      "system": "new_england",
+      "model": "logistic_regression",
+      "filename": "new_england__logistic_regression.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__logistic_regression.skops",
+      "sha256": "c465cba42fea52ac7bbba1571b7862ec00eebefa9816b92a153edb6b8224d42e",
+      "test_accuracy": 0.969,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__mlp": {
+      "system": "new_england",
+      "model": "mlp",
+      "filename": "new_england__mlp.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__mlp.skops",
+      "sha256": "93f543b377f424b7deb6c4e7c346431d17d7b4df7e06716d491494676dd3672b",
+      "test_accuracy": 0.974,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__qda": {
+      "system": "new_england",
+      "model": "qda",
+      "filename": "new_england__qda.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__qda.skops",
+      "sha256": "991c57a9a9086c6696f557d9e728d4c93a0beb60522e2ed3ca3602f70d55beb2",
+      "test_accuracy": 0.963,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__random_forest": {
+      "system": "new_england",
+      "model": "random_forest",
+      "filename": "new_england__random_forest.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__random_forest.skops",
+      "sha256": "9add6698fc798e2417b27e758ee4d8d7640b3bfa1428508721b06452161acc3a",
+      "test_accuracy": 0.981,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__ridge": {
+      "system": "new_england",
+      "model": "ridge",
+      "filename": "new_england__ridge.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__ridge.skops",
+      "sha256": "7e39367b274478435d9cff0e0bf918fb88a6b21b9311bf6a288c696f501e1c11",
+      "test_accuracy": 0.965,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__sgd": {
+      "system": "new_england",
+      "model": "sgd",
+      "filename": "new_england__sgd.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__sgd.skops",
+      "sha256": "2f8e3d8491c328cedd4120bfcea264df5684105001f85f5a9172be8464087684",
+      "test_accuracy": 0.946,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__svm": {
+      "system": "new_england",
+      "model": "svm",
+      "filename": "new_england__svm.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__svm.skops",
+      "sha256": "0b0ad63b8698a932ec6efc388f73c016322432f61ac0656273d707364628a099",
+      "test_accuracy": 0.963,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "new_england__xgboost": {
+      "system": "new_england",
+      "model": "xgboost",
+      "filename": "new_england__xgboost.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/new_england__xgboost.skops",
+      "sha256": "02877e872f83bede2a5e081602d873278fc30b2b4452116b2b27d44bb821d78b",
+      "test_accuracy": 0.983,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__adaboost": {
+      "system": "ieee_9bus",
+      "model": "adaboost",
+      "filename": "ieee_9bus__adaboost.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__adaboost.skops",
+      "sha256": "12f434ef7a6ab8c2da234871127f8a95251baa6cca3d3b9a2470014a2c497076",
+      "test_accuracy": 0.983,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__decision_tree": {
+      "system": "ieee_9bus",
+      "model": "decision_tree",
+      "filename": "ieee_9bus__decision_tree.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__decision_tree.skops",
+      "sha256": "3c49e1c11c03dfdcbb70da3732252a144f6ce7e6e12a5ceff8f2027ad7de220a",
+      "test_accuracy": 0.986,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__dummy": {
+      "system": "ieee_9bus",
+      "model": "dummy",
+      "filename": "ieee_9bus__dummy.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__dummy.skops",
+      "sha256": "f2e4404d49cc730aae9a9d0f8fce70fd9da1d85a629300dc5a5bbf2e9e0004c0",
+      "test_accuracy": 0.72,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__extra_trees": {
+      "system": "ieee_9bus",
+      "model": "extra_trees",
+      "filename": "ieee_9bus__extra_trees.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__extra_trees.skops",
+      "sha256": "0aa3d373c735f213a579b07dd1ca4f9f484f405aedfe51c1fa99cb285fc1ed6b",
+      "test_accuracy": 0.989,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__gaussian_nb": {
+      "system": "ieee_9bus",
+      "model": "gaussian_nb",
+      "filename": "ieee_9bus__gaussian_nb.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__gaussian_nb.skops",
+      "sha256": "bb163c54ce5131de356e01c1ecf77ac9102c9e09805b065437de7c3108794526",
+      "test_accuracy": 0.911,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__gaussian_process": {
+      "system": "ieee_9bus",
+      "model": "gaussian_process",
+      "filename": "ieee_9bus__gaussian_process.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__gaussian_process.skops",
+      "sha256": "b27ca82b24f94271a206b3beb2aa1cb14d63a11d722bef7f7cd8df042687fbe1",
+      "test_accuracy": 0.978,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__gradient_boosting": {
+      "system": "ieee_9bus",
+      "model": "gradient_boosting",
+      "filename": "ieee_9bus__gradient_boosting.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__gradient_boosting.skops",
+      "sha256": "ea5dbdd7f54e79b90ff9da5942a14696790304709f2ad172d5487d664b5590e7",
+      "test_accuracy": 0.988,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__knn": {
+      "system": "ieee_9bus",
+      "model": "knn",
+      "filename": "ieee_9bus__knn.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__knn.skops",
+      "sha256": "39278a78b96a09a089454b1d7138c70ce9bfbe78ac52718f93c3847fe4c58b81",
+      "test_accuracy": 0.981,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__lda": {
+      "system": "ieee_9bus",
+      "model": "lda",
+      "filename": "ieee_9bus__lda.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__lda.skops",
+      "sha256": "92a96251045745e6feca81f362ca9ea0dedba6edabf622787e09e114134b41c9",
+      "test_accuracy": 0.958,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__lightgbm": {
+      "system": "ieee_9bus",
+      "model": "lightgbm",
+      "filename": "ieee_9bus__lightgbm.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__lightgbm.skops",
+      "sha256": "0e938e80fcaf82e6a4533af2c08fec545a8f3079e598c59abf1443851767f316",
+      "test_accuracy": 0.991,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__logistic_regression": {
+      "system": "ieee_9bus",
+      "model": "logistic_regression",
+      "filename": "ieee_9bus__logistic_regression.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__logistic_regression.skops",
+      "sha256": "2b39541d457776f8c979d09179a9a5ed8ee37341c25f841c6b28eef54b4d1673",
+      "test_accuracy": 0.97,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__mlp": {
+      "system": "ieee_9bus",
+      "model": "mlp",
+      "filename": "ieee_9bus__mlp.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__mlp.skops",
+      "sha256": "6d771bbc10fd1f03ffa8d3ff64cd3b7785171b4366aa140e59f9af47f38252d3",
+      "test_accuracy": 0.99,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__qda": {
+      "system": "ieee_9bus",
+      "model": "qda",
+      "filename": "ieee_9bus__qda.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__qda.skops",
+      "sha256": "e4265b3f89d39ecb862261836b82928fc439583f780846f2f02d0c4e67e32791",
+      "test_accuracy": 0.928,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__random_forest": {
+      "system": "ieee_9bus",
+      "model": "random_forest",
+      "filename": "ieee_9bus__random_forest.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__random_forest.skops",
+      "sha256": "aa08dc9cfb12c794b44f24d5c2122fd026e1a99a63256c040c9947728cd3c493",
+      "test_accuracy": 0.988,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__ridge": {
+      "system": "ieee_9bus",
+      "model": "ridge",
+      "filename": "ieee_9bus__ridge.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__ridge.skops",
+      "sha256": "989326911c583a7a372af63990d67c85a9f432e22fbe5a09851e8535dbd77977",
+      "test_accuracy": 0.946,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__sgd": {
+      "system": "ieee_9bus",
+      "model": "sgd",
+      "filename": "ieee_9bus__sgd.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__sgd.skops",
+      "sha256": "9a8297fce52763f33b33c7484a677e085b6ce6d04069e696111e742bd425e8d3",
+      "test_accuracy": 0.972,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__svm": {
+      "system": "ieee_9bus",
+      "model": "svm",
+      "filename": "ieee_9bus__svm.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__svm.skops",
+      "sha256": "cc85125305d00d570223f7a2614e0f13f703b12852b79f020251e01d43a7c94b",
+      "test_accuracy": 0.969,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    },
+    "ieee_9bus__xgboost": {
+      "system": "ieee_9bus",
+      "model": "xgboost",
+      "filename": "ieee_9bus__xgboost.skops",
+      "url": "https://github.com/mahmouddraz/tranpy/releases/download/data-v1/ieee_9bus__xgboost.skops",
+      "sha256": "63a5a287ee0f1b2b97b461ca2536f82bb8eccdb670192e86daf28e610945f481",
+      "test_accuracy": 0.991,
+      "split_seed": 42,
+      "model_seed": 0,
+      "release": "data-v1"
+    }
+  }
 }

@@ -88,23 +88,21 @@ def _resource_path(filename: str) -> Path:
 
 
 def list_datasets() -> pd.DataFrame:
-    """Available datasets with their size and whether they are bundled."""
-    rows = []
-    for kind, entries in (
-        ("snapshots", data_registry()["snapshots"]),
-        ("events", data_registry()["events"]),
-    ):
-        for key, entry in entries.items():
-            rows.append(
-                {
-                    "system": key,
-                    "kind": kind,
-                    "n_samples": entry.get("n_samples"),
-                    "bundled": entry.get("bundled", False),
-                    "download_url": entry.get("url"),
-                    "filename": entry["filename"],
-                }
-            )
+    """Available datasets: bundled snapshots and the published (sharded) event sets."""
+    registry = data_registry()
+    rows = [
+        {"system": key, "kind": "snapshots", "n_samples": e["n_samples"], "location": "bundled"}
+        for key, e in registry["snapshots"].items()
+    ]
+    rows += [
+        {
+            "system": key,
+            "kind": "events",
+            "n_samples": e["n_samples"],
+            "location": e.get("manifest_url"),
+        }
+        for key, e in registry["events"].items()
+    ]
     return pd.DataFrame(rows)
 
 
@@ -135,36 +133,27 @@ def load_events(
     source: str | Path | None = None,
     channels: Sequence[str] | None = None,
     include_label_channels: bool = False,
-    cache_directory: Path | None = None,
 ) -> SignalDataset:
     """Event trajectories of ``system``.
 
     Args:
         system: system key or legacy name.
         source: a ``.npz`` file written by :func:`tranpy_core.data.save_signals`, or a folder
-            of PowerFactory result CSVs (``results_event_<id>.csv``). If omitted, the
-            registered release file is downloaded to the user cache and verified.
+            of PowerFactory result CSVs (``results_event_<id>.csv``). The published full
+            sets are sharded; open them with :func:`open_event_shards` instead.
         channels: shell-style patterns of channels to keep (default: all).
         include_label_channels: keep the out-of-step flags. They *define* the label, so they
             are dropped by default to keep them out of any feature set.
-        cache_directory: download directory (default: user cache, see ``TRANPY_CACHE_DIR``).
     """
     spec = get_system(system)
     if source is None:
-        entry = data_registry()["events"][spec.key]
-        if not entry.get("url") or not entry.get("sha256"):
-            raise DataError(
-                f"the {spec.key} event dataset has no registered download yet. Pass "
-                "source=<folder of results_event_*.csv> or a converted .npz file."
-            )
-        path = fetch(
-            RemoteFile(filename=entry["filename"], url=entry["url"], sha256=entry["sha256"]),
-            directory=cache_directory,
+        n = data_registry()["events"][spec.key]["n_samples"]
+        raise DataError(
+            f"the full {spec.key} event set ({n} events) is sharded; stream it with "
+            "tranpy.open_event_shards() or pass source=<.npz file or CSV folder>"
         )
-        dataset = load_signals(path)
-    else:
-        src = Path(source)
-        dataset = read_event_csvs(src, spec) if src.is_dir() else load_signals(src)
+    src = Path(source)
+    dataset = read_event_csvs(src, spec) if src.is_dir() else load_signals(src)
     if dataset.metadata.get("system") not in (None, spec.key):
         raise DataError(
             f"{source} holds data of system {dataset.metadata.get('system')!r}, not {spec.key!r}"
