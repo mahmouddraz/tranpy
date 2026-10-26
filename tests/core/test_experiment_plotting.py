@@ -94,3 +94,11 @@ def test_plotting(tmp_path: Path) -> None:
         fig3, ax = plt.subplots()
         assert plot_importance(["a"], [1.0], ax=ax) is fig3
     plt.close("all")
+
+
+def test_summary_frame(toy: TabularDataset) -> None:
+    spec = ExperimentSpec(name="s", models=(ModelConfig("logistic_regression"),), cv_folds=2)
+    frame = run_experiment(spec, toy).summary_frame()
+    assert list(frame.index) == ["logistic_regression"]
+    assert {"accuracy_mean", "test_accuracy", "test_roc_auc", "fit_time_s"} <= set(frame.columns)
+    assert "test_confusion_matrix" not in frame.columns

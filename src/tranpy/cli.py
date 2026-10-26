@@ -10,7 +10,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
-from tranpy.datasets import list_datasets, load_snapshots, read_event_csvs
+from tranpy.datasets import list_datasets, load_snapshots, read_event_csvs, write_event_shards
 from tranpy.pretrained import train_pretrained
 from tranpy.simulation import MockEngine, ScenarioSampler, generate_events
 from tranpy_core.config import load_yaml
@@ -50,6 +50,13 @@ def _convert_events(args: argparse.Namespace) -> None:
     print(f"written {path} sha256={sha256_file(path)}")
 
 
+def _build_shards(args: argparse.Namespace) -> None:
+    manifest = write_event_shards(
+        args.csv_dir, args.system, args.output, shard_size=args.shard_size
+    )
+    print(f"{args.output}: {len(manifest.shards)} shards, {manifest.n_samples} events")
+
+
 def _simulate(args: argparse.Namespace) -> None:
     engine = MockEngine(args.system, simulation_time_s=args.duration)
     sampler = ScenarioSampler(
@@ -87,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("system")
     p.add_argument("output", type=Path)
     p.set_defaults(func=_convert_events)
+
+    p = sub.add_parser("build-shards", help="convert PowerFactory CSVs to a sharded dataset")
+    p.add_argument("csv_dir", type=Path)
+    p.add_argument("system")
+    p.add_argument("output", type=Path, help="output folder (manifest.json + shards)")
+    p.add_argument("--shard-size", type=int, default=250)
+    p.set_defaults(func=_build_shards)
 
     p = sub.add_parser("simulate", help="generate an event dataset with the mock engine")
     p.add_argument("system")

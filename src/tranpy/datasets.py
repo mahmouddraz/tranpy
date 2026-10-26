@@ -31,6 +31,8 @@ from tranpy.systems import PowerSystem, get_system
 from tranpy.vocabulary import LABEL_NAMES, ElementKind, Stability, Variable, element_kind
 from tranpy_core.data import (
     RemoteFile,
+    ShardManifest,
+    ShardWriter,
     SignalDataset,
     TabularDataset,
     fetch,
@@ -44,14 +46,17 @@ from tranpy_core.features import segments as seg
 __all__ = [
     "data_registry",
     "detect_fault_timing",
+    "event_csv_ids",
     "flatten_powerfactory_column",
     "list_datasets",
     "load_events",
     "load_ieee_9bus",
     "load_new_england",
     "load_snapshots",
+    "open_event_shards",
     "read_event_csvs",
     "stability_labels",
+    "write_event_shards",
 ]
 
 logger = logging.getLogger(__name__)
@@ -61,7 +66,8 @@ FAULT_START = "fault_start_s"
 FAULT_CLEAR = "fault_clear_s"
 """Annotation: detected fault clearing time (first voltage recovery after the dip)."""
 
-_LABEL_CHANNELS = (f"*|{Variable.OUT_OF_STEP.value}",)
+LABEL_CHANNELS: tuple[str, ...] = (f"*|{Variable.OUT_OF_STEP.value}",)
+"""Channels that define the stability label (never use them as model input)."""
 _EVENT_FILE = re.compile(r"^results_event_(\d+)\.csv$")
 _ELEMENT_SUFFIXES = (".ElmSym", ".ElmTerm", ".ElmLne", ".ElmLod", ".ElmTr2", ".ElmRes")
 
@@ -163,11 +169,90 @@ def load_events(
         raise DataError(
             f"{source} holds data of system {dataset.metadata.get('system')!r}, not {spec.key!r}"
         )
-    if not include_label_channels and dataset.channel_index(_LABEL_CHANNELS).size:
-        dataset = dataset.drop_channels(_LABEL_CHANNELS)
+    if not include_label_channels and dataset.channel_index(LABEL_CHANNELS).size:
+        dataset = dataset.drop_channels(LABEL_CHANNELS)
     if channels is not None:
         dataset = dataset.select_channels(channels)
     return dataset
+
+
+def event_csv_ids(directory: str | Path) -> list[int]:
+    """Event ids of the ``results_event_<id>.csv`` files in ``directory``, sorted."""
+    return sorted(
+        int(m.group(1)) for p in Path(directory).iterdir() if (m := _EVENT_FILE.match(p.name))
+    )
+
+
+def write_event_shards(
+    directory: str | Path,
+    system: str | PowerSystem,
+    out_dir: str | Path,
+    *,
+    shard_size: int = 250,
+    event_ids: Sequence[int] | None = None,
+) -> ShardManifest:
+    """Convert a folder of PowerFactory CSVs into a sharded dataset, one shard at a time.
+
+    Memory use is bounded by one shard. Resumable: events already in ``out_dir`` are skipped.
+    """
+    spec = get_system(system)
+    writer = ShardWriter(
+        out_dir,
+        name=f"{spec.key}_events",
+        shard_size=shard_size,
+        metadata={"system": spec.key, "source": "PowerFactory RMS simulation (CSV export)"},
+    )
+    done = writer.done_sample_ids()
+    todo = [
+        i
+        for i in (event_ids if event_ids is not None else event_csv_ids(directory))
+        if i not in done
+    ]
+    for start in range(0, len(todo), shard_size):
+        writer.add(read_event_csvs(directory, spec, event_ids=todo[start : start + shard_size]))
+    return writer.close()
+
+
+def open_event_shards(
+    system: str | PowerSystem,
+    *,
+    source: str | Path | None = None,
+    cache_directory: Path | None = None,
+) -> ShardManifest:
+    """Manifest of a sharded event dataset (for datasets too large to load at once).
+
+    Args:
+        system: system key or legacy name.
+        source: a ``manifest.json`` or the folder containing it. If omitted, the manifest
+            registered for ``system`` is downloaded and verified; its shards are then
+            streamed on demand (see :func:`tranpy_core.data.iter_shards`).
+        cache_directory: download directory for the manifest.
+    """
+    spec = get_system(system)
+    if source is None:
+        entry = data_registry()["events"][spec.key]
+        if not entry.get("manifest_url") or not entry.get("manifest_sha256"):
+            raise DataError(
+                f"no sharded event dataset is registered for {spec.key!r}; pass source=<manifest>"
+            )
+        path = fetch(
+            RemoteFile(
+                filename=f"{spec.key}_events_manifest.json",
+                url=entry["manifest_url"],
+                sha256=entry["manifest_sha256"],
+            ),
+            directory=cache_directory,
+        )
+        manifest = ShardManifest.load(path)
+        manifest = ShardManifest.from_dict(manifest.to_dict())  # remote: no local folder
+    else:
+        src = Path(source)
+        manifest = ShardManifest.load(src / "manifest.json" if src.is_dir() else src)
+    if manifest.metadata.get("system") not in (None, spec.key):
+        raise DataError(
+            f"{source} holds data of system {manifest.metadata.get('system')!r}, not {spec.key!r}"
+        )
+    return manifest
 
 
 def flatten_powerfactory_column(column: Any) -> str:

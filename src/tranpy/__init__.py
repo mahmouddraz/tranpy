@@ -12,6 +12,7 @@ from tranpy.datasets import (
     load_ieee_9bus,
     load_new_england,
     load_snapshots,
+    open_event_shards,
 )
 from tranpy.features import TrajectoryFeatures
 from tranpy.systems import IEEE_9BUS, NEW_ENGLAND, PowerSystem, get_system
@@ -36,4 +37,5 @@ __all__ = [
     "load_ieee_9bus",
     "load_new_england",
     "load_snapshots",
+    "open_event_shards",
 ]

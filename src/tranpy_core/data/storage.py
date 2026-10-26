@@ -125,8 +125,45 @@ def load_tabular(path: str | Path) -> TabularDataset:
     )
 
 
-def save_signals(dataset: SignalDataset, path: str | Path) -> Path:
-    """Write ``dataset`` to ``path`` (``.npz``)."""
+def _encode_decimal(values: np.ndarray, max_decimals: int = 9) -> tuple[np.ndarray, int] | None:
+    """Exact scaled-integer encoding of values that are decimals with few digits.
+
+    Returns byte-shuffled first differences (channel-major) of ``round(values * 10**d)``
+    for the smallest ``d`` that reproduces every value bit for bit, or None. Decoding
+    divides exact integers by an exact power of ten, which is correctly rounded and
+    therefore identical to parsing the original decimal text.
+    """
+    if values.size == 0 or not np.isfinite(values).all():
+        return None
+    for decimals in range(max_decimals + 1):
+        scale = 10.0**decimals
+        scaled = np.round(values * scale)
+        if np.abs(scaled).max() >= 2.0**53:
+            return None
+        if np.array_equal(scaled / scale, values):
+            ints = np.ascontiguousarray(scaled.astype(np.int64).T)
+            delta = np.diff(ints, axis=1, prepend=np.zeros((ints.shape[0], 1), dtype=np.int64))
+            shuffled = np.ascontiguousarray(delta.reshape(-1).view(np.uint8).reshape(-1, 8).T)
+            return shuffled, decimals
+    return None
+
+
+def _decode_decimal(shuffled: np.ndarray, decimals: int, shape: tuple[int, int]) -> np.ndarray:
+    n_rows, n_channels = shape
+    delta = np.ascontiguousarray(shuffled.T).view(np.int64).reshape(n_channels, n_rows)
+    ints = np.cumsum(delta, axis=1)
+    return np.ascontiguousarray((ints / 10.0**decimals).T)
+
+
+def save_signals(dataset: SignalDataset, path: str | Path, *, compact: bool = True) -> Path:
+    """Write ``dataset`` to ``path`` (``.npz``).
+
+    With ``compact`` (default), values that are decimals with at most 9 digits after the
+    point (e.g. parsed from CSV exports) are stored as byte-shuffled integer differences,
+    typically 2 to 3 times smaller and bit-for-bit identical on reading. Other data are
+    stored as plain float64.
+    """
+    encoded = _encode_decimal(dataset.values) if compact else None
     header = {
         "kind": "signals",
         "format_version": FORMAT_VERSION,
@@ -136,11 +173,20 @@ def save_signals(dataset: SignalDataset, path: str | Path) -> Path:
         "label_names": list(dataset.label_names),
         "time_unit": dataset.time_unit,
         "metadata": dict(dataset.metadata),
+        "values_encoding": (
+            {"kind": "float64"}
+            if encoded is None
+            else {
+                "kind": "decimal_delta",
+                "decimals": encoded[1],
+                "shape": list(dataset.values.shape),
+            }
+        ),
     }
     assert dataset.sample_ids is not None
     arrays = {
         "time": dataset.time,
-        "values": dataset.values,
+        "values": dataset.values if encoded is None else encoded[0],
         "offsets": dataset.offsets,
         "labels": dataset.labels,
         "sample_ids": dataset.sample_ids,
@@ -157,9 +203,18 @@ def load_signals(path: str | Path) -> SignalDataset:
         for k, v in arrays.items()
         if k.startswith(_ANNOTATION_PREFIX)
     }
+    encoding = header.get("values_encoding", {"kind": "float64"})
+    if encoding["kind"] == "decimal_delta":
+        values = _decode_decimal(
+            arrays["values"], int(encoding["decimals"]), tuple(encoding["shape"])
+        )
+    elif encoding["kind"] == "float64":
+        values = arrays["values"]
+    else:
+        raise DataError(f"{path}: unknown values encoding {encoding['kind']!r}")
     return SignalDataset(
         time=arrays["time"],
-        values=arrays["values"],
+        values=values,
         offsets=arrays["offsets"],
         labels=arrays["labels"],
         sample_ids=arrays["sample_ids"],
