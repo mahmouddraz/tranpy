@@ -94,5 +94,5 @@ when events are loaded.
 
 ## Data hosting
 
-See [data.md](data.md): bundled snapshots, sharded event datasets streamed from Zenodo,
+See [data.md](data.md): bundled snapshots, sharded event datasets streamed from GitHub release assets,
 lossless compact storage, checksums everywhere.

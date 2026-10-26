@@ -25,6 +25,7 @@ htmlcov/
 
 # Generated outputs (notebooks and CLI write here)
 outputs/
+release/
 examples/outputs/
 
 # Local data that must not be committed: legacy pickles, raw exports, downloads

@@ -10,8 +10,8 @@ repository or has to live on a user's disk, and analyses stream the data.
 |---|---|---|---|
 | Snapshots, 9-bus and 39-bus | 5,000 events each, one feature vector per event | 3 MB | bundled with the package |
 | Events, 500 per system | full trajectories of all recorded variables | about 100 MB per system (compact) | converted from the recorded CSVs |
-| Events, full sets | 10,000 (9-bus) and 8,000 (39-bus) events | about 2 GB per system (compact) | sharded; to be published on Zenodo |
-| Pretrained pipelines | 18 models x 2 systems, skops format | 277 MB | to be published on Zenodo |
+| Events, full sets | 10,000 (9-bus) and 8,000 (39-bus) events | about 2 GB per system (compact) | sharded; GitHub release assets |
+| Pretrained pipelines | 18 models x 2 systems, skops format | 277 MB | GitHub release assets |
 
 The original PowerFactory CSV exports total about 19 GB. They are the raw archive and are
 not needed for analysis once converted.
@@ -41,7 +41,7 @@ Large datasets are split into shards of 250 events (about 50 MB each) and descri
 ```text
 {"manifest_version": 1, "name": "ieee_9bus_events",
  "channel_names": [...], "label_names": ["stable", "unstable"],
- "base_url": "https://zenodo.org/records/<id>/files",
+ "base_url": null,
  "metadata": {"system": "ieee_9bus", "label_counts": {...}},
  "shards": [{"filename": "ieee_9bus_events-00000.npz", "sha256": "...",
              "n_samples": 250, "sample_ids": [0, 249], "url": "..."}]}
@@ -59,17 +59,31 @@ Large datasets are split into shards of 250 events (about 50 MB each) and descri
 
 ## Hosting
 
-**Zenodo** (CERN) is the recommended host: free, DOI per version, files immutable once
-published, 50 GB per record, direct per-file download URLs (needed for shard streaming).
-One record per system and dataset version; a new simulation campaign is a new version.
+Code lives in the GitHub repository; data and pretrained models are **assets of GitHub
+releases** of the same repository (tag `data-v1`, `data-v2`, ...), the same approach as
+many scientific Python packages (SciPy, scikit-image and others fetch data the same way).
+Assets may be up to 2 GB each (shards are about 50 MB) with no practical limit on total
+size or downloads, and their URLs are predictable:
+`https://github.com/mahmouddraz/tranpy/releases/download/<tag>/<file>`.
 
-`scripts/publish_zenodo.py FOLDER SYSTEM --title ...` (token in `ZENODO_TOKEN`) creates a
-draft, writes the reserved record's URLs into the manifest, uploads shards and manifest and
-registers the manifest URL and checksum in `src/tranpy/resources/registry.json`. The record
-is public only after pressing Publish on zenodo.org. Test with `--sandbox` first.
+Files are never committed to git (the repository stays small) and Google Drive is no
+longer used (quota limits, HTML interstitials, no stable direct links).
 
-After publishing, `tranpy.open_event_shards("ieee_9bus")` works for anyone without
-local data.
+Publishing a release:
+
+```bash
+python scripts/publish_github_release.py prepare data-v1 \
+    --events ieee_9bus=shards/ieee_9bus new_england=shards/new_england \
+    --pretrained pretrained/
+gh release create data-v1 --repo mahmouddraz/tranpy --title "Data data-v1" --notes-file release/NOTES.md
+gh release upload data-v1 --repo mahmouddraz/tranpy release/*.npz release/*.json release/*.skops
+```
+
+`prepare` writes the final URLs into the manifests and the URLs and SHA-256 checksums into
+`src/tranpy/resources/registry.json`; commit that file with the release. Afterwards
+`tranpy.open_event_shards("ieee_9bus")` and `load_pretrained(...)` work for anyone without
+local data. A new simulation campaign gets a new tag; old tags stay, so earlier results
+remain reproducible.
 
 ## Workflows
 
@@ -85,7 +99,7 @@ python scripts/migrate_drive_events.py ieee_9bus INDEX_JSON shards/ieee_9bus
 import tranpy
 from tranpy.early_prediction import extract_window_tables, evaluate_window_tables
 
-events = tranpy.open_event_shards("ieee_9bus", source="shards/ieee_9bus")  # or no source: Zenodo
+events = tranpy.open_event_shards("ieee_9bus", source="shards/ieee_9bus")  # no source: release
 tables = extract_window_tables(events, reference="fault_start", windows_s=(0.1, 0.2, 0.4),
                                sequences=True, cache_directory="cache/tables")
 results = evaluate_window_tables(tables, feature_models, sequence_models=networks, n_repeats=3)
