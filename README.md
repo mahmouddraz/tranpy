@@ -84,9 +84,10 @@ experiment:
 
 ## Data
 
-The snapshot datasets are bundled. Event trajectories (about 300 MB per system) load
-from a folder of PowerFactory result CSVs or from a converted `.npz`; once published, they
-are downloaded on first use, verified by SHA-256 and cached (`TRANPY_CACHE_DIR`).
+The snapshot datasets are bundled. Event trajectories are stored losslessly in a compact
+format and, for the full sets (10,000 and 8,000 events), as checksum-verified shards that
+are streamed from the host one at a time, so no large download is needed. Details:
+[docs/data.md](docs/data.md).
 
 ## Development
 
@@ -102,7 +103,7 @@ uv run mypy                        # strict
 model on every bundled dataset. If a change is intended, run
 `uv run python -m tests.update_snapshot` and give the reason in the commit message.
 
-Documentation: [architecture](docs/architecture.md), [validation](docs/validation.md),
+Documentation: [architecture](docs/architecture.md), [data](docs/data.md), [validation](docs/validation.md),
 [agent guide](AGENTS.md).
 
 ## License

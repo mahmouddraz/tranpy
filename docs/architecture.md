@@ -94,7 +94,5 @@ when events are loaded.
 
 ## Data hosting
 
-Bundled: the two snapshot datasets (3 MB). Downloaded on demand, verified by SHA-256 and
-cached in the user cache directory (`TRANPY_CACHE_DIR` overrides): event datasets and
-pretrained models, once their URLs are filled in the registry. Recommended host: Zenodo
-(DOI, immutable versions); GitHub Releases also works. Google Drive is no longer used.
+See [data.md](data.md): bundled snapshots, sharded event datasets streamed from Zenodo,
+lossless compact storage, checksums everywhere.

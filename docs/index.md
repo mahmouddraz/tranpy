@@ -11,6 +11,7 @@ Machine learning for power-system transient stability.
 :maxdepth: 2
 
 architecture
+data
 validation
 api
 ```
