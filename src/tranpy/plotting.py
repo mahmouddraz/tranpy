@@ -96,15 +96,24 @@ def plot_trajectories(
 
 
 def plot_early_prediction(
-    results: pd.DataFrame, *, metric: str = "accuracy", ax: Any = None, title: str | None = None
+    results: pd.DataFrame,
+    *,
+    metric: str = "accuracy",
+    band: str = "std",
+    ax: Any = None,
+    title: str | None = None,
 ) -> Any:
-    """Cross-validated ``metric`` (mean ± std) versus observation window, one line per model."""
+    """Cross-validated ``metric`` versus observation window, one line per model.
+
+    ``band`` selects the shaded region: ``"std"`` (fold standard deviation) or ``"ci95"``
+    (corrected 95 % confidence interval, needs repeated cross-validation).
+    """
     return plot_metric_curves(
         results,
         x="window_s",
         y=f"{metric}_mean",
         group="model",
-        band=f"{metric}_std",
+        band=f"{metric}_{band}",
         ax=ax,
         xlabel="observation window (s)",
         ylabel=metric.replace("_", " "),
