@@ -1,0 +1,17 @@
+cff-version: 1.2.0
+message: "If you use TranPy or its datasets, please cite it as below."
+title: "TranPy: machine learning for power-system transient stability"
+type: software
+authors:
+  - family-names: Draz
+    given-names: Mahmoud
+    email: m.draz@tu-berlin.de
+    affiliation: Technische Universität Berlin
+repository-code: "https://github.com/mahmouddraz/tranpy"
+license: MIT
+version: 0.2.0.dev0
+keywords:
+  - power systems
+  - transient stability
+  - machine learning
+  - explainability
