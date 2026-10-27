@@ -11,6 +11,7 @@ The values were verified to be identical to the bug-fixed reference implementati
 from __future__ import annotations
 
 import json
+import platform
 import sys
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,11 @@ from tranpy_core.models import available_models, get_model_spec, make_pipeline
 SNAPSHOT = Path(__file__).parent / "snapshots" / "metrics.json"
 SYSTEMS = ("new_england", "ieee_9bus")
 SPLIT_SEED, MODEL_SEED = 42, 0
+
+
+def current_platform() -> str:
+    """Platform tag: results are bit-exact only on the platform they were recorded on."""
+    return f"{sys.platform}-{platform.machine()}"
 
 
 def snapshot_models() -> list[str]:
@@ -54,6 +60,7 @@ def main() -> None:
         "split_seed": SPLIT_SEED,
         "model_seed": MODEL_SEED,
         "scikit_learn": sklearn.__version__,
+        "platform": current_platform(),
         "metrics": compute(),
     }
     SNAPSHOT.parent.mkdir(parents=True, exist_ok=True)

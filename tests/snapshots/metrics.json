@@ -722,6 +722,7 @@
   }
  },
  "model_seed": 0,
+ "platform": "darwin-arm64",
  "scikit_learn": "1.9.1",
  "split_seed": 42
 }
