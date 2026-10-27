@@ -1,0 +1,391 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.simulation.engine &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.simulation.engine</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.simulation.engine</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Simulation interface: fault scenarios in, trajectories out.</span>
+
+<span class="sd">Every engine (the always-available :class:`~tranpy.simulation.mock.MockEngine` and the</span>
+<span class="sd">optional :class:`~tranpy.simulation.powerfactory.PowerFactoryEngine`) implements</span>
+<span class="sd">:class:`SimulationEngine`. Dataset generation (:func:`generate_events`) depends only on</span>
+<span class="sd">this interface. Because a simulation knows its own event times exactly, generated</span>
+<span class="sd">datasets carry the *true* fault start and clearing times as annotations.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Protocol</span><span class="p">,</span> <span class="n">runtime_checkable</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">FAULT_CLEAR</span><span class="p">,</span> <span class="n">FAULT_START</span><span class="p">,</span> <span class="n">stability_labels</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">PowerSystem</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.vocabulary</span><span class="w"> </span><span class="kn">import</span> <span class="n">LABEL_NAMES</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">SignalDataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigurationError</span><span class="p">,</span> <span class="n">SimulationError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.random</span><span class="w"> </span><span class="kn">import</span> <span class="n">Seed</span><span class="p">,</span> <span class="n">make_rng</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"FaultScenario"</span><span class="p">,</span>
+    <span class="s2">"ScenarioSampler"</span><span class="p">,</span>
+    <span class="s2">"SimulationEngine"</span><span class="p">,</span>
+    <span class="s2">"SimulationResult"</span><span class="p">,</span>
+    <span class="s2">"generate_events"</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="FaultScenario">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.engine.FaultScenario">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">FaultScenario</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""One contingency: a short circuit on a line, cleared by opening that line.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        scenario_id: identifier, becomes the sample id of the generated event.</span>
+<span class="sd">        fault_line: index of the faulted line in the engine's line list.</span>
+<span class="sd">        fault_start_s: fault inception time.</span>
+<span class="sd">        clearing_duration_s: time from inception until the faulted line is opened.</span>
+<span class="sd">        fault_resistance_ohm: fault resistance.</span>
+<span class="sd">        fault_reactance_ohm: fault reactance.</span>
+<span class="sd">        load_index: index of the load whose demand changes at t = 0.</span>
+<span class="sd">        load_change_pct: step change of that load in percent of its demand.</span>
+<span class="sd">        trip_line: index of a line tripped ``trip_delay_s`` after clearing, or None.</span>
+<span class="sd">        trip_delay_s: delay of the additional line trip.</span>
+<span class="sd">        operating_point: system loading relative to the base case. Supported by the mock</span>
+<span class="sd">            engine; the PowerFactory engine currently requires 1.0.</span>
+<span class="sd">    """</span>
+
+    <span class="n">scenario_id</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">fault_line</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">fault_start_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">clearing_duration_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">fault_resistance_ohm</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>
+    <span class="n">fault_reactance_ohm</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>
+    <span class="n">load_index</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">load_change_pct</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.0</span>
+    <span class="n">trip_line</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">trip_delay_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.08</span>
+    <span class="n">operating_point</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">problems</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">operating_point</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"operating_point must be &gt; 0, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">operating_point</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_line</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"fault_line must be &gt;= 0, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fault_line</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_start_s</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"fault_start_s must be &gt;= 0, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fault_start_s</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">clearing_duration_s</span> <span class="o">&lt;=</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"clearing_duration_s must be &gt; 0, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">clearing_duration_s</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_resistance_ohm</span> <span class="o">&lt;</span> <span class="mi">0</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_reactance_ohm</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"fault impedance must be non-negative"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">trip_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="bp">self</span><span class="o">.</span><span class="n">trip_line</span> <span class="o">==</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_line</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"trip_line must differ from fault_line"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">problems</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"invalid scenario </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scenario_id</span><span class="si">}</span><span class="s2">:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">problems</span><span class="p">))</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">fault_clear_s</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_start_s</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">clearing_duration_s</span></div>
+
+
+
+<div class="viewcode-block" id="ScenarioSampler">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.engine.ScenarioSampler">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ScenarioSampler</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Draws random scenarios for an engine's network.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        n_lines: number of lines that can be faulted.</span>
+<span class="sd">        n_loads: number of loads that can change.</span>
+<span class="sd">        simulation_time_s: simulated duration; faults start in</span>
+<span class="sd">            ``fault_start_fraction`` of it.</span>
+<span class="sd">        clearing_cycles: fault duration in cycles of the nominal frequency.</span>
+<span class="sd">        nominal_frequency_hz: converts cycles to seconds.</span>
+<span class="sd">        max_load_change_pct: load changes are integers in [-max, +max] percent.</span>
+<span class="sd">        fault_start_fraction: interval of the fault start as a fraction of the duration.</span>
+<span class="sd">        trip_adjacent_line: also trip the next line in the list after clearing.</span>
+<span class="sd">        fault_resistance_ohm: (low, high) uniform range.</span>
+<span class="sd">        fault_reactance_ohm: (low, high) uniform range.</span>
+<span class="sd">        operating_point: (low, high) uniform range of the system loading.</span>
+<span class="sd">    """</span>
+
+    <span class="n">n_lines</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">n_loads</span><span class="p">:</span> <span class="nb">int</span>
+    <span class="n">simulation_time_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span>
+    <span class="n">clearing_cycles</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span>
+    <span class="n">nominal_frequency_hz</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">50.0</span>
+    <span class="n">max_load_change_pct</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">60</span>
+    <span class="n">fault_start_fraction</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="mf">0.5</span><span class="p">)</span>
+    <span class="n">trip_adjacent_line</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="n">fault_resistance_ohm</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">)</span>
+    <span class="n">fault_reactance_ohm</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">0.01</span><span class="p">,</span> <span class="mf">0.01</span><span class="p">)</span>
+    <span class="n">operating_point</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">problems</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_lines</span> <span class="o">&lt;</span> <span class="mi">1</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">trip_adjacent_line</span><span class="p">):</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"not enough lines"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_loads</span> <span class="o">&lt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"at least one load is required"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">clearing_cycles</span> <span class="o">&lt;=</span> <span class="mi">0</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">nominal_frequency_hz</span> <span class="o">&lt;=</span> <span class="mi">0</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulation_time_s</span> <span class="o">&lt;=</span> <span class="mi">0</span>
+        <span class="p">):</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="s2">"clearing_cycles, nominal_frequency_hz and simulation_time_s must be &gt; 0"</span>
+            <span class="p">)</span>
+        <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_start_fraction</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="mf">0.0</span> <span class="o">&lt;=</span> <span class="n">lo</span> <span class="o">&lt;=</span> <span class="n">hi</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="s2">"fault_start_fraction must satisfy 0 &lt;= low &lt;= high &lt; 1, "</span>
+                <span class="sa">f</span><span class="s2">"got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">fault_start_fraction</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="mf">0.0</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">operating_point</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">operating_point</span><span class="p">[</span><span class="mi">1</span><span class="p">]:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"operating_point must satisfy 0 &lt; low &lt;= high, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">operating_point</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"fault_resistance_ohm"</span><span class="p">,</span> <span class="s2">"fault_reactance_ohm"</span><span class="p">):</span>
+            <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span>
+            <span class="k">if</span> <span class="ow">not</span> <span class="mf">0.0</span> <span class="o">&lt;=</span> <span class="n">a</span> <span class="o">&lt;=</span> <span class="n">b</span><span class="p">:</span>
+                <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2"> must satisfy 0 &lt;= low &lt;= high, got </span><span class="si">{</span><span class="p">(</span><span class="n">a</span><span class="p">,</span><span class="w"> </span><span class="n">b</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_load_change_pct</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"max_load_change_pct must be &gt;= 0"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">problems</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"invalid scenario sampler:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">problems</span><span class="p">))</span>
+
+<div class="viewcode-block" id="ScenarioSampler.sample">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.engine.ScenarioSampler.sample">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">sample</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">n</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">seed</span><span class="p">:</span> <span class="n">Seed</span><span class="p">,</span> <span class="n">first_id</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">0</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FaultScenario</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Draw ``n`` scenarios (vectorised, reproducible for a given seed)."""</span>
+        <span class="n">rng</span> <span class="o">=</span> <span class="n">make_rng</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+        <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault_start_fraction</span>
+        <span class="n">lines</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_lines</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">starts</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="n">lo</span><span class="p">,</span> <span class="n">hi</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulation_time_s</span>
+        <span class="n">loads</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_loads</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">changes</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span>
+            <span class="o">-</span><span class="bp">self</span><span class="o">.</span><span class="n">max_load_change_pct</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">max_load_change_pct</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">,</span> <span class="n">endpoint</span><span class="o">=</span><span class="kc">True</span>
+        <span class="p">)</span>
+        <span class="n">r_f</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">fault_resistance_ohm</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">x_f</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">fault_reactance_ohm</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">loading</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="o">*</span><span class="bp">self</span><span class="o">.</span><span class="n">operating_point</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n</span><span class="p">)</span>
+        <span class="n">duration</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">clearing_cycles</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">nominal_frequency_hz</span>
+        <span class="n">out</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">trip</span> <span class="o">=</span> <span class="kc">None</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">trip_adjacent_line</span><span class="p">:</span>
+                <span class="n">trip</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="k">if</span> <span class="n">lines</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_lines</span> <span class="k">else</span> <span class="nb">int</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span>
+            <span class="n">out</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                <span class="n">FaultScenario</span><span class="p">(</span>
+                    <span class="n">scenario_id</span><span class="o">=</span><span class="n">first_id</span> <span class="o">+</span> <span class="n">i</span><span class="p">,</span>
+                    <span class="n">fault_line</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">lines</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                    <span class="n">fault_start_s</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">starts</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                    <span class="n">clearing_duration_s</span><span class="o">=</span><span class="n">duration</span><span class="p">,</span>
+                    <span class="n">fault_resistance_ohm</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">r_f</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                    <span class="n">fault_reactance_ohm</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">x_f</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                    <span class="n">load_index</span><span class="o">=</span><span class="nb">int</span><span class="p">(</span><span class="n">loads</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                    <span class="n">load_change_pct</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">changes</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                    <span class="n">trip_line</span><span class="o">=</span><span class="n">trip</span><span class="p">,</span>
+                    <span class="n">operating_point</span><span class="o">=</span><span class="nb">float</span><span class="p">(</span><span class="n">loading</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span>
+                <span class="p">)</span>
+            <span class="p">)</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">out</span><span class="p">)</span></div>
+</div>
+
+
+
+<div class="viewcode-block" id="SimulationResult">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.engine.SimulationResult">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SimulationResult</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Trajectories of one scenario: ``values[k, c]`` is channel ``c`` at ``time[k]``."""</span>
+
+    <span class="n">scenario</span><span class="p">:</span> <span class="n">FaultScenario</span>
+    <span class="n">time</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span>
+    <span class="n">values</span><span class="p">:</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span>
+    <span class="n">channel_names</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">shape</span> <span class="o">!=</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_names</span><span class="p">)):</span>
+            <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"scenario </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">scenario</span><span class="o">.</span><span class="n">scenario_id</span><span class="si">}</span><span class="s2">: values </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">shape</span><span class="si">}</span><span class="s2"> do not match "</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">time</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">}</span><span class="s2"> steps x </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channel_names</span><span class="p">)</span><span class="si">}</span><span class="s2"> channels"</span>
+            <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="SimulationEngine">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.engine.SimulationEngine">[docs]</a>
+<span class="nd">@runtime_checkable</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">SimulationEngine</span><span class="p">(</span><span class="n">Protocol</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""What dataset generation needs from a simulator."""</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PowerSystem</span><span class="p">:</span> <span class="o">...</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span> <span class="o">...</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_loads</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span> <span class="o">...</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">simulation_time_s</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">float</span><span class="p">:</span> <span class="o">...</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">simulate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">scenarios</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">FaultScenario</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">SimulationResult</span><span class="p">]:</span> <span class="o">...</span></div>
+
+
+
+<div class="viewcode-block" id="generate_events">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.engine.generate_events">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">generate_events</span><span class="p">(</span>
+    <span class="n">engine</span><span class="p">:</span> <span class="n">SimulationEngine</span><span class="p">,</span>
+    <span class="n">scenarios</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">FaultScenario</span><span class="p">],</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SignalDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Simulate ``scenarios`` and collect them as a labelled event dataset.</span>
+
+<span class="sd">    Labels follow :func:`tranpy.datasets.stability_labels`. The out-of-step channels stay</span>
+<span class="sd">    in the result (drop them before feature extraction, as :func:`tranpy.load_events`</span>
+<span class="sd">    does by default). Annotations hold the true event times and scenario parameters.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">scenarios</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"no scenarios to simulate"</span><span class="p">)</span>
+    <span class="n">results</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">simulate</span><span class="p">(</span><span class="n">scenarios</span><span class="p">)</span>
+    <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span> <span class="o">!=</span> <span class="nb">len</span><span class="p">(</span><span class="n">scenarios</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"engine returned </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">)</span><span class="si">}</span><span class="s2"> results for </span><span class="si">{</span><span class="nb">len</span><span class="p">(</span><span class="n">scenarios</span><span class="p">)</span><span class="si">}</span><span class="s2"> scenarios"</span>
+        <span class="p">)</span>
+    <span class="n">channels</span> <span class="o">=</span> <span class="n">results</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">channel_names</span>
+    <span class="k">if</span> <span class="nb">any</span><span class="p">(</span><span class="n">r</span><span class="o">.</span><span class="n">channel_names</span> <span class="o">!=</span> <span class="n">channels</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span><span class="s2">"results have inconsistent channels"</span><span class="p">)</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">engine</span><span class="o">.</span><span class="n">system</span>
+    <span class="n">dataset</span> <span class="o">=</span> <span class="n">SignalDataset</span><span class="o">.</span><span class="n">from_samples</span><span class="p">(</span>
+        <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">time</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">],</span>
+        <span class="p">[</span><span class="n">r</span><span class="o">.</span><span class="n">values</span> <span class="k">for</span> <span class="n">r</span> <span class="ow">in</span> <span class="n">results</span><span class="p">],</span>
+        <span class="n">channel_names</span><span class="o">=</span><span class="n">channels</span><span class="p">,</span>
+        <span class="n">labels</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">results</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+        <span class="n">label_names</span><span class="o">=</span><span class="n">LABEL_NAMES</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">name</span> <span class="ow">or</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2">_simulated"</span><span class="p">,</span>
+        <span class="n">sample_ids</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">s</span><span class="o">.</span><span class="n">scenario_id</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+        <span class="n">description</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: events simulated with </span><span class="si">{</span><span class="nb">type</span><span class="p">(</span><span class="n">engine</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"system"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="s2">"engine"</span><span class="p">:</span> <span class="nb">type</span><span class="p">(</span><span class="n">engine</span><span class="p">)</span><span class="o">.</span><span class="vm">__name__</span><span class="p">},</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">dataset</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">labels</span><span class="o">=</span><span class="n">stability_labels</span><span class="p">(</span><span class="n">dataset</span><span class="p">))</span><span class="o">.</span><span class="n">with_annotations</span><span class="p">(</span>
+        <span class="o">**</span><span class="p">{</span>
+            <span class="n">FAULT_START</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">fault_start_s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="n">FAULT_CLEAR</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">fault_clear_s</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"fault_line"</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">fault_line</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"load_index"</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">load_index</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"load_change_pct"</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">load_change_pct</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"fault_resistance_ohm"</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">fault_resistance_ohm</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"fault_reactance_ohm"</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">fault_reactance_ohm</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"trip_line"</span><span class="p">:</span> <span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">nan</span> <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">trip_line</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">s</span><span class="o">.</span><span class="n">trip_line</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="s2">"operating_point"</span><span class="p">:</span> <span class="p">[</span><span class="n">s</span><span class="o">.</span><span class="n">operating_point</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+        <span class="p">}</span>
+    <span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

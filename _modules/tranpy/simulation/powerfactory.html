@@ -1,0 +1,318 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.simulation.powerfactory &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.simulation.powerfactory</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.simulation.powerfactory</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""DIgSILENT PowerFactory engine (needs a local PowerFactory with its Python API).</span>
+
+<span class="sd">Implements :class:`~tranpy.simulation.engine.SimulationEngine`: for every scenario it</span>
+<span class="sd">creates the fault, clearing, optional line-trip and load events, runs an RMS simulation</span>
+<span class="sd">and exports *all* monitored variables to a temporary CSV that is parsed like the recorded</span>
+<span class="sd">datasets and then deleted. Nothing is written elsewhere.</span>
+
+<span class="sd">``powerfactory`` is imported only when an engine is created. Pass ``python_path`` (the</span>
+<span class="sd">``Python/&lt;version&gt;`` folder of the installation) if the module is not on ``sys.path``;</span>
+<span class="sd">the path is added for the import and removed again.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">sys</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">tempfile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">flatten_powerfactory_column</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.simulation.engine</span><span class="w"> </span><span class="kn">import</span> <span class="n">FaultScenario</span><span class="p">,</span> <span class="n">SimulationResult</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">PowerSystem</span><span class="p">,</span> <span class="n">get_system</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.vocabulary</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigurationError</span><span class="p">,</span> <span class="n">MissingDependencyError</span><span class="p">,</span> <span class="n">SimulationError</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"MONITORED_VARIABLES"</span><span class="p">,</span> <span class="s2">"PowerFactoryEngine"</span><span class="p">,</span> <span class="s2">"import_powerfactory"</span><span class="p">]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="n">MONITORED_VARIABLES</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{</span>
+    <span class="s2">"*.ElmTerm"</span><span class="p">:</span> <span class="p">(</span><span class="s2">"m:u"</span><span class="p">,</span> <span class="s2">"m:phiu"</span><span class="p">,</span> <span class="s2">"m:fehz"</span><span class="p">),</span>
+    <span class="s2">"*.ElmSym"</span><span class="p">:</span> <span class="p">(</span>
+        <span class="s2">"s:ve"</span><span class="p">,</span> <span class="s2">"s:pt"</span><span class="p">,</span> <span class="s2">"s:ut"</span><span class="p">,</span> <span class="s2">"s:ie"</span><span class="p">,</span> <span class="s2">"s:xspeed"</span><span class="p">,</span> <span class="s2">"s:xme"</span><span class="p">,</span> <span class="s2">"s:xmt"</span><span class="p">,</span> <span class="s2">"s:cur1"</span><span class="p">,</span> <span class="s2">"s:P1"</span><span class="p">,</span> <span class="s2">"s:Q1"</span><span class="p">,</span>
+        <span class="s2">"s:outofstep"</span><span class="p">,</span> <span class="s2">"c:firel"</span><span class="p">,</span> <span class="s2">"c:firot"</span><span class="p">,</span> <span class="s2">"c:dfrotx"</span><span class="p">,</span> <span class="s2">"c:fi"</span><span class="p">,</span> <span class="s2">"c:dorhz"</span><span class="p">,</span>
+    <span class="p">),</span>
+    <span class="s2">"*.ElmLne"</span><span class="p">:</span> <span class="p">(</span><span class="s2">"c:loading"</span><span class="p">,),</span>
+    <span class="s2">"*.ElmLod"</span><span class="p">:</span> <span class="p">(</span><span class="s2">"m:Psum:bus1"</span><span class="p">,</span> <span class="s2">"m:I1:bus1"</span><span class="p">,</span> <span class="s2">"n:u1:bus1"</span><span class="p">),</span>
+<span class="p">}</span>  <span class="c1"># fmt: skip</span>
+<span class="sd">"""Variables recorded per element class (matches the bundled event datasets)."""</span>
+
+
+<div class="viewcode-block" id="import_powerfactory">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.powerfactory.import_powerfactory">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">import_powerfactory</span><span class="p">(</span><span class="n">python_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Import the ``powerfactory`` module, temporarily extending ``sys.path`` if given."""</span>
+    <span class="n">added</span> <span class="o">=</span> <span class="kc">False</span>
+    <span class="k">if</span> <span class="n">python_path</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="nb">str</span><span class="p">(</span><span class="n">python_path</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="p">:</span>
+        <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">insert</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">str</span><span class="p">(</span><span class="n">python_path</span><span class="p">))</span>
+        <span class="n">added</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="s2">"powerfactory"</span><span class="p">)</span>
+    <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">MissingDependencyError</span><span class="p">(</span>
+            <span class="s2">"the PowerFactory Python API ('powerfactory') is not importable; install PowerFactory "</span>
+            <span class="s2">"and pass python_path=&lt;installation&gt;/Python/&lt;version&gt;"</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+    <span class="k">finally</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">added</span><span class="p">:</span>
+            <span class="n">sys</span><span class="o">.</span><span class="n">path</span><span class="o">.</span><span class="n">remove</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">python_path</span><span class="p">))</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_check</span><span class="p">(</span><span class="n">code</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">what</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="k">if</span> <span class="n">code</span> <span class="o">!=</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"PowerFactory </span><span class="si">{</span><span class="n">what</span><span class="si">}</span><span class="s2"> failed with code </span><span class="si">{</span><span class="n">code</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="PowerFactoryEngine">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.powerfactory.PowerFactoryEngine">[docs]</a>
+<span class="nd">@dataclass</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">PowerFactoryEngine</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Run fault scenarios in a PowerFactory project.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        system_name: system key; ``project`` defaults to its legacy name (e.g. ``NewEngland``).</span>
+<span class="sd">        project: PowerFactory project to activate.</span>
+<span class="sd">        simulation_time_s: RMS simulation end time.</span>
+<span class="sd">        step_s: integration step.</span>
+<span class="sd">        python_path: folder containing the ``powerfactory`` module, if not on ``sys.path``.</span>
+<span class="sd">        app: an existing application object (mainly for tests); created if None.</span>
+<span class="sd">    """</span>
+
+    <span class="n">system_name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">project</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">simulation_time_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span>
+    <span class="n">step_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>
+    <span class="n">python_path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">app</span><span class="p">:</span> <span class="n">Any</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">_elements</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">list</span><span class="p">[</span><span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">,</span> <span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">app</span> <span class="o">=</span> <span class="n">import_powerfactory</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">python_path</span><span class="p">)</span><span class="o">.</span><span class="n">GetApplication</span><span class="p">()</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span>
+                    <span class="s2">"PowerFactory.GetApplication() returned None (licence or session problem)"</span>
+                <span class="p">)</span>
+        <span class="n">project</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">project</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">system</span><span class="o">.</span><span class="n">legacy_name</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">ActivateProject</span><span class="p">(</span><span class="n">project</span><span class="p">)</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cannot activate PowerFactory project </span><span class="si">{</span><span class="n">project</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="n">cases</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">GetProjectFolder</span><span class="p">(</span><span class="s2">"study"</span><span class="p">)</span><span class="o">.</span><span class="n">GetContents</span><span class="p">()</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">cases</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"project </span><span class="si">{</span><span class="n">project</span><span class="si">!r}</span><span class="s2"> has no study case"</span><span class="p">)</span>
+        <span class="n">cases</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">Activate</span><span class="p">()</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">_elements</span> <span class="o">=</span> <span class="p">{</span>
+            <span class="n">pattern</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">GetCalcRelevantObjects</span><span class="p">(</span><span class="n">pattern</span><span class="p">))</span>
+            <span class="k">for</span> <span class="n">pattern</span> <span class="ow">in</span> <span class="n">MONITORED_VARIABLES</span>
+        <span class="p">}</span>
+        <span class="n">results</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">GetFromStudyCase</span><span class="p">(</span><span class="s2">"Results.ElmRes"</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="n">results</span><span class="o">.</span><span class="n">GetContents</span><span class="p">():</span>
+            <span class="n">element</span><span class="o">.</span><span class="n">ClearVars</span><span class="p">()</span>
+        <span class="k">for</span> <span class="n">pattern</span><span class="p">,</span> <span class="n">variables</span> <span class="ow">in</span> <span class="n">MONITORED_VARIABLES</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+            <span class="k">for</span> <span class="n">element</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elements</span><span class="p">[</span><span class="n">pattern</span><span class="p">]:</span>
+                <span class="n">results</span><span class="o">.</span><span class="n">AddVars</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="o">*</span><span class="n">variables</span><span class="p">)</span>
+        <span class="n">results</span><span class="o">.</span><span class="n">AddVars</span><span class="p">(</span><span class="n">results</span><span class="p">,</span> <span class="s2">"b:tnow"</span><span class="p">)</span>
+        <span class="n">logger</span><span class="o">.</span><span class="n">info</span><span class="p">(</span>
+            <span class="s2">"PowerFactory project </span><span class="si">%s</span><span class="s2">: </span><span class="si">%d</span><span class="s2"> lines, </span><span class="si">%d</span><span class="s2"> loads, </span><span class="si">%d</span><span class="s2"> generators"</span><span class="p">,</span>
+            <span class="n">project</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">n_lines</span><span class="p">,</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">n_loads</span><span class="p">,</span>
+            <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_elements</span><span class="p">[</span><span class="s2">"*.ElmSym"</span><span class="p">]),</span>
+        <span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PowerSystem</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">get_system</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">system_name</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_elements</span><span class="p">[</span><span class="s2">"*.ElmLne"</span><span class="p">])</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_loads</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_elements</span><span class="p">[</span><span class="s2">"*.ElmLod"</span><span class="p">])</span>
+
+<div class="viewcode-block" id="PowerFactoryEngine.simulate">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.powerfactory.PowerFactoryEngine.simulate">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">simulate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">scenarios</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">FaultScenario</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">SimulationResult</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Simulate the scenarios one after another."""</span>
+        <span class="k">return</span> <span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">_simulate_one</span><span class="p">(</span><span class="n">s</span><span class="p">)</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">]</span></div>
+
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_simulate_one</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">scenario</span><span class="p">:</span> <span class="n">FaultScenario</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SimulationResult</span><span class="p">:</span>
+        <span class="k">if</span> <span class="n">scenario</span><span class="o">.</span><span class="n">operating_point</span> <span class="o">!=</span> <span class="mf">1.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"scenario </span><span class="si">{</span><span class="n">scenario</span><span class="o">.</span><span class="n">scenario_id</span><span class="si">}</span><span class="s2">: operating_point != 1 is not supported by the "</span>
+                <span class="s2">"PowerFactory engine yet; set the loading in the study case instead"</span>
+            <span class="p">)</span>
+        <span class="n">app</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span>
+        <span class="n">lines</span><span class="p">,</span> <span class="n">loads</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elements</span><span class="p">[</span><span class="s2">"*.ElmLne"</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">_elements</span><span class="p">[</span><span class="s2">"*.ElmLod"</span><span class="p">]</span>
+        <span class="n">folder</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">GetFromStudyCase</span><span class="p">(</span><span class="s2">"IntEvt"</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">folder</span><span class="o">.</span><span class="n">GetContents</span><span class="p">():</span>
+            <span class="n">event</span><span class="o">.</span><span class="n">Delete</span><span class="p">()</span>
+        <span class="n">fault</span> <span class="o">=</span> <span class="n">folder</span><span class="o">.</span><span class="n">CreateObject</span><span class="p">(</span><span class="s2">"EvtShc"</span><span class="p">,</span> <span class="s2">"short circuit"</span><span class="p">)</span>
+        <span class="n">fault</span><span class="o">.</span><span class="n">p_target</span> <span class="o">=</span> <span class="n">lines</span><span class="p">[</span><span class="n">scenario</span><span class="o">.</span><span class="n">fault_line</span><span class="p">]</span>
+        <span class="n">fault</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">fault_start_s</span>
+        <span class="n">fault</span><span class="o">.</span><span class="n">i_shc</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">fault</span><span class="o">.</span><span class="n">R_f</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">fault_resistance_ohm</span>
+        <span class="n">fault</span><span class="o">.</span><span class="n">X_f</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">fault_reactance_ohm</span>
+        <span class="n">clearing</span> <span class="o">=</span> <span class="n">folder</span><span class="o">.</span><span class="n">CreateObject</span><span class="p">(</span><span class="s2">"EvtSwitch"</span><span class="p">,</span> <span class="s2">"fault clearing"</span><span class="p">)</span>
+        <span class="n">clearing</span><span class="o">.</span><span class="n">p_target</span> <span class="o">=</span> <span class="n">lines</span><span class="p">[</span><span class="n">scenario</span><span class="o">.</span><span class="n">fault_line</span><span class="p">]</span>
+        <span class="n">clearing</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">fault_clear_s</span>
+        <span class="k">if</span> <span class="n">scenario</span><span class="o">.</span><span class="n">trip_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">trip</span> <span class="o">=</span> <span class="n">folder</span><span class="o">.</span><span class="n">CreateObject</span><span class="p">(</span><span class="s2">"EvtSwitch"</span><span class="p">,</span> <span class="s2">"line tripping"</span><span class="p">)</span>
+            <span class="n">trip</span><span class="o">.</span><span class="n">p_target</span> <span class="o">=</span> <span class="n">lines</span><span class="p">[</span><span class="n">scenario</span><span class="o">.</span><span class="n">trip_line</span><span class="p">]</span>
+            <span class="n">trip</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">fault_clear_s</span> <span class="o">+</span> <span class="n">scenario</span><span class="o">.</span><span class="n">trip_delay_s</span>
+        <span class="n">load</span> <span class="o">=</span> <span class="n">folder</span><span class="o">.</span><span class="n">CreateObject</span><span class="p">(</span><span class="s2">"EvtLod"</span><span class="p">,</span> <span class="s2">"load event"</span><span class="p">)</span>
+        <span class="n">load</span><span class="o">.</span><span class="n">p_target</span> <span class="o">=</span> <span class="n">loads</span><span class="p">[</span><span class="n">scenario</span><span class="o">.</span><span class="n">load_index</span><span class="p">]</span>
+        <span class="n">load</span><span class="o">.</span><span class="n">time</span> <span class="o">=</span> <span class="mf">0.0</span>
+        <span class="n">load</span><span class="o">.</span><span class="n">iopt_type</span> <span class="o">=</span> <span class="mi">0</span>
+        <span class="n">load</span><span class="o">.</span><span class="n">dP</span> <span class="o">=</span> <span class="n">scenario</span><span class="o">.</span><span class="n">load_change_pct</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">init</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">GetFromStudyCase</span><span class="p">(</span><span class="s2">"ComInc"</span><span class="p">)</span>
+            <span class="n">init</span><span class="o">.</span><span class="n">iopt_sim</span> <span class="o">=</span> <span class="s2">"rms"</span>
+            <span class="n">init</span><span class="o">.</span><span class="n">iopt_net</span> <span class="o">=</span> <span class="s2">"sym"</span>
+            <span class="n">init</span><span class="o">.</span><span class="n">dtgrd</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span>
+            <span class="n">_check</span><span class="p">(</span><span class="n">init</span><span class="o">.</span><span class="n">Execute</span><span class="p">(),</span> <span class="s2">"initial conditions"</span><span class="p">)</span>
+            <span class="n">sim</span> <span class="o">=</span> <span class="n">app</span><span class="o">.</span><span class="n">GetFromStudyCase</span><span class="p">(</span><span class="s2">"ComSim"</span><span class="p">)</span>
+            <span class="n">sim</span><span class="o">.</span><span class="n">tstop</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulation_time_s</span>
+            <span class="n">_check</span><span class="p">(</span><span class="n">sim</span><span class="o">.</span><span class="n">Execute</span><span class="p">(),</span> <span class="sa">f</span><span class="s2">"simulation of scenario </span><span class="si">{</span><span class="n">scenario</span><span class="o">.</span><span class="n">scenario_id</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="n">frame</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_export</span><span class="p">()</span>
+        <span class="k">finally</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">event</span> <span class="ow">in</span> <span class="n">folder</span><span class="o">.</span><span class="n">GetContents</span><span class="p">():</span>
+                <span class="n">event</span><span class="o">.</span><span class="n">Delete</span><span class="p">()</span>
+            <span class="n">app</span><span class="o">.</span><span class="n">ResetCalculation</span><span class="p">()</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">flatten_powerfactory_column</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">Variable</span><span class="o">.</span><span class="n">TIME_S</span><span class="o">.</span><span class="n">value</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">SimulationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"unexpected first export column </span><span class="si">{</span><span class="n">names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">SimulationResult</span><span class="p">(</span>
+            <span class="n">scenario</span><span class="o">=</span><span class="n">scenario</span><span class="p">,</span> <span class="n">time</span><span class="o">=</span><span class="n">data</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">],</span> <span class="n">values</span><span class="o">=</span><span class="n">data</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:],</span> <span class="n">channel_names</span><span class="o">=</span><span class="n">names</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_export</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+        <span class="n">export</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">GetFromStudyCase</span><span class="p">(</span><span class="s2">"ComRes"</span><span class="p">)</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">pResult</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">app</span><span class="o">.</span><span class="n">GetFromStudyCase</span><span class="p">(</span><span class="s2">"Results.ElmRes"</span><span class="p">)</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">iopt_exp</span> <span class="o">=</span> <span class="mi">6</span>  <span class="c1"># CSV</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">iopt_csel</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># all monitored variables of all elements</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">iopt_tsel</span> <span class="o">=</span> <span class="mi">0</span>  <span class="c1"># all time steps</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">iopt_locn</span> <span class="o">=</span> <span class="mi">2</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">iopt_sep</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="n">export</span><span class="o">.</span><span class="n">ciopt_head</span> <span class="o">=</span> <span class="mi">1</span>
+        <span class="k">with</span> <span class="n">tempfile</span><span class="o">.</span><span class="n">TemporaryDirectory</span><span class="p">(</span><span class="n">prefix</span><span class="o">=</span><span class="s2">"tranpy-pf-"</span><span class="p">)</span> <span class="k">as</span> <span class="n">tmp</span><span class="p">:</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">tmp</span><span class="p">)</span> <span class="o">/</span> <span class="s2">"result.csv"</span>
+            <span class="n">export</span><span class="o">.</span><span class="n">f_name</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+            <span class="n">_check</span><span class="p">(</span><span class="n">export</span><span class="o">.</span><span class="n">Execute</span><span class="p">(),</span> <span class="s2">"result export"</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

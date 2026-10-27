@@ -1,0 +1,256 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Data management &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=130a53a1"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Validation of the 0.2 refactor" href="validation.html" />
+    <link rel="prev" title="Architecture" href="architecture.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1"><a class="reference internal" href="architecture.html">Architecture</a></li>
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Data management</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#datasets">Datasets</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#storage-format">Storage format</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#shards-and-manifests">Shards and manifests</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#hosting">Hosting</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#workflows">Workflows</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#provenance">Provenance</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Data management</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/data.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="data-management">
+<h1>Data management<a class="headerlink" href="#data-management" title="Link to this heading"></a></h1>
+<p>How TranPy stores, publishes and uses its datasets, and why. The guiding rules: raw data
+are kept bit-exact, every file is pinned by a SHA-256 checksum, nothing large lives in the
+repository or has to live on a user’s disk, and analyses stream the data.</p>
+<section id="datasets">
+<h2>Datasets<a class="headerlink" href="#datasets" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Dataset</p></th>
+<th class="head"><p>Content</p></th>
+<th class="head"><p>Size</p></th>
+<th class="head"><p>Where</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>Snapshots, 9-bus and 39-bus</p></td>
+<td><p>5,000 events each, one feature vector per event</p></td>
+<td><p>3 MB</p></td>
+<td><p>bundled with the package</p></td>
+</tr>
+<tr class="row-odd"><td><p>Events, 500 per system</p></td>
+<td><p>full trajectories of all recorded variables</p></td>
+<td><p>about 100 MB per system (compact)</p></td>
+<td><p>converted from the recorded CSVs</p></td>
+</tr>
+<tr class="row-even"><td><p>Events, full sets</p></td>
+<td><p>10,000 (9-bus) and 8,000 (39-bus) events</p></td>
+<td><p>about 2 GB per system (compact)</p></td>
+<td><p>sharded; GitHub release assets</p></td>
+</tr>
+<tr class="row-odd"><td><p>Pretrained pipelines</p></td>
+<td><p>18 models x 2 systems, skops format</p></td>
+<td><p>277 MB</p></td>
+<td><p>GitHub release assets</p></td>
+</tr>
+</tbody>
+</table>
+<p>The original PowerFactory CSV exports total about 19 GB. They are the raw archive and are
+not needed for analysis once converted.</p>
+</section>
+<section id="storage-format">
+<h2>Storage format<a class="headerlink" href="#storage-format" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>One sample format.</strong> <code class="docutils literal notranslate"><span class="pre">SignalDataset</span></code> holds all events back to back with offsets; on disk
+it is a <code class="docutils literal notranslate"><span class="pre">.npz</span></code> file with a JSON header, read with <code class="docutils literal notranslate"><span class="pre">allow_pickle=False</span></code> (loading data can
+never execute code).</p></li>
+<li><p><strong>Lossless compact encoding.</strong> PowerFactory exports carry at most 6 decimals. Such values
+are stored as scaled integers, differenced along time and byte-shuffled before
+compression. Decoding divides exact integers by an exact power of ten, which is correctly
+rounded, so the result is <strong>bit-for-bit identical</strong> to parsing the CSV. Files are 2.6 to
+2.9 times smaller than plain float64. Data that are not short decimals (e.g. simulator
+output in memory) fall back to float64 automatically.</p></li>
+<li><p><strong>Why not float32.</strong> Halving the precision changes derived features by up to 3 % (rotor
+speed stays near 1.0 p.u. with deviations around 1e-5, below float32 resolution). Labels
+and fault timing would survive, but the features would not; the archive must be exact.</p></li>
+<li><p><strong>Reproducible files.</strong> Archive members are written in a fixed order with fixed
+timestamps, so re-running a conversion reproduces the file and its checksum.</p></li>
+</ul>
+</section>
+<section id="shards-and-manifests">
+<h2>Shards and manifests<a class="headerlink" href="#shards-and-manifests" title="Link to this heading"></a></h2>
+<p>Large datasets are split into shards of 250 events (about 50 MB each) and described by a
+<code class="docutils literal notranslate"><span class="pre">manifest.json</span></code>:</p>
+<div class="highlight-text notranslate"><div class="highlight"><pre><span></span>{"manifest_version": 1, "name": "ieee_9bus_events",
+ "channel_names": [...], "label_names": ["stable", "unstable"],
+ "base_url": null,
+ "metadata": {"system": "ieee_9bus", "label_counts": {...}},
+ "shards": [{"filename": "ieee_9bus_events-00000.npz", "sha256": "...",
+             "n_samples": 250, "sample_ids": [0, 249], "url": "..."}]}
+</pre></div>
+</div>
+<ul class="simple">
+<li><p><code class="docutils literal notranslate"><span class="pre">iter_shards</span></code> yields one verified shard at a time. Shards in the manifest’s local folder
+are read in place; others are downloaded to the user cache, verified, used and deleted,
+so local disk never holds more than one shard.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">extract_window_tables</span></code> makes <strong>one pass</strong> over the shards and builds the feature and
+sequence tables for every observation window at once. The tables are small (10,000
+events x 165 features is 13 MB) and can be cached on disk, keyed by the shard checksums
+and every extraction setting, so later model runs never touch the raw data again.</p></li>
+<li><p><code class="docutils literal notranslate"><span class="pre">ShardWriter</span></code> writes shards resumably: interrupted conversions continue where they
+stopped.</p></li>
+</ul>
+</section>
+<section id="hosting">
+<h2>Hosting<a class="headerlink" href="#hosting" title="Link to this heading"></a></h2>
+<p>Code lives in the GitHub repository; data and pretrained models are <strong>assets of GitHub
+releases</strong> of the same repository (tag <code class="docutils literal notranslate"><span class="pre">data-v1</span></code>, <code class="docutils literal notranslate"><span class="pre">data-v2</span></code>, …), the same approach as
+many scientific Python packages (SciPy, scikit-image and others fetch data the same way).
+Assets may be up to 2 GB each (shards are about 50 MB) with no practical limit on total
+size or downloads, and their URLs are predictable:
+<code class="docutils literal notranslate"><span class="pre">https://github.com/mahmouddraz/tranpy/releases/download/&lt;tag&gt;/&lt;file&gt;</span></code>.</p>
+<p>Files are never committed to git (the repository stays small) and Google Drive is no
+longer used (quota limits, HTML interstitials, no stable direct links).</p>
+<p>Publishing a release:</p>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span>python<span class="w"> </span>scripts/publish_github_release.py<span class="w"> </span>prepare<span class="w"> </span>data-v1<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--events<span class="w"> </span><span class="nv">ieee_9bus</span><span class="o">=</span>shards/ieee_9bus<span class="w"> </span><span class="nv">new_england</span><span class="o">=</span>shards/new_england<span class="w"> </span><span class="se">\</span>
+<span class="w">    </span>--pretrained<span class="w"> </span>pretrained/
+gh<span class="w"> </span>release<span class="w"> </span>create<span class="w"> </span>data-v1<span class="w"> </span>--repo<span class="w"> </span>mahmouddraz/tranpy<span class="w"> </span>--title<span class="w"> </span><span class="s2">"Data data-v1"</span><span class="w"> </span>--notes-file<span class="w"> </span>release/NOTES.md
+gh<span class="w"> </span>release<span class="w"> </span>upload<span class="w"> </span>data-v1<span class="w"> </span>--repo<span class="w"> </span>mahmouddraz/tranpy<span class="w"> </span>release/*.npz<span class="w"> </span>release/*.json<span class="w"> </span>release/*.skops
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">prepare</span></code> writes the final URLs into the manifests and the URLs and SHA-256 checksums into
+<code class="docutils literal notranslate"><span class="pre">src/tranpy/resources/registry.json</span></code>; commit that file with the release. Afterwards
+<code class="docutils literal notranslate"><span class="pre">tranpy.open_event_shards(&quot;ieee_9bus&quot;)</span></code> and <code class="docutils literal notranslate"><span class="pre">load_pretrained(...)</span></code> work for anyone without
+local data. A new simulation campaign gets a new tag; old tags stay, so earlier results
+remain reproducible.</p>
+</section>
+<section id="workflows">
+<h2>Workflows<a class="headerlink" href="#workflows" title="Link to this heading"></a></h2>
+<div class="highlight-bash notranslate"><div class="highlight"><pre><span></span><span class="c1"># PowerFactory CSV folder -&gt; shards (bounded memory, resumable)</span>
+tranpy<span class="w"> </span>build-shards<span class="w"> </span>CSV_DIR<span class="w"> </span>new_england<span class="w"> </span>shards/new_england<span class="w"> </span>--shard-size<span class="w"> </span><span class="m">250</span>
+
+<span class="c1"># legacy Google Drive files -&gt; shards (downloads a batch, converts, deletes)</span>
+python<span class="w"> </span>scripts/migrate_drive_events.py<span class="w"> </span>ieee_9bus<span class="w"> </span>INDEX_JSON<span class="w"> </span>shards/ieee_9bus
+</pre></div>
+</div>
+<div class="highlight-python notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span><span class="w"> </span><span class="nn">tranpy</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.early_prediction</span><span class="w"> </span><span class="kn">import</span> <span class="n">extract_window_tables</span><span class="p">,</span> <span class="n">evaluate_window_tables</span>
+
+<span class="n">events</span> <span class="o">=</span> <span class="n">tranpy</span><span class="o">.</span><span class="n">open_event_shards</span><span class="p">(</span><span class="s2">"ieee_9bus"</span><span class="p">,</span> <span class="n">source</span><span class="o">=</span><span class="s2">"shards/ieee_9bus"</span><span class="p">)</span>  <span class="c1"># no source: release</span>
+<span class="n">tables</span> <span class="o">=</span> <span class="n">extract_window_tables</span><span class="p">(</span><span class="n">events</span><span class="p">,</span> <span class="n">reference</span><span class="o">=</span><span class="s2">"fault_start"</span><span class="p">,</span> <span class="n">windows_s</span><span class="o">=</span><span class="p">(</span><span class="mf">0.1</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">,</span> <span class="mf">0.4</span><span class="p">),</span>
+                               <span class="n">sequences</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">cache_directory</span><span class="o">=</span><span class="s2">"cache/tables"</span><span class="p">)</span>
+<span class="n">results</span> <span class="o">=</span> <span class="n">evaluate_window_tables</span><span class="p">(</span><span class="n">tables</span><span class="p">,</span> <span class="n">feature_models</span><span class="p">,</span> <span class="n">sequence_models</span><span class="o">=</span><span class="n">networks</span><span class="p">,</span> <span class="n">n_repeats</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+</pre></div>
+</div>
+</section>
+<section id="provenance">
+<h2>Provenance<a class="headerlink" href="#provenance" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p>Snapshot datasets: converted from the 0.1 pickles by <code class="docutils literal notranslate"><span class="pre">scripts/convert_legacy_data.py</span></code>;
+source file checksums are stored in each dataset’s metadata.</p></li>
+<li><p>Event datasets: PowerFactory RMS simulations exported as CSV (two header rows: element,
+variable). Labels: any generator out of step at any time. Fault start and clearing are
+detected from bus voltages (start is causal; clearing is not, see <code class="docutils literal notranslate"><span class="pre">validation.md</span></code>, D9).</p></li>
+<li><p>The Google Drive copies are legacy sources only; the package no longer downloads from
+Google Drive.</p></li>
+</ul>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="architecture.html" class="btn btn-neutral float-left" title="Architecture" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="validation.html" class="btn btn-neutral float-right" title="Validation of the 0.2 refactor" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

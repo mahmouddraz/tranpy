@@ -1,0 +1,362 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy_core.data.storage &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy_core.data.storage</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy_core.data.storage</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Safe on-disk format for datasets: compressed ``.npz`` arrays plus JSON metadata.</span>
+
+<span class="sd">Files are read with ``allow_pickle=False``, so loading a dataset can never execute code.</span>
+<span class="sd">The JSON header records a format name and version; incompatible files are rejected with</span>
+<span class="sd">a clear message instead of being half-read.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">hashlib</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">zipfile</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.data.dataset</span><span class="w"> </span><span class="kn">import</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="n">TabularDataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ChecksumError</span><span class="p">,</span> <span class="n">DataError</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"FORMAT_VERSION"</span><span class="p">,</span>
+    <span class="s2">"load_dataset_file"</span><span class="p">,</span>
+    <span class="s2">"load_signals"</span><span class="p">,</span>
+    <span class="s2">"load_tabular"</span><span class="p">,</span>
+    <span class="s2">"save_signals"</span><span class="p">,</span>
+    <span class="s2">"save_tabular"</span><span class="p">,</span>
+    <span class="s2">"sha256_file"</span><span class="p">,</span>
+    <span class="s2">"verify_sha256"</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">FORMAT_VERSION</span> <span class="o">=</span> <span class="mi">1</span>
+<span class="n">_HEADER</span> <span class="o">=</span> <span class="s2">"__header__"</span>
+<span class="n">_ANNOTATION_PREFIX</span> <span class="o">=</span> <span class="s2">"annotation/"</span>
+
+
+<div class="viewcode-block" id="sha256_file">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.sha256_file">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">sha256_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">chunk_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">1</span> <span class="o">&lt;&lt;</span> <span class="mi">20</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Hex SHA-256 digest of a file."""</span>
+    <span class="n">digest</span> <span class="o">=</span> <span class="n">hashlib</span><span class="o">.</span><span class="n">sha256</span><span class="p">()</span>
+    <span class="k">with</span> <span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">)</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="s2">"rb"</span><span class="p">)</span> <span class="k">as</span> <span class="n">fh</span><span class="p">:</span>
+        <span class="k">while</span> <span class="n">chunk</span> <span class="o">:=</span> <span class="n">fh</span><span class="o">.</span><span class="n">read</span><span class="p">(</span><span class="n">chunk_size</span><span class="p">):</span>
+            <span class="n">digest</span><span class="o">.</span><span class="n">update</span><span class="p">(</span><span class="n">chunk</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">digest</span><span class="o">.</span><span class="n">hexdigest</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="verify_sha256">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.verify_sha256">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">verify_sha256</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="n">expected</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Raise :class:`ChecksumError` unless ``path`` has digest ``expected``."""</span>
+    <span class="n">actual</span> <span class="o">=</span> <span class="n">sha256_file</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">actual</span> <span class="o">!=</span> <span class="n">expected</span><span class="o">.</span><span class="n">lower</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="n">ChecksumError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"checksum mismatch for </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">: expected </span><span class="si">{</span><span class="n">expected</span><span class="si">}</span><span class="s2">, got </span><span class="si">{</span><span class="n">actual</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_write</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">header</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="n">arrays</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Write an ``.npz`` byte-for-byte reproducibly (fixed member order and timestamps)."""</span>
+    <span class="n">path</span><span class="o">.</span><span class="n">parent</span><span class="o">.</span><span class="n">mkdir</span><span class="p">(</span><span class="n">parents</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">exist_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+    <span class="n">tmp</span> <span class="o">=</span> <span class="n">path</span><span class="o">.</span><span class="n">with_name</span><span class="p">(</span><span class="n">path</span><span class="o">.</span><span class="n">name</span> <span class="o">+</span> <span class="s2">".tmp"</span><span class="p">)</span>
+    <span class="n">members</span> <span class="o">=</span> <span class="p">{</span><span class="n">_HEADER</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">header</span><span class="p">,</span> <span class="n">sort_keys</span><span class="o">=</span><span class="kc">True</span><span class="p">)),</span> <span class="o">**</span><span class="n">arrays</span><span class="p">}</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipFile</span><span class="p">(</span><span class="n">tmp</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">,</span> <span class="n">compression</span><span class="o">=</span><span class="n">zipfile</span><span class="o">.</span><span class="n">ZIP_DEFLATED</span><span class="p">)</span> <span class="k">as</span> <span class="n">zf</span><span class="p">:</span>
+            <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">array</span> <span class="ow">in</span> <span class="n">members</span><span class="o">.</span><span class="n">items</span><span class="p">():</span>
+                <span class="n">info</span> <span class="o">=</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZipInfo</span><span class="p">(</span><span class="n">name</span> <span class="o">+</span> <span class="s2">".npy"</span><span class="p">,</span> <span class="n">date_time</span><span class="o">=</span><span class="p">(</span><span class="mi">1980</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">1</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">,</span> <span class="mi">0</span><span class="p">))</span>
+                <span class="n">info</span><span class="o">.</span><span class="n">compress_type</span> <span class="o">=</span> <span class="n">zipfile</span><span class="o">.</span><span class="n">ZIP_DEFLATED</span>
+                <span class="k">with</span> <span class="n">zf</span><span class="o">.</span><span class="n">open</span><span class="p">(</span><span class="n">info</span><span class="p">,</span> <span class="s2">"w"</span><span class="p">,</span> <span class="n">force_zip64</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">as</span> <span class="n">member</span><span class="p">:</span>
+                    <span class="n">np</span><span class="o">.</span><span class="n">lib</span><span class="o">.</span><span class="n">format</span><span class="o">.</span><span class="n">write_array</span><span class="p">(</span>
+                        <span class="n">member</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">array</span><span class="p">),</span> <span class="n">allow_pickle</span><span class="o">=</span><span class="kc">False</span>
+                    <span class="p">)</span>
+    <span class="k">except</span> <span class="ne">BaseException</span><span class="p">:</span>
+        <span class="n">tmp</span><span class="o">.</span><span class="n">unlink</span><span class="p">(</span><span class="n">missing_ok</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+        <span class="k">raise</span>
+    <span class="n">tmp</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">path</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_read</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="n">Path</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">],</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">]]:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">with</span> <span class="n">np</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">allow_pickle</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span> <span class="k">as</span> <span class="n">npz</span><span class="p">:</span>
+            <span class="n">arrays</span> <span class="o">=</span> <span class="p">{</span><span class="n">k</span><span class="p">:</span> <span class="n">npz</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="n">npz</span><span class="o">.</span><span class="n">files</span><span class="p">}</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">OSError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cannot read dataset file </span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+    <span class="k">if</span> <span class="n">_HEADER</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">arrays</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> is not a tranpy dataset file (no header)"</span><span class="p">)</span>
+    <span class="n">header</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">arrays</span><span class="o">.</span><span class="n">pop</span><span class="p">(</span><span class="n">_HEADER</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]))</span>
+    <span class="k">if</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"kind"</span><span class="p">)</span> <span class="o">!=</span> <span class="n">kind</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> holds a </span><span class="si">{</span><span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'kind'</span><span class="p">)</span><span class="si">!r}</span><span class="s2"> dataset, expected </span><span class="si">{</span><span class="n">kind</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"format_version"</span><span class="p">)</span> <span class="o">!=</span> <span class="n">FORMAT_VERSION</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2"> uses format version </span><span class="si">{</span><span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'format_version'</span><span class="p">)</span><span class="si">}</span><span class="s2">, "</span>
+            <span class="sa">f</span><span class="s2">"this version of tranpy reads version </span><span class="si">{</span><span class="n">FORMAT_VERSION</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">header</span><span class="p">,</span> <span class="n">arrays</span>
+
+
+<div class="viewcode-block" id="save_tabular">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.save_tabular">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_tabular</span><span class="p">(</span><span class="n">dataset</span><span class="p">:</span> <span class="n">TabularDataset</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Write ``dataset`` to ``path`` (``.npz``)."""</span>
+    <span class="n">header</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"tabular"</span><span class="p">,</span>
+        <span class="s2">"format_version"</span><span class="p">:</span> <span class="n">FORMAT_VERSION</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+        <span class="s2">"description"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+        <span class="s2">"feature_names"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">feature_names</span><span class="p">),</span>
+        <span class="s2">"label_names"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">label_names</span><span class="p">),</span>
+        <span class="s2">"metadata"</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">metadata</span><span class="p">),</span>
+    <span class="p">}</span>
+    <span class="k">assert</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_ids</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="n">arrays</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"features"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">features</span><span class="p">,</span>
+        <span class="s2">"labels"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">labels</span><span class="p">,</span>
+        <span class="s2">"sample_ids"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_ids</span><span class="p">,</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">_write</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="n">header</span><span class="p">,</span> <span class="n">arrays</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_tabular">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.load_tabular">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_tabular</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Read a dataset written by :func:`save_tabular`."""</span>
+    <span class="n">header</span><span class="p">,</span> <span class="n">arrays</span> <span class="o">=</span> <span class="n">_read</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="s2">"tabular"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">TabularDataset</span><span class="p">(</span>
+        <span class="n">features</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"features"</span><span class="p">],</span>
+        <span class="n">labels</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"labels"</span><span class="p">],</span>
+        <span class="n">sample_ids</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"sample_ids"</span><span class="p">],</span>
+        <span class="n">feature_names</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">header</span><span class="p">[</span><span class="s2">"feature_names"</span><span class="p">]),</span>
+        <span class="n">label_names</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">header</span><span class="p">[</span><span class="s2">"label_names"</span><span class="p">]),</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+        <span class="n">description</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"description"</span><span class="p">],</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"metadata"</span><span class="p">],</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_encode_decimal</span><span class="p">(</span><span class="n">values</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">max_decimals</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">9</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Exact scaled-integer encoding of values that are decimals with few digits.</span>
+
+<span class="sd">    Returns byte-shuffled first differences (channel-major) of ``round(values * 10**d)``</span>
+<span class="sd">    for the smallest ``d`` that reproduces every value bit for bit, or None. Decoding</span>
+<span class="sd">    divides exact integers by an exact power of ten, which is correctly rounded and</span>
+<span class="sd">    therefore identical to parsing the original decimal text.</span>
+<span class="sd">    """</span>
+    <span class="k">if</span> <span class="n">values</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">np</span><span class="o">.</span><span class="n">isfinite</span><span class="p">(</span><span class="n">values</span><span class="p">)</span><span class="o">.</span><span class="n">all</span><span class="p">():</span>
+        <span class="k">return</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">decimals</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">max_decimals</span> <span class="o">+</span> <span class="mi">1</span><span class="p">):</span>
+        <span class="n">scale</span> <span class="o">=</span> <span class="mf">10.0</span><span class="o">**</span><span class="n">decimals</span>
+        <span class="n">scaled</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">values</span> <span class="o">*</span> <span class="n">scale</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">scaled</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">()</span> <span class="o">&gt;=</span> <span class="mf">2.0</span><span class="o">**</span><span class="mi">53</span><span class="p">:</span>
+            <span class="k">return</span> <span class="kc">None</span>
+        <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">array_equal</span><span class="p">(</span><span class="n">scaled</span> <span class="o">/</span> <span class="n">scale</span><span class="p">,</span> <span class="n">values</span><span class="p">):</span>
+            <span class="n">ints</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">scaled</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="n">delta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">ints</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">,</span> <span class="n">prepend</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">ints</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="mi">1</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">))</span>
+            <span class="n">shuffled</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">delta</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">uint8</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="mi">8</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">shuffled</span><span class="p">,</span> <span class="n">decimals</span>
+    <span class="k">return</span> <span class="kc">None</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_decode_decimal</span><span class="p">(</span><span class="n">shuffled</span><span class="p">:</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">,</span> <span class="n">decimals</span><span class="p">:</span> <span class="nb">int</span><span class="p">,</span> <span class="n">shape</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">ndarray</span><span class="p">:</span>
+    <span class="n">n_rows</span><span class="p">,</span> <span class="n">n_channels</span> <span class="o">=</span> <span class="n">shape</span>
+    <span class="n">delta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">shuffled</span><span class="o">.</span><span class="n">T</span><span class="p">)</span><span class="o">.</span><span class="n">view</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">n_channels</span><span class="p">,</span> <span class="n">n_rows</span><span class="p">)</span>
+    <span class="n">ints</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">cumsum</span><span class="p">(</span><span class="n">delta</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">((</span><span class="n">ints</span> <span class="o">/</span> <span class="mf">10.0</span><span class="o">**</span><span class="n">decimals</span><span class="p">)</span><span class="o">.</span><span class="n">T</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="save_signals">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.save_signals">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">save_signals</span><span class="p">(</span><span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">compact</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Write ``dataset`` to ``path`` (``.npz``).</span>
+
+<span class="sd">    With ``compact`` (default), values that are decimals with at most 9 digits after the</span>
+<span class="sd">    point (e.g. parsed from CSV exports) are stored as byte-shuffled integer differences,</span>
+<span class="sd">    typically 2 to 3 times smaller and bit-for-bit identical on reading. Other data are</span>
+<span class="sd">    stored as plain float64.</span>
+<span class="sd">    """</span>
+    <span class="n">encoded</span> <span class="o">=</span> <span class="n">_encode_decimal</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">values</span><span class="p">)</span> <span class="k">if</span> <span class="n">compact</span> <span class="k">else</span> <span class="kc">None</span>
+    <span class="n">header</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"signals"</span><span class="p">,</span>
+        <span class="s2">"format_version"</span><span class="p">:</span> <span class="n">FORMAT_VERSION</span><span class="p">,</span>
+        <span class="s2">"name"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+        <span class="s2">"description"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">description</span><span class="p">,</span>
+        <span class="s2">"channel_names"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">channel_names</span><span class="p">),</span>
+        <span class="s2">"label_names"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">label_names</span><span class="p">),</span>
+        <span class="s2">"time_unit"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">time_unit</span><span class="p">,</span>
+        <span class="s2">"metadata"</span><span class="p">:</span> <span class="nb">dict</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">metadata</span><span class="p">),</span>
+        <span class="s2">"values_encoding"</span><span class="p">:</span> <span class="p">(</span>
+            <span class="p">{</span><span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"float64"</span><span class="p">}</span>
+            <span class="k">if</span> <span class="n">encoded</span> <span class="ow">is</span> <span class="kc">None</span>
+            <span class="k">else</span> <span class="p">{</span>
+                <span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"decimal_delta"</span><span class="p">,</span>
+                <span class="s2">"decimals"</span><span class="p">:</span> <span class="n">encoded</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span>
+                <span class="s2">"shape"</span><span class="p">:</span> <span class="nb">list</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">values</span><span class="o">.</span><span class="n">shape</span><span class="p">),</span>
+            <span class="p">}</span>
+        <span class="p">),</span>
+    <span class="p">}</span>
+    <span class="k">assert</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_ids</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="n">arrays</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="s2">"time"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">time</span><span class="p">,</span>
+        <span class="s2">"values"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">values</span> <span class="k">if</span> <span class="n">encoded</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">encoded</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span>
+        <span class="s2">"offsets"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">offsets</span><span class="p">,</span>
+        <span class="s2">"labels"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">labels</span><span class="p">,</span>
+        <span class="s2">"sample_ids"</span><span class="p">:</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_ids</span><span class="p">,</span>
+        <span class="o">**</span><span class="p">{</span><span class="n">_ANNOTATION_PREFIX</span> <span class="o">+</span> <span class="n">k</span><span class="p">:</span> <span class="n">v</span> <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">annotations</span><span class="o">.</span><span class="n">items</span><span class="p">()},</span>
+    <span class="p">}</span>
+    <span class="k">return</span> <span class="n">_write</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="n">header</span><span class="p">,</span> <span class="n">arrays</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_signals">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.load_signals">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_signals</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SignalDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Read a dataset written by :func:`save_signals`."""</span>
+    <span class="n">header</span><span class="p">,</span> <span class="n">arrays</span> <span class="o">=</span> <span class="n">_read</span><span class="p">(</span><span class="n">Path</span><span class="p">(</span><span class="n">path</span><span class="p">),</span> <span class="s2">"signals"</span><span class="p">)</span>
+    <span class="n">annotations</span> <span class="o">=</span> <span class="p">{</span>
+        <span class="n">k</span><span class="p">[</span><span class="nb">len</span><span class="p">(</span><span class="n">_ANNOTATION_PREFIX</span><span class="p">)</span> <span class="p">:]:</span> <span class="n">v</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">v</span> <span class="ow">in</span> <span class="n">arrays</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">k</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="n">_ANNOTATION_PREFIX</span><span class="p">)</span>
+    <span class="p">}</span>
+    <span class="n">encoding</span> <span class="o">=</span> <span class="n">header</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"values_encoding"</span><span class="p">,</span> <span class="p">{</span><span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"float64"</span><span class="p">})</span>
+    <span class="k">if</span> <span class="n">encoding</span><span class="p">[</span><span class="s2">"kind"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"decimal_delta"</span><span class="p">:</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">_decode_decimal</span><span class="p">(</span>
+            <span class="n">arrays</span><span class="p">[</span><span class="s2">"values"</span><span class="p">],</span> <span class="nb">int</span><span class="p">(</span><span class="n">encoding</span><span class="p">[</span><span class="s2">"decimals"</span><span class="p">]),</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">encoding</span><span class="p">[</span><span class="s2">"shape"</span><span class="p">])</span>
+        <span class="p">)</span>
+    <span class="k">elif</span> <span class="n">encoding</span><span class="p">[</span><span class="s2">"kind"</span><span class="p">]</span> <span class="o">==</span> <span class="s2">"float64"</span><span class="p">:</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">arrays</span><span class="p">[</span><span class="s2">"values"</span><span class="p">]</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">path</span><span class="si">}</span><span class="s2">: unknown values encoding </span><span class="si">{</span><span class="n">encoding</span><span class="p">[</span><span class="s1">'kind'</span><span class="p">]</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">SignalDataset</span><span class="p">(</span>
+        <span class="n">time</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"time"</span><span class="p">],</span>
+        <span class="n">values</span><span class="o">=</span><span class="n">values</span><span class="p">,</span>
+        <span class="n">offsets</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"offsets"</span><span class="p">],</span>
+        <span class="n">labels</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"labels"</span><span class="p">],</span>
+        <span class="n">sample_ids</span><span class="o">=</span><span class="n">arrays</span><span class="p">[</span><span class="s2">"sample_ids"</span><span class="p">],</span>
+        <span class="n">annotations</span><span class="o">=</span><span class="n">annotations</span><span class="p">,</span>
+        <span class="n">channel_names</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">header</span><span class="p">[</span><span class="s2">"channel_names"</span><span class="p">]),</span>
+        <span class="n">label_names</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="n">header</span><span class="p">[</span><span class="s2">"label_names"</span><span class="p">]),</span>
+        <span class="n">name</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"name"</span><span class="p">],</span>
+        <span class="n">description</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"description"</span><span class="p">],</span>
+        <span class="n">time_unit</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"time_unit"</span><span class="p">],</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="n">header</span><span class="p">[</span><span class="s2">"metadata"</span><span class="p">],</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_dataset_file">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.data.storage.load_dataset_file">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_dataset_file</span><span class="p">(</span><span class="n">path</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span> <span class="o">|</span> <span class="n">SignalDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Read either kind of dataset file."""</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">load_tabular</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+    <span class="k">except</span> <span class="n">DataError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">if</span> <span class="s2">"holds a 'signals' dataset"</span> <span class="ow">not</span> <span class="ow">in</span> <span class="nb">str</span><span class="p">(</span><span class="n">exc</span><span class="p">):</span>
+            <span class="k">raise</span>
+    <span class="k">return</span> <span class="n">load_signals</span><span class="p">(</span><span class="n">path</span><span class="p">)</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

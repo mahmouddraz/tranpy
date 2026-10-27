@@ -1,0 +1,211 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.pretrained &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.pretrained</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.pretrained</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Pretrained model pipelines: seeded training, safe (skops) storage, verified download.</span>
+
+<span class="sd">Pretrained pipelines are trained by :func:`train_pretrained` on a fixed, seeded split of</span>
+<span class="sd">a bundled snapshot dataset, so anyone can rebuild them bit-for-bit. Published files are</span>
+<span class="sd">listed in ``resources/registry.json`` under ``"pretrained"`` with URL and SHA-256 and are</span>
+<span class="sd">loaded with :func:`load_pretrained` (needs the ``[persistence]`` extra).</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">data_registry</span><span class="p">,</span> <span class="n">load_snapshots</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">SYSTEMS</span><span class="p">,</span> <span class="n">get_system</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">RemoteFile</span><span class="p">,</span> <span class="n">fetch</span><span class="p">,</span> <span class="n">sha256_file</span><span class="p">,</span> <span class="n">train_test_split</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.evaluation</span><span class="w"> </span><span class="kn">import</span> <span class="n">evaluate</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.models</span><span class="w"> </span><span class="kn">import</span> <span class="n">available_models</span><span class="p">,</span> <span class="n">make_pipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.models.persistence</span><span class="w"> </span><span class="kn">import</span> <span class="n">load_model</span><span class="p">,</span> <span class="n">save_model</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"list_pretrained"</span><span class="p">,</span> <span class="s2">"load_pretrained"</span><span class="p">,</span> <span class="s2">"pretrained_name"</span><span class="p">,</span> <span class="s2">"train_pretrained"</span><span class="p">]</span>
+
+<span class="n">SPLIT_SEED</span> <span class="o">=</span> <span class="mi">42</span>
+<span class="n">MODEL_SEED</span> <span class="o">=</span> <span class="mi">0</span>
+<span class="n">TEST_SIZE</span> <span class="o">=</span> <span class="mf">0.2</span>
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">pretrained_name</span><span class="p">(</span><span class="n">system</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">model</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2">__</span><span class="si">{</span><span class="n">model</span><span class="si">}</span><span class="s2">"</span>
+
+
+<div class="viewcode-block" id="list_pretrained">
+<a class="viewcode-back" href="../../api.html#tranpy.pretrained.list_pretrained">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">list_pretrained</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Published pretrained pipelines with their recorded test scores."""</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="p">[{</span><span class="s2">"name"</span><span class="p">:</span> <span class="n">name</span><span class="p">,</span> <span class="o">**</span><span class="n">entry</span><span class="p">}</span> <span class="k">for</span> <span class="n">name</span><span class="p">,</span> <span class="n">entry</span> <span class="ow">in</span> <span class="n">data_registry</span><span class="p">()[</span><span class="s2">"pretrained"</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()]</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span>
+        <span class="n">rows</span><span class="p">,</span> <span class="n">columns</span><span class="o">=</span><span class="p">[</span><span class="s2">"name"</span><span class="p">,</span> <span class="s2">"system"</span><span class="p">,</span> <span class="s2">"model"</span><span class="p">,</span> <span class="s2">"filename"</span><span class="p">,</span> <span class="s2">"url"</span><span class="p">,</span> <span class="s2">"sha256"</span><span class="p">,</span> <span class="s2">"test_accuracy"</span><span class="p">]</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_pretrained">
+<a class="viewcode-back" href="../../api.html#tranpy.pretrained.load_pretrained">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_pretrained</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">cache_directory</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Any</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Download (once), verify and load a published pipeline."""</span>
+    <span class="n">entry</span> <span class="o">=</span> <span class="n">data_registry</span><span class="p">()[</span><span class="s2">"pretrained"</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">entry</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"unknown pretrained model </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">; see list_pretrained()"</span><span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"url"</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"pretrained model </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> has no download URL yet; build it with train_pretrained()"</span>
+        <span class="p">)</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">fetch</span><span class="p">(</span>
+        <span class="n">RemoteFile</span><span class="p">(</span><span class="n">filename</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">"filename"</span><span class="p">],</span> <span class="n">url</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">"url"</span><span class="p">],</span> <span class="n">sha256</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">"sha256"</span><span class="p">]),</span>
+        <span class="n">directory</span><span class="o">=</span><span class="n">cache_directory</span><span class="p">,</span>
+    <span class="p">)</span>
+    <span class="k">return</span> <span class="n">load_model</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">sha256</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">"sha256"</span><span class="p">])</span></div>
+
+
+
+<div class="viewcode-block" id="train_pretrained">
+<a class="viewcode-back" href="../../api.html#tranpy.pretrained.train_pretrained">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">train_pretrained</span><span class="p">(</span>
+    <span class="n">out_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">systems</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">SYSTEMS</span><span class="p">),</span>
+    <span class="n">models</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">"""Train, evaluate and save pipelines; return registry entries (url left empty).</span>
+
+<span class="sd">    Writes ``&lt;system&gt;__&lt;model&gt;.skops`` files and ``registry_entries.json`` to ``out_dir``.</span>
+<span class="sd">    Models whose backend is not installed are skipped.</span>
+<span class="sd">    """</span>
+    <span class="n">out</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">out_dir</span><span class="p">)</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="p">(</span>
+        <span class="nb">list</span><span class="p">(</span><span class="n">models</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">models</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="k">else</span> <span class="p">[</span><span class="n">m</span> <span class="k">for</span> <span class="n">m</span> <span class="ow">in</span> <span class="n">available_models</span><span class="p">(</span><span class="n">installed_only</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="k">if</span> <span class="ow">not</span> <span class="n">m</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="s2">"_network"</span><span class="p">)]</span>
+    <span class="p">)</span>
+    <span class="n">entries</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+    <span class="k">for</span> <span class="n">system</span> <span class="ow">in</span> <span class="n">systems</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">load_snapshots</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+        <span class="n">split</span> <span class="o">=</span> <span class="n">train_test_split</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">labels</span><span class="p">,</span> <span class="n">test_size</span><span class="o">=</span><span class="n">TEST_SIZE</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">SPLIT_SEED</span><span class="p">)</span>
+        <span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">features</span><span class="p">[</span><span class="n">split</span><span class="o">.</span><span class="n">train</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">labels</span><span class="p">[</span><span class="n">split</span><span class="o">.</span><span class="n">train</span><span class="p">]</span>
+        <span class="k">for</span> <span class="n">model</span> <span class="ow">in</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">pipeline</span> <span class="o">=</span> <span class="n">make_pipeline</span><span class="p">(</span><span class="n">model</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">MODEL_SEED</span><span class="p">)</span><span class="o">.</span><span class="n">fit</span><span class="p">(</span><span class="n">X_train</span><span class="p">,</span> <span class="n">y_train</span><span class="p">)</span>
+            <span class="n">scores</span> <span class="o">=</span> <span class="n">evaluate</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">data</span><span class="o">.</span><span class="n">features</span><span class="p">[</span><span class="n">split</span><span class="o">.</span><span class="n">test</span><span class="p">],</span> <span class="n">data</span><span class="o">.</span><span class="n">labels</span><span class="p">[</span><span class="n">split</span><span class="o">.</span><span class="n">test</span><span class="p">])</span>
+            <span class="n">name</span> <span class="o">=</span> <span class="n">pretrained_name</span><span class="p">(</span><span class="n">system</span><span class="p">,</span> <span class="n">model</span><span class="p">)</span>
+            <span class="n">path</span> <span class="o">=</span> <span class="n">save_model</span><span class="p">(</span><span class="n">pipeline</span><span class="p">,</span> <span class="n">out</span> <span class="o">/</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">name</span><span class="si">}</span><span class="s2">.skops"</span><span class="p">)</span>
+            <span class="n">entries</span><span class="p">[</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="p">{</span>
+                <span class="s2">"system"</span><span class="p">:</span> <span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
+                <span class="s2">"model"</span><span class="p">:</span> <span class="n">model</span><span class="p">,</span>
+                <span class="s2">"filename"</span><span class="p">:</span> <span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="p">,</span>
+                <span class="s2">"url"</span><span class="p">:</span> <span class="kc">None</span><span class="p">,</span>
+                <span class="s2">"sha256"</span><span class="p">:</span> <span class="n">sha256_file</span><span class="p">(</span><span class="n">path</span><span class="p">),</span>
+                <span class="s2">"test_accuracy"</span><span class="p">:</span> <span class="n">scores</span><span class="o">.</span><span class="n">accuracy</span><span class="p">,</span>
+                <span class="s2">"split_seed"</span><span class="p">:</span> <span class="n">SPLIT_SEED</span><span class="p">,</span>
+                <span class="s2">"model_seed"</span><span class="p">:</span> <span class="n">MODEL_SEED</span><span class="p">,</span>
+            <span class="p">}</span>
+    <span class="p">(</span><span class="n">out</span> <span class="o">/</span> <span class="s2">"registry_entries.json"</span><span class="p">)</span><span class="o">.</span><span class="n">write_text</span><span class="p">(</span><span class="n">json</span><span class="o">.</span><span class="n">dumps</span><span class="p">(</span><span class="n">entries</span><span class="p">,</span> <span class="n">indent</span><span class="o">=</span><span class="mi">2</span><span class="p">),</span> <span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">entries</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

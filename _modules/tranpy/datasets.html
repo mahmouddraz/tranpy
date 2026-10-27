@@ -1,0 +1,539 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.datasets &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.datasets</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.datasets</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Power-system stability datasets.</span>
+
+<span class="sd">Two kinds of data are available per test system:</span>
+
+<span class="sd">* **snapshots** - one feature vector per fault event (:class:`~tranpy_core.TabularDataset`),</span>
+<span class="sd">  bundled with the package: :func:`load_new_england`, :func:`load_ieee_9bus`.</span>
+<span class="sd">* **events** - full simulated trajectories of every recorded variable</span>
+<span class="sd">  (:class:`~tranpy_core.SignalDataset`), loaded with :func:`load_events` from a converted</span>
+<span class="sd">  ``.npz`` file, from a folder of PowerFactory result CSVs, or downloaded (checksum</span>
+<span class="sd">  verified) once a release URL is registered.</span>
+
+<span class="sd">Labels: 0 = stable, 1 = unstable (any generator out of step at any time).</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">json</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">logging</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">functools</span><span class="w"> </span><span class="kn">import</span> <span class="n">cache</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">importlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">resources</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">pathlib</span><span class="w"> </span><span class="kn">import</span> <span class="n">Path</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">pandas</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">pd</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">PowerSystem</span><span class="p">,</span> <span class="n">get_system</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.vocabulary</span><span class="w"> </span><span class="kn">import</span> <span class="n">LABEL_NAMES</span><span class="p">,</span> <span class="n">ElementKind</span><span class="p">,</span> <span class="n">Stability</span><span class="p">,</span> <span class="n">Variable</span><span class="p">,</span> <span class="n">element_kind</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.data</span><span class="w"> </span><span class="kn">import</span> <span class="p">(</span>
+    <span class="n">RemoteFile</span><span class="p">,</span>
+    <span class="n">ShardManifest</span><span class="p">,</span>
+    <span class="n">ShardWriter</span><span class="p">,</span>
+    <span class="n">SignalDataset</span><span class="p">,</span>
+    <span class="n">TabularDataset</span><span class="p">,</span>
+    <span class="n">fetch</span><span class="p">,</span>
+    <span class="n">load_signals</span><span class="p">,</span>
+    <span class="n">load_tabular</span><span class="p">,</span>
+    <span class="n">verify_sha256</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.features</span><span class="w"> </span><span class="kn">import</span> <span class="n">segments</span> <span class="k">as</span> <span class="n">seg</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"data_registry"</span><span class="p">,</span>
+    <span class="s2">"detect_fault_timing"</span><span class="p">,</span>
+    <span class="s2">"event_csv_ids"</span><span class="p">,</span>
+    <span class="s2">"flatten_powerfactory_column"</span><span class="p">,</span>
+    <span class="s2">"list_datasets"</span><span class="p">,</span>
+    <span class="s2">"load_events"</span><span class="p">,</span>
+    <span class="s2">"load_ieee_9bus"</span><span class="p">,</span>
+    <span class="s2">"load_new_england"</span><span class="p">,</span>
+    <span class="s2">"load_snapshots"</span><span class="p">,</span>
+    <span class="s2">"open_event_shards"</span><span class="p">,</span>
+    <span class="s2">"read_event_csvs"</span><span class="p">,</span>
+    <span class="s2">"stability_labels"</span><span class="p">,</span>
+    <span class="s2">"write_event_shards"</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">logger</span> <span class="o">=</span> <span class="n">logging</span><span class="o">.</span><span class="n">getLogger</span><span class="p">(</span><span class="vm">__name__</span><span class="p">)</span>
+
+<span class="n">FAULT_START</span> <span class="o">=</span> <span class="s2">"fault_start_s"</span>
+<span class="sd">"""Annotation: detected fault inception time (first bus voltage below the threshold)."""</span>
+<span class="n">FAULT_CLEAR</span> <span class="o">=</span> <span class="s2">"fault_clear_s"</span>
+<span class="sd">"""Annotation: detected fault clearing time (first voltage recovery after the dip)."""</span>
+
+<span class="n">LABEL_CHANNELS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="sa">f</span><span class="s2">"*|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">OUT_OF_STEP</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,)</span>
+<span class="sd">"""Channels that define the stability label (never use them as model input)."""</span>
+<span class="n">_EVENT_FILE</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"^results_event_(\d+)\.csv$"</span><span class="p">)</span>
+<span class="n">_ELEMENT_SUFFIXES</span> <span class="o">=</span> <span class="p">(</span><span class="s2">".ElmSym"</span><span class="p">,</span> <span class="s2">".ElmTerm"</span><span class="p">,</span> <span class="s2">".ElmLne"</span><span class="p">,</span> <span class="s2">".ElmLod"</span><span class="p">,</span> <span class="s2">".ElmTr2"</span><span class="p">,</span> <span class="s2">".ElmRes"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="data_registry">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.data_registry">[docs]</a>
+<span class="nd">@cache</span>
+<span class="k">def</span><span class="w"> </span><span class="nf">data_registry</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Contents of the bundled ``resources/registry.json`` (files, checksums, URLs)."""</span>
+    <span class="n">text</span> <span class="o">=</span> <span class="n">resources</span><span class="o">.</span><span class="n">files</span><span class="p">(</span><span class="s2">"tranpy"</span><span class="p">)</span><span class="o">.</span><span class="n">joinpath</span><span class="p">(</span><span class="s2">"resources/registry.json"</span><span class="p">)</span><span class="o">.</span><span class="n">read_text</span><span class="p">(</span><span class="n">encoding</span><span class="o">=</span><span class="s2">"utf-8"</span><span class="p">)</span>
+    <span class="n">data</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">json</span><span class="o">.</span><span class="n">loads</span><span class="p">(</span><span class="n">text</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">data</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_resource_path</span><span class="p">(</span><span class="n">filename</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Path</span><span class="p">:</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="n">resources</span><span class="o">.</span><span class="n">files</span><span class="p">(</span><span class="s2">"tranpy"</span><span class="p">)</span><span class="o">.</span><span class="n">joinpath</span><span class="p">(</span><span class="sa">f</span><span class="s2">"resources/</span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2">"</span><span class="p">)))</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">path</span><span class="o">.</span><span class="n">exists</span><span class="p">():</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"bundled file </span><span class="si">{</span><span class="n">filename</span><span class="si">}</span><span class="s2"> is missing; reinstall tranpy-ai"</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">path</span>
+
+
+<div class="viewcode-block" id="list_datasets">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.list_datasets">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">list_datasets</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Available datasets: bundled snapshots and the published (sharded) event sets."""</span>
+    <span class="n">registry</span> <span class="o">=</span> <span class="n">data_registry</span><span class="p">()</span>
+    <span class="n">rows</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="p">{</span><span class="s2">"system"</span><span class="p">:</span> <span class="n">key</span><span class="p">,</span> <span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"snapshots"</span><span class="p">,</span> <span class="s2">"n_samples"</span><span class="p">:</span> <span class="n">e</span><span class="p">[</span><span class="s2">"n_samples"</span><span class="p">],</span> <span class="s2">"location"</span><span class="p">:</span> <span class="s2">"bundled"</span><span class="p">}</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">registry</span><span class="p">[</span><span class="s2">"snapshots"</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">]</span>
+    <span class="n">rows</span> <span class="o">+=</span> <span class="p">[</span>
+        <span class="p">{</span>
+            <span class="s2">"system"</span><span class="p">:</span> <span class="n">key</span><span class="p">,</span>
+            <span class="s2">"kind"</span><span class="p">:</span> <span class="s2">"events"</span><span class="p">,</span>
+            <span class="s2">"n_samples"</span><span class="p">:</span> <span class="n">e</span><span class="p">[</span><span class="s2">"n_samples"</span><span class="p">],</span>
+            <span class="s2">"location"</span><span class="p">:</span> <span class="n">e</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"manifest_url"</span><span class="p">),</span>
+        <span class="p">}</span>
+        <span class="k">for</span> <span class="n">key</span><span class="p">,</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">registry</span><span class="p">[</span><span class="s2">"events"</span><span class="p">]</span><span class="o">.</span><span class="n">items</span><span class="p">()</span>
+    <span class="p">]</span>
+    <span class="k">return</span> <span class="n">pd</span><span class="o">.</span><span class="n">DataFrame</span><span class="p">(</span><span class="n">rows</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_snapshots">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.load_snapshots">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_snapshots</span><span class="p">(</span><span class="n">system</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">PowerSystem</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Bundled snapshot dataset of ``system`` (checksum verified)."""</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span><span class="o">.</span><span class="n">key</span>
+    <span class="n">entry</span> <span class="o">=</span> <span class="n">data_registry</span><span class="p">()[</span><span class="s2">"snapshots"</span><span class="p">]</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">key</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">entry</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"no snapshot dataset for system </span><span class="si">{</span><span class="n">key</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">path</span> <span class="o">=</span> <span class="n">_resource_path</span><span class="p">(</span><span class="n">entry</span><span class="p">[</span><span class="s2">"filename"</span><span class="p">])</span>
+    <span class="n">verify_sha256</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">entry</span><span class="p">[</span><span class="s2">"sha256"</span><span class="p">])</span>
+    <span class="k">return</span> <span class="n">load_tabular</span><span class="p">(</span><span class="n">path</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_new_england">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.load_new_england">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_new_england</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Snapshot dataset of the IEEE 39-bus New England system (5000 events, 77 features)."""</span>
+    <span class="k">return</span> <span class="n">load_snapshots</span><span class="p">(</span><span class="s2">"new_england"</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_ieee_9bus">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.load_ieee_9bus">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_ieee_9bus</span><span class="p">()</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Snapshot dataset of the IEEE 9-bus system (5000 events, 17 features)."""</span>
+    <span class="k">return</span> <span class="n">load_snapshots</span><span class="p">(</span><span class="s2">"ieee_9bus"</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="load_events">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.load_events">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">load_events</span><span class="p">(</span>
+    <span class="n">system</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">PowerSystem</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">include_label_channels</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SignalDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Event trajectories of ``system``.</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        system: system key or legacy name.</span>
+<span class="sd">        source: a ``.npz`` file written by :func:`tranpy_core.data.save_signals`, or a folder</span>
+<span class="sd">            of PowerFactory result CSVs (``results_event_&lt;id&gt;.csv``). The published full</span>
+<span class="sd">            sets are sharded; open them with :func:`open_event_shards` instead.</span>
+<span class="sd">        channels: shell-style patterns of channels to keep (default: all).</span>
+<span class="sd">        include_label_channels: keep the out-of-step flags. They *define* the label, so they</span>
+<span class="sd">            are dropped by default to keep them out of any feature set.</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">source</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">n</span> <span class="o">=</span> <span class="n">data_registry</span><span class="p">()[</span><span class="s2">"events"</span><span class="p">][</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">][</span><span class="s2">"n_samples"</span><span class="p">]</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"the full </span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2"> event set (</span><span class="si">{</span><span class="n">n</span><span class="si">}</span><span class="s2"> events) is sharded; stream it with "</span>
+            <span class="s2">"tranpy.open_event_shards() or pass source=&lt;.npz file or CSV folder&gt;"</span>
+        <span class="p">)</span>
+    <span class="n">src</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+    <span class="n">dataset</span> <span class="o">=</span> <span class="n">read_event_csvs</span><span class="p">(</span><span class="n">src</span><span class="p">,</span> <span class="n">spec</span><span class="p">)</span> <span class="k">if</span> <span class="n">src</span><span class="o">.</span><span class="n">is_dir</span><span class="p">()</span> <span class="k">else</span> <span class="n">load_signals</span><span class="p">(</span><span class="n">src</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">dataset</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"system"</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2"> holds data of system </span><span class="si">{</span><span class="n">dataset</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'system'</span><span class="p">)</span><span class="si">!r}</span><span class="s2">, not </span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">!r}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">include_label_channels</span> <span class="ow">and</span> <span class="n">dataset</span><span class="o">.</span><span class="n">channel_index</span><span class="p">(</span><span class="n">LABEL_CHANNELS</span><span class="p">)</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+        <span class="n">dataset</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">drop_channels</span><span class="p">(</span><span class="n">LABEL_CHANNELS</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">channels</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">dataset</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">select_channels</span><span class="p">(</span><span class="n">channels</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">dataset</span></div>
+
+
+
+<div class="viewcode-block" id="event_csv_ids">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.event_csv_ids">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">event_csv_ids</span><span class="p">(</span><span class="n">directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="nb">int</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Event ids of the ``results_event_&lt;id&gt;.csv`` files in ``directory``, sorted."""</span>
+    <span class="k">return</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="nb">int</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">))</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">Path</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span><span class="o">.</span><span class="n">iterdir</span><span class="p">()</span> <span class="k">if</span> <span class="p">(</span><span class="n">m</span> <span class="o">:=</span> <span class="n">_EVENT_FILE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
+    <span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="write_event_shards">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.write_event_shards">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">write_event_shards</span><span class="p">(</span>
+    <span class="n">directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">system</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">PowerSystem</span><span class="p">,</span>
+    <span class="n">out_dir</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">shard_size</span><span class="p">:</span> <span class="nb">int</span> <span class="o">=</span> <span class="mi">250</span><span class="p">,</span>
+    <span class="n">event_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ShardManifest</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Convert a folder of PowerFactory CSVs into a sharded dataset, one shard at a time.</span>
+
+<span class="sd">    Memory use is bounded by one shard. Resumable: events already in ``out_dir`` are skipped.</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+    <span class="n">writer</span> <span class="o">=</span> <span class="n">ShardWriter</span><span class="p">(</span>
+        <span class="n">out_dir</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2">_events"</span><span class="p">,</span>
+        <span class="n">shard_size</span><span class="o">=</span><span class="n">shard_size</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"system"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="s2">"source"</span><span class="p">:</span> <span class="s2">"PowerFactory RMS simulation (CSV export)"</span><span class="p">},</span>
+    <span class="p">)</span>
+    <span class="n">done</span> <span class="o">=</span> <span class="n">writer</span><span class="o">.</span><span class="n">done_sample_ids</span><span class="p">()</span>
+    <span class="n">todo</span> <span class="o">=</span> <span class="p">[</span>
+        <span class="n">i</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">(</span><span class="n">event_ids</span> <span class="k">if</span> <span class="n">event_ids</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">event_csv_ids</span><span class="p">(</span><span class="n">directory</span><span class="p">))</span>
+        <span class="k">if</span> <span class="n">i</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">done</span>
+    <span class="p">]</span>
+    <span class="k">for</span> <span class="n">start</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="n">todo</span><span class="p">),</span> <span class="n">shard_size</span><span class="p">):</span>
+        <span class="n">writer</span><span class="o">.</span><span class="n">add</span><span class="p">(</span><span class="n">read_event_csvs</span><span class="p">(</span><span class="n">directory</span><span class="p">,</span> <span class="n">spec</span><span class="p">,</span> <span class="n">event_ids</span><span class="o">=</span><span class="n">todo</span><span class="p">[</span><span class="n">start</span> <span class="p">:</span> <span class="n">start</span> <span class="o">+</span> <span class="n">shard_size</span><span class="p">]))</span>
+    <span class="k">return</span> <span class="n">writer</span><span class="o">.</span><span class="n">close</span><span class="p">()</span></div>
+
+
+
+<div class="viewcode-block" id="open_event_shards">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.open_event_shards">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">open_event_shards</span><span class="p">(</span>
+    <span class="n">system</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">PowerSystem</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">source</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">cache_directory</span><span class="p">:</span> <span class="n">Path</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ShardManifest</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Manifest of a sharded event dataset (for datasets too large to load at once).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        system: system key or legacy name.</span>
+<span class="sd">        source: a ``manifest.json`` or the folder containing it. If omitted, the manifest</span>
+<span class="sd">            registered for ``system`` is downloaded and verified; its shards are then</span>
+<span class="sd">            streamed on demand (see :func:`tranpy_core.data.iter_shards`).</span>
+<span class="sd">        cache_directory: download directory for the manifest.</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">source</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">entry</span> <span class="o">=</span> <span class="n">data_registry</span><span class="p">()[</span><span class="s2">"events"</span><span class="p">][</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">]</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"manifest_url"</span><span class="p">)</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">entry</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"manifest_sha256"</span><span class="p">):</span>
+            <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"no sharded event dataset is registered for </span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">!r}</span><span class="s2">; pass source=&lt;manifest&gt;"</span>
+            <span class="p">)</span>
+        <span class="n">path</span> <span class="o">=</span> <span class="n">fetch</span><span class="p">(</span>
+            <span class="n">RemoteFile</span><span class="p">(</span>
+                <span class="n">filename</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2">_events_manifest.json"</span><span class="p">,</span>
+                <span class="n">url</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">"manifest_url"</span><span class="p">],</span>
+                <span class="n">sha256</span><span class="o">=</span><span class="n">entry</span><span class="p">[</span><span class="s2">"manifest_sha256"</span><span class="p">],</span>
+            <span class="p">),</span>
+            <span class="n">directory</span><span class="o">=</span><span class="n">cache_directory</span><span class="p">,</span>
+        <span class="p">)</span>
+        <span class="n">manifest</span> <span class="o">=</span> <span class="n">ShardManifest</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">path</span><span class="p">)</span>
+        <span class="n">manifest</span> <span class="o">=</span> <span class="n">ShardManifest</span><span class="o">.</span><span class="n">from_dict</span><span class="p">(</span><span class="n">manifest</span><span class="o">.</span><span class="n">to_dict</span><span class="p">())</span>  <span class="c1"># remote: no local folder</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">src</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">source</span><span class="p">)</span>
+        <span class="n">manifest</span> <span class="o">=</span> <span class="n">ShardManifest</span><span class="o">.</span><span class="n">load</span><span class="p">(</span><span class="n">src</span> <span class="o">/</span> <span class="s2">"manifest.json"</span> <span class="k">if</span> <span class="n">src</span><span class="o">.</span><span class="n">is_dir</span><span class="p">()</span> <span class="k">else</span> <span class="n">src</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">manifest</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s2">"system"</span><span class="p">)</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">source</span><span class="si">}</span><span class="s2"> holds data of system </span><span class="si">{</span><span class="n">manifest</span><span class="o">.</span><span class="n">metadata</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="s1">'system'</span><span class="p">)</span><span class="si">!r}</span><span class="s2">, not </span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">!r}</span><span class="s2">"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">manifest</span></div>
+
+
+
+<div class="viewcode-block" id="flatten_powerfactory_column">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.flatten_powerfactory_column">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">flatten_powerfactory_column</span><span class="p">(</span><span class="n">column</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Channel name ``"&lt;element&gt;|&lt;variable&gt;"`` from a two-row PowerFactory CSV header."""</span>
+    <span class="n">element</span> <span class="o">=</span> <span class="nb">str</span><span class="p">(</span><span class="n">column</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"</span><span class="se">\\</span><span class="s2">"</span><span class="p">)[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span>
+    <span class="k">for</span> <span class="n">suffix</span> <span class="ow">in</span> <span class="n">_ELEMENT_SUFFIXES</span><span class="p">:</span>
+        <span class="n">element</span> <span class="o">=</span> <span class="n">element</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">suffix</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+    <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">element</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">column</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span></div>
+
+
+
+<div class="viewcode-block" id="read_event_csvs">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.read_event_csvs">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">read_event_csvs</span><span class="p">(</span>
+    <span class="n">directory</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">Path</span><span class="p">,</span>
+    <span class="n">system</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="n">PowerSystem</span><span class="p">,</span>
+    <span class="o">*</span><span class="p">,</span>
+    <span class="n">event_ids</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">int</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span>
+    <span class="n">voltage_threshold_pu</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.8</span><span class="p">,</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">SignalDataset</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Read PowerFactory result CSVs (two header rows: element, variable) into a dataset.</span>
+
+<span class="sd">    Events are ordered by event id. Labels come from the out-of-step flags</span>
+<span class="sd">    (:func:`stability_labels`); fault start and clearing times are detected from the bus</span>
+<span class="sd">    voltages (:func:`detect_fault_timing`) and stored as annotations.</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">get_system</span><span class="p">(</span><span class="n">system</span><span class="p">)</span>
+    <span class="n">directory</span> <span class="o">=</span> <span class="n">Path</span><span class="p">(</span><span class="n">directory</span><span class="p">)</span>
+    <span class="n">available</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span>
+        <span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">m</span><span class="o">.</span><span class="n">group</span><span class="p">(</span><span class="mi">1</span><span class="p">)),</span> <span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">directory</span><span class="o">.</span><span class="n">iterdir</span><span class="p">()</span> <span class="k">if</span> <span class="p">(</span><span class="n">m</span> <span class="o">:=</span> <span class="n">_EVENT_FILE</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">p</span><span class="o">.</span><span class="n">name</span><span class="p">))</span>
+    <span class="p">)</span>
+    <span class="k">if</span> <span class="n">event_ids</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">wanted</span> <span class="o">=</span> <span class="nb">set</span><span class="p">(</span><span class="n">event_ids</span><span class="p">)</span>
+        <span class="n">missing</span> <span class="o">=</span> <span class="n">wanted</span> <span class="o">-</span> <span class="p">{</span><span class="n">i</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">_</span> <span class="ow">in</span> <span class="n">available</span><span class="p">}</span>
+        <span class="k">if</span> <span class="n">missing</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"events not found in </span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2">: </span><span class="si">{</span><span class="nb">sorted</span><span class="p">(</span><span class="n">missing</span><span class="p">)[:</span><span class="mi">10</span><span class="p">]</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="n">available</span> <span class="o">=</span> <span class="p">[(</span><span class="n">i</span><span class="p">,</span> <span class="n">p</span><span class="p">)</span> <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">available</span> <span class="k">if</span> <span class="n">i</span> <span class="ow">in</span> <span class="n">wanted</span><span class="p">]</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">available</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"no results_event_&lt;id&gt;.csv files in </span><span class="si">{</span><span class="n">directory</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">times</span><span class="p">,</span> <span class="n">values</span><span class="p">,</span> <span class="n">ids</span> <span class="o">=</span> <span class="p">[],</span> <span class="p">[],</span> <span class="p">[]</span>
+    <span class="n">channel_names</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="k">for</span> <span class="n">event_id</span><span class="p">,</span> <span class="n">path</span> <span class="ow">in</span> <span class="n">available</span><span class="p">:</span>
+        <span class="n">frame</span> <span class="o">=</span> <span class="n">pd</span><span class="o">.</span><span class="n">read_csv</span><span class="p">(</span><span class="n">path</span><span class="p">,</span> <span class="n">header</span><span class="o">=</span><span class="p">[</span><span class="mi">0</span><span class="p">,</span> <span class="mi">1</span><span class="p">])</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">flatten_powerfactory_column</span><span class="p">(</span><span class="n">c</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">frame</span><span class="o">.</span><span class="n">columns</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">channel_names</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">channel_names</span> <span class="o">=</span> <span class="n">names</span>
+        <span class="k">elif</span> <span class="n">names</span> <span class="o">!=</span> <span class="n">channel_names</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">path</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> has different columns than the first event file"</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">frame</span><span class="o">.</span><span class="n">to_numpy</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="n">times</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[:,</span> <span class="mi">0</span><span class="p">])</span>
+        <span class="n">values</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">data</span><span class="p">[:,</span> <span class="mi">1</span><span class="p">:])</span>
+        <span class="n">ids</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">event_id</span><span class="p">)</span>
+    <span class="k">assert</span> <span class="n">channel_names</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+    <span class="k">if</span> <span class="ow">not</span> <span class="n">channel_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">Variable</span><span class="o">.</span><span class="n">TIME_S</span><span class="o">.</span><span class="n">value</span><span class="p">):</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"first column must be the simulation time, got </span><span class="si">{</span><span class="n">channel_names</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">dataset</span> <span class="o">=</span> <span class="n">SignalDataset</span><span class="o">.</span><span class="n">from_samples</span><span class="p">(</span>
+        <span class="n">times</span><span class="p">,</span>
+        <span class="n">values</span><span class="p">,</span>
+        <span class="n">channel_names</span><span class="o">=</span><span class="n">channel_names</span><span class="p">[</span><span class="mi">1</span><span class="p">:],</span>
+        <span class="n">labels</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="nb">len</span><span class="p">(</span><span class="n">ids</span><span class="p">),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+        <span class="n">label_names</span><span class="o">=</span><span class="n">LABEL_NAMES</span><span class="p">,</span>
+        <span class="n">name</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="si">}</span><span class="s2">_events"</span><span class="p">,</span>
+        <span class="n">sample_ids</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">ids</span><span class="p">,</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">),</span>
+        <span class="n">description</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">: simulated fault-event trajectories (PowerFactory RMS)"</span><span class="p">,</span>
+        <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
+            <span class="s2">"system"</span><span class="p">:</span> <span class="n">spec</span><span class="o">.</span><span class="n">key</span><span class="p">,</span>
+            <span class="s2">"source"</span><span class="p">:</span> <span class="nb">str</span><span class="p">(</span><span class="n">directory</span><span class="p">),</span>
+            <span class="s2">"voltage_threshold_pu"</span><span class="p">:</span> <span class="n">voltage_threshold_pu</span><span class="p">,</span>
+        <span class="p">},</span>
+    <span class="p">)</span>
+    <span class="n">labels</span> <span class="o">=</span> <span class="n">stability_labels</span><span class="p">(</span><span class="n">dataset</span><span class="p">)</span>
+    <span class="n">start</span><span class="p">,</span> <span class="n">clear</span> <span class="o">=</span> <span class="n">detect_fault_timing</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">voltage_threshold_pu</span><span class="o">=</span><span class="n">voltage_threshold_pu</span><span class="p">)</span>
+    <span class="k">return</span> <span class="n">dataset</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="n">labels</span><span class="o">=</span><span class="n">labels</span><span class="p">)</span><span class="o">.</span><span class="n">with_annotations</span><span class="p">(</span>
+        <span class="o">**</span><span class="p">{</span><span class="n">FAULT_START</span><span class="p">:</span> <span class="n">start</span><span class="p">,</span> <span class="n">FAULT_CLEAR</span><span class="p">:</span> <span class="n">clear</span><span class="p">}</span>
+    <span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_columns_of</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="n">kind</span><span class="p">:</span> <span class="n">ElementKind</span><span class="p">,</span> <span class="n">variable</span><span class="p">:</span> <span class="n">Variable</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
+    <span class="n">suffix</span> <span class="o">=</span> <span class="s2">"|"</span> <span class="o">+</span> <span class="n">variable</span><span class="o">.</span><span class="n">value</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+        <span class="p">[</span>
+            <span class="n">i</span>
+            <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">c</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">channel_names</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">c</span><span class="o">.</span><span class="n">endswith</span><span class="p">(</span><span class="n">suffix</span><span class="p">)</span> <span class="ow">and</span> <span class="n">element_kind</span><span class="p">(</span><span class="n">c</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"|"</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span> <span class="ow">is</span> <span class="n">kind</span>
+        <span class="p">],</span>
+        <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">,</span>
+    <span class="p">)</span>
+
+
+<div class="viewcode-block" id="stability_labels">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.stability_labels">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">stability_labels</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">angle_spread_limit_deg</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">180.0</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Label each event: unstable if any generator's out-of-step flag is ever set.</span>
+
+<span class="sd">    Without out-of-step channels, an event is unstable if the spread of rotor angles over</span>
+<span class="sd">    all generators and the whole trajectory exceeds ``angle_spread_limit_deg``.</span>
+<span class="sd">    """</span>
+    <span class="n">flags</span> <span class="o">=</span> <span class="n">_columns_of</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">GENERATOR</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">OUT_OF_STEP</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">flags</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+        <span class="n">unstable</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_any</span><span class="p">((</span><span class="n">dataset</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="n">flags</span><span class="p">]</span> <span class="o">&gt;</span> <span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span> <span class="n">dataset</span><span class="o">.</span><span class="n">offsets</span><span class="p">)</span>
+    <span class="k">else</span><span class="p">:</span>
+        <span class="n">angles</span> <span class="o">=</span> <span class="n">_columns_of</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">GENERATOR</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_ANGLE_DEG</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">angles</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="s2">"cannot label events: no out-of-step flags and no rotor angles"</span><span class="p">)</span>
+        <span class="n">a</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="n">angles</span><span class="p">]</span>
+        <span class="n">spread</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">a</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span> <span class="n">dataset</span><span class="o">.</span><span class="n">offsets</span><span class="p">)</span> <span class="o">-</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_min</span><span class="p">(</span>
+            <span class="n">a</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">),</span> <span class="n">dataset</span><span class="o">.</span><span class="n">offsets</span>
+        <span class="p">)</span>
+        <span class="n">unstable</span> <span class="o">=</span> <span class="n">spread</span> <span class="o">&gt;</span> <span class="n">angle_spread_limit_deg</span>
+    <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">unstable</span><span class="p">,</span> <span class="n">Stability</span><span class="o">.</span><span class="n">UNSTABLE</span><span class="p">,</span> <span class="n">Stability</span><span class="o">.</span><span class="n">STABLE</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">int64</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="detect_fault_timing">
+<a class="viewcode-back" href="../../api.html#tranpy.datasets.detect_fault_timing">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">detect_fault_timing</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">voltage_threshold_pu</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.8</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">],</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]]:</span>
+<span class="w">    </span><span class="sd">"""Detect fault inception and clearing from the lowest bus voltage of each event.</span>
+
+<span class="sd">    * inception: first time the lowest bus voltage drops below ``voltage_threshold_pu``;</span>
+<span class="sd">    * clearing: first time it is back above the threshold after the first dip. If the</span>
+<span class="sd">      voltage stays low until the end, the start of the steepest recovery (slope above</span>
+<span class="sd">      0.1 p.u./s after the nadir) is used.</span>
+
+<span class="sd">    Inception only uses data up to that instant. **Clearing is not causal**: for events</span>
+<span class="sd">    whose voltage collapses it is found late and depends on the post-fault outcome, so</span>
+<span class="sd">    windows measured from it carry label information (see docs/validation.md). Events</span>
+<span class="sd">    without a dip get NaN.</span>
+<span class="sd">    """</span>
+    <span class="n">cols</span> <span class="o">=</span> <span class="n">_columns_of</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">BUS</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">BUS_VOLTAGE_PU</span><span class="p">)</span>
+    <span class="n">n</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">n_samples</span>
+    <span class="n">start</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+    <span class="n">clear</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">n</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">nan</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">cols</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">start</span><span class="p">,</span> <span class="n">clear</span>
+    <span class="n">min_v_all</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">]</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+    <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+        <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">offsets</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span> <span class="nb">int</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">offsets</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+        <span class="n">time</span><span class="p">,</span> <span class="n">min_v</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">time</span><span class="p">[</span><span class="n">lo</span><span class="p">:</span><span class="n">hi</span><span class="p">],</span> <span class="n">min_v_all</span><span class="p">[</span><span class="n">lo</span><span class="p">:</span><span class="n">hi</span><span class="p">]</span>
+        <span class="n">low</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">min_v</span> <span class="o">&lt;</span> <span class="n">voltage_threshold_pu</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">low</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">continue</span>
+        <span class="n">start</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="p">[</span><span class="n">low</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+        <span class="n">gaps</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">low</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">gaps</span><span class="o">.</span><span class="n">size</span><span class="p">:</span>
+            <span class="n">block_end</span> <span class="o">=</span> <span class="n">low</span><span class="p">[</span><span class="n">gaps</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span>
+            <span class="n">clear</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="p">[</span><span class="n">block_end</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="k">if</span> <span class="n">block_end</span> <span class="o">+</span> <span class="mi">1</span> <span class="o">&lt;</span> <span class="n">time</span><span class="o">.</span><span class="n">size</span> <span class="k">else</span> <span class="n">time</span><span class="p">[</span><span class="n">block_end</span><span class="p">]</span>
+        <span class="k">elif</span> <span class="n">low</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">time</span><span class="o">.</span><span class="n">size</span> <span class="o">-</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="n">clear</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="p">[</span><span class="n">low</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span>
+        <span class="k">else</span><span class="p">:</span>
+            <span class="n">nadir</span> <span class="o">=</span> <span class="n">low</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">+</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">argmin</span><span class="p">(</span><span class="n">min_v</span><span class="p">[</span><span class="n">low</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="p">:</span> <span class="n">low</span><span class="p">[</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]))</span>
+            <span class="n">dt</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">time</span><span class="p">)</span>
+            <span class="n">dt</span><span class="p">[</span><span class="n">dt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1e-6</span>
+            <span class="n">rising</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">flatnonzero</span><span class="p">((</span><span class="n">np</span><span class="o">.</span><span class="n">diff</span><span class="p">(</span><span class="n">min_v</span><span class="p">)</span> <span class="o">/</span> <span class="n">dt</span><span class="p">)[</span><span class="n">nadir</span><span class="p">:]</span> <span class="o">&gt;</span> <span class="mf">0.1</span><span class="p">)</span>
+            <span class="n">clear</span><span class="p">[</span><span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">time</span><span class="p">[</span><span class="n">nadir</span> <span class="o">+</span> <span class="n">rising</span><span class="p">[</span><span class="mi">0</span><span class="p">]]</span> <span class="k">if</span> <span class="n">rising</span><span class="o">.</span><span class="n">size</span> <span class="k">else</span> <span class="n">time</span><span class="p">[</span><span class="n">nadir</span><span class="p">]</span>
+    <span class="k">return</span> <span class="n">start</span><span class="p">,</span> <span class="n">clear</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,362 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy_core.models.registry &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy_core.models.registry</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy_core.models.registry</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Model registry: name -&gt; estimator class, default hyperparameters and seed parameter.</span>
+
+<span class="sd">The registry hands out *plain* scikit-learn compatible estimators (or a Pipeline with a</span>
+<span class="sd">scaler in front), so ``clone``, ``set_params``, cross-validation and grid search behave</span>
+<span class="sd">exactly as documented by scikit-learn. There is no wrapper class per model.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">importlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Mapping</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">types</span><span class="w"> </span><span class="kn">import</span> <span class="n">MappingProxyType</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Any</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.base</span><span class="w"> </span><span class="kn">import</span> <span class="n">BaseEstimator</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.pipeline</span><span class="w"> </span><span class="kn">import</span> <span class="n">Pipeline</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">sklearn.preprocessing</span><span class="w"> </span><span class="kn">import</span> <span class="n">StandardScaler</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core._optional</span><span class="w"> </span><span class="kn">import</span> <span class="n">is_available</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigurationError</span><span class="p">,</span> <span class="n">MissingDependencyError</span><span class="p">,</span> <span class="n">ModelError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.random</span><span class="w"> </span><span class="kn">import</span> <span class="n">Seed</span><span class="p">,</span> <span class="n">spawn_seed</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"ModelSpec"</span><span class="p">,</span>
+    <span class="s2">"available_models"</span><span class="p">,</span>
+    <span class="s2">"get_model_spec"</span><span class="p">,</span>
+    <span class="s2">"make_estimator"</span><span class="p">,</span>
+    <span class="s2">"make_pipeline"</span><span class="p">,</span>
+    <span class="s2">"register_model"</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="ModelSpec">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.models.registry.ModelSpec">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ModelSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""How to build one model.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        name: registry key, lower_snake_case.</span>
+<span class="sd">        estimator: dotted path of the estimator class, imported lazily.</span>
+<span class="sd">        defaults: hyperparameters that differ from the library defaults.</span>
+<span class="sd">        seed_param: constructor argument that receives the seed, or None if deterministic.</span>
+<span class="sd">        extra: optional-dependency extra providing the backend, or None for scikit-learn.</span>
+<span class="sd">        requires: importable module that must be installed (defaults to the estimator's</span>
+<span class="sd">            top-level package).</span>
+<span class="sd">        scale_features: whether :func:`make_pipeline` puts a StandardScaler in front.</span>
+<span class="sd">        strict_params: reject parameter names the estimator does not declare. Disable for</span>
+<span class="sd">            libraries that accept arbitrary keyword arguments (XGBoost, LightGBM).</span>
+<span class="sd">        description: one line for listings.</span>
+<span class="sd">    """</span>
+
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">estimator</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">defaults</span><span class="p">:</span> <span class="n">Mapping</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">default_factory</span><span class="o">=</span><span class="nb">dict</span><span class="p">)</span>
+    <span class="n">seed_param</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="s2">"random_state"</span>
+    <span class="n">extra</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">requires</span><span class="p">:</span> <span class="nb">str</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">scale_features</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">strict_params</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">description</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">problems</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="p">(</span>
+            <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span>
+            <span class="ow">or</span> <span class="ow">not</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">"_"</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span><span class="o">.</span><span class="n">isalnum</span><span class="p">()</span>
+            <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span> <span class="o">!=</span> <span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span>
+        <span class="p">):</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"name must be lower_snake_case, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="s2">"."</span> <span class="ow">not</span> <span class="ow">in</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimator</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"estimator must be a dotted path, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">estimator</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">problems</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"invalid model spec:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">problems</span><span class="p">))</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"defaults"</span><span class="p">,</span> <span class="n">MappingProxyType</span><span class="p">(</span><span class="nb">dict</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">defaults</span><span class="p">)))</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">module</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimator</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">"."</span><span class="p">,</span> <span class="mi">1</span><span class="p">)[</span><span class="mi">0</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">is_available</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">bool</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">is_available</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">requires</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">module</span><span class="o">.</span><span class="n">split</span><span class="p">(</span><span class="s2">"."</span><span class="p">)[</span><span class="mi">0</span><span class="p">])</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">load_class</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">type</span><span class="p">[</span><span class="n">BaseEstimator</span><span class="p">]:</span>
+        <span class="n">module_name</span><span class="p">,</span> <span class="n">class_name</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">estimator</span><span class="o">.</span><span class="n">rsplit</span><span class="p">(</span><span class="s2">"."</span><span class="p">,</span> <span class="mi">1</span><span class="p">)</span>
+        <span class="k">try</span><span class="p">:</span>
+            <span class="n">module</span> <span class="o">=</span> <span class="n">importlib</span><span class="o">.</span><span class="n">import_module</span><span class="p">(</span><span class="n">module_name</span><span class="p">)</span>
+        <span class="k">except</span> <span class="ne">ImportError</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+            <span class="n">hint</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">" Install it with: pip install 'tranpy-ai[</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">extra</span><span class="si">}</span><span class="s2">]'"</span> <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">extra</span> <span class="k">else</span> <span class="s2">""</span>
+            <span class="k">raise</span> <span class="n">MissingDependencyError</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"model </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> needs </span><span class="si">{</span><span class="n">module_name</span><span class="si">!r}</span><span class="s2">, which is not installed.</span><span class="si">{</span><span class="n">hint</span><span class="si">}</span><span class="s2">"</span>
+            <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span>
+        <span class="bp">cls</span><span class="p">:</span> <span class="nb">type</span><span class="p">[</span><span class="n">BaseEstimator</span><span class="p">]</span> <span class="o">=</span> <span class="nb">getattr</span><span class="p">(</span><span class="n">module</span><span class="p">,</span> <span class="n">class_name</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span></div>
+
+
+
+<span class="n">_REGISTRY</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">ModelSpec</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+
+
+<div class="viewcode-block" id="register_model">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.models.registry.register_model">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">register_model</span><span class="p">(</span><span class="n">spec</span><span class="p">:</span> <span class="n">ModelSpec</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">replace</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ModelSpec</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Add ``spec`` to the registry (extension point for new models)."""</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">name</span> <span class="ow">in</span> <span class="n">_REGISTRY</span> <span class="ow">and</span> <span class="ow">not</span> <span class="n">replace</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"model </span><span class="si">{</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="si">!r}</span><span class="s2"> is already registered"</span><span class="p">)</span>
+    <span class="n">_REGISTRY</span><span class="p">[</span><span class="n">spec</span><span class="o">.</span><span class="n">name</span><span class="p">]</span> <span class="o">=</span> <span class="n">spec</span>
+    <span class="k">return</span> <span class="n">spec</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">get_model_spec</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ModelSpec</span><span class="p">:</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">_REGISTRY</span><span class="p">[</span><span class="n">name</span><span class="p">]</span>
+    <span class="k">except</span> <span class="ne">KeyError</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"unknown model </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">; available: </span><span class="si">{</span><span class="s1">', '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">_REGISTRY</span><span class="p">))</span><span class="si">}</span><span class="s2">"</span>
+        <span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="kc">None</span>
+
+
+<div class="viewcode-block" id="available_models">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.models.registry.available_models">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">available_models</span><span class="p">(</span><span class="o">*</span><span class="p">,</span> <span class="n">installed_only</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">False</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+<span class="w">    </span><span class="sd">"""Registered model names, optionally only those whose backend is installed."""</span>
+    <span class="n">names</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">_REGISTRY</span><span class="p">)</span>
+    <span class="k">if</span> <span class="n">installed_only</span><span class="p">:</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">n</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">names</span> <span class="k">if</span> <span class="n">_REGISTRY</span><span class="p">[</span><span class="n">n</span><span class="p">]</span><span class="o">.</span><span class="n">is_available</span><span class="p">()]</span>
+    <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">names</span><span class="p">)</span></div>
+
+
+
+<div class="viewcode-block" id="make_estimator">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.models.registry.make_estimator">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_estimator</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">seed</span><span class="p">:</span> <span class="n">Seed</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">BaseEstimator</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Build the estimator registered as ``name``.</span>
+
+<span class="sd">    ``params`` override the registered defaults. Unknown parameter names raise</span>
+<span class="sd">    :class:`ConfigurationError` instead of being ignored. The seed is passed to the</span>
+<span class="sd">    estimator's seed parameter unless that parameter is given explicitly.</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">get_model_spec</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="bp">cls</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">load_class</span><span class="p">()</span>
+    <span class="n">merged</span> <span class="o">=</span> <span class="p">{</span><span class="o">**</span><span class="n">spec</span><span class="o">.</span><span class="n">defaults</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">}</span>
+    <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">seed_param</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="n">spec</span><span class="o">.</span><span class="n">seed_param</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">params</span><span class="p">:</span>
+        <span class="n">merged</span><span class="p">[</span><span class="n">spec</span><span class="o">.</span><span class="n">seed_param</span><span class="p">]</span> <span class="o">=</span> <span class="n">spawn_seed</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+    <span class="n">unknown</span> <span class="o">=</span> <span class="nb">sorted</span><span class="p">(</span><span class="nb">set</span><span class="p">(</span><span class="n">merged</span><span class="p">)</span> <span class="o">-</span> <span class="nb">set</span><span class="p">(</span><span class="bp">cls</span><span class="p">()</span><span class="o">.</span><span class="n">get_params</span><span class="p">(</span><span class="n">deep</span><span class="o">=</span><span class="kc">False</span><span class="p">)))</span> <span class="k">if</span> <span class="n">spec</span><span class="o">.</span><span class="n">strict_params</span> <span class="k">else</span> <span class="p">[]</span>
+    <span class="k">if</span> <span class="n">unknown</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"unknown parameters for model </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: </span><span class="si">{</span><span class="s1">', '</span><span class="o">.</span><span class="n">join</span><span class="p">(</span><span class="n">unknown</span><span class="p">)</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="k">try</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="o">**</span><span class="n">merged</span><span class="p">)</span>
+    <span class="k">except</span> <span class="p">(</span><span class="ne">TypeError</span><span class="p">,</span> <span class="ne">ValueError</span><span class="p">)</span> <span class="k">as</span> <span class="n">exc</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">ModelError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"cannot build model </span><span class="si">{</span><span class="n">name</span><span class="si">!r}</span><span class="s2">: </span><span class="si">{</span><span class="n">exc</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span> <span class="kn">from</span><span class="w"> </span><span class="nn">exc</span></div>
+
+
+
+<div class="viewcode-block" id="make_pipeline">
+<a class="viewcode-back" href="../../../api.html#tranpy_core.models.registry.make_pipeline">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">make_pipeline</span><span class="p">(</span>
+    <span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">*</span><span class="p">,</span> <span class="n">seed</span><span class="p">:</span> <span class="n">Seed</span> <span class="o">=</span> <span class="mi">0</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">:</span> <span class="n">Any</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">Pipeline</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Estimator ``name`` behind a StandardScaler (fitted on training data only).</span>
+
+<span class="sd">    Args:</span>
+<span class="sd">        name: registered model name.</span>
+<span class="sd">        seed: seed for the estimator.</span>
+<span class="sd">        scale: include the scaler; defaults to the model's ``scale_features``.</span>
+<span class="sd">        **params: estimator hyperparameters (address them later as ``model__&lt;param&gt;``).</span>
+<span class="sd">    """</span>
+    <span class="n">spec</span> <span class="o">=</span> <span class="n">get_model_spec</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+    <span class="n">estimator</span> <span class="o">=</span> <span class="n">make_estimator</span><span class="p">(</span><span class="n">name</span><span class="p">,</span> <span class="n">seed</span><span class="o">=</span><span class="n">seed</span><span class="p">,</span> <span class="o">**</span><span class="n">params</span><span class="p">)</span>
+    <span class="n">use_scaler</span> <span class="o">=</span> <span class="n">spec</span><span class="o">.</span><span class="n">scale_features</span> <span class="k">if</span> <span class="n">scale</span> <span class="ow">is</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">scale</span>
+    <span class="n">steps</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">Any</span><span class="p">]]</span> <span class="o">=</span> <span class="p">[(</span><span class="s2">"scale"</span><span class="p">,</span> <span class="n">StandardScaler</span><span class="p">())]</span> <span class="k">if</span> <span class="n">use_scaler</span> <span class="k">else</span> <span class="p">[]</span>
+    <span class="n">steps</span><span class="o">.</span><span class="n">append</span><span class="p">((</span><span class="s2">"model"</span><span class="p">,</span> <span class="n">estimator</span><span class="p">))</span>
+    <span class="k">return</span> <span class="n">Pipeline</span><span class="p">(</span><span class="n">steps</span><span class="p">)</span></div>
+
+
+
+<span class="k">def</span><span class="w"> </span><span class="nf">_builtin</span><span class="p">(</span><span class="n">name</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">estimator</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="n">description</span><span class="p">:</span> <span class="nb">str</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">:</span> <span class="n">Any</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+    <span class="n">register_model</span><span class="p">(</span><span class="n">ModelSpec</span><span class="p">(</span><span class="n">name</span><span class="o">=</span><span class="n">name</span><span class="p">,</span> <span class="n">estimator</span><span class="o">=</span><span class="n">estimator</span><span class="p">,</span> <span class="n">description</span><span class="o">=</span><span class="n">description</span><span class="p">,</span> <span class="o">**</span><span class="n">kwargs</span><span class="p">))</span>
+
+
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"svm"</span><span class="p">,</span> <span class="s2">"sklearn.svm.SVC"</span><span class="p">,</span> <span class="s2">"Support vector machine (RBF kernel)"</span><span class="p">,</span> <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">"probability"</span><span class="p">:</span> <span class="kc">True</span><span class="p">}</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"mlp"</span><span class="p">,</span> <span class="s2">"sklearn.neural_network.MLPClassifier"</span><span class="p">,</span> <span class="s2">"Multi-layer perceptron"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"decision_tree"</span><span class="p">,</span> <span class="s2">"sklearn.tree.DecisionTreeClassifier"</span><span class="p">,</span> <span class="s2">"Decision tree"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"random_forest"</span><span class="p">,</span> <span class="s2">"sklearn.ensemble.RandomForestClassifier"</span><span class="p">,</span> <span class="s2">"Random forest"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"adaboost"</span><span class="p">,</span> <span class="s2">"sklearn.ensemble.AdaBoostClassifier"</span><span class="p">,</span> <span class="s2">"AdaBoost"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"extra_trees"</span><span class="p">,</span> <span class="s2">"sklearn.ensemble.ExtraTreesClassifier"</span><span class="p">,</span> <span class="s2">"Extremely randomised trees"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"gradient_boosting"</span><span class="p">,</span> <span class="s2">"sklearn.ensemble.GradientBoostingClassifier"</span><span class="p">,</span> <span class="s2">"Gradient boosting"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"gaussian_nb"</span><span class="p">,</span> <span class="s2">"sklearn.naive_bayes.GaussianNB"</span><span class="p">,</span> <span class="s2">"Gaussian naive Bayes"</span><span class="p">,</span> <span class="n">seed_param</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"knn"</span><span class="p">,</span> <span class="s2">"sklearn.neighbors.KNeighborsClassifier"</span><span class="p">,</span> <span class="s2">"k-nearest neighbours"</span><span class="p">,</span> <span class="n">seed_param</span><span class="o">=</span><span class="kc">None</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"gaussian_process"</span><span class="p">,</span> <span class="s2">"sklearn.gaussian_process.GaussianProcessClassifier"</span><span class="p">,</span> <span class="s2">"Gaussian process"</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span><span class="s2">"logistic_regression"</span><span class="p">,</span> <span class="s2">"sklearn.linear_model.LogisticRegression"</span><span class="p">,</span> <span class="s2">"Logistic regression"</span><span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"ridge"</span><span class="p">,</span>
+    <span class="s2">"sklearn.linear_model.RidgeClassifier"</span><span class="p">,</span>
+    <span class="s2">"Ridge classifier (no probabilities)"</span><span class="p">,</span>
+    <span class="n">seed_param</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"sgd"</span><span class="p">,</span>
+    <span class="s2">"sklearn.linear_model.SGDClassifier"</span><span class="p">,</span>
+    <span class="s2">"Linear model trained by SGD"</span><span class="p">,</span>
+    <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">"loss"</span><span class="p">:</span> <span class="s2">"log_loss"</span><span class="p">},</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"lda"</span><span class="p">,</span>
+    <span class="s2">"sklearn.discriminant_analysis.LinearDiscriminantAnalysis"</span><span class="p">,</span>
+    <span class="s2">"Linear discriminant analysis"</span><span class="p">,</span>
+    <span class="n">seed_param</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"qda"</span><span class="p">,</span>
+    <span class="s2">"sklearn.discriminant_analysis.QuadraticDiscriminantAnalysis"</span><span class="p">,</span>
+    <span class="s2">"Quadratic discriminant analysis (regularised)"</span><span class="p">,</span>
+    <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">"reg_param"</span><span class="p">:</span> <span class="mf">0.01</span><span class="p">},</span>
+    <span class="n">seed_param</span><span class="o">=</span><span class="kc">None</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"dummy"</span><span class="p">,</span>
+    <span class="s2">"sklearn.dummy.DummyClassifier"</span><span class="p">,</span>
+    <span class="s2">"Majority-class baseline"</span><span class="p">,</span>
+    <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">"strategy"</span><span class="p">:</span> <span class="s2">"most_frequent"</span><span class="p">},</span>
+    <span class="n">scale_features</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"xgboost"</span><span class="p">,</span>
+    <span class="s2">"xgboost.XGBClassifier"</span><span class="p">,</span>
+    <span class="s2">"XGBoost gradient boosting"</span><span class="p">,</span>
+    <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">"n_estimators"</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s2">"max_depth"</span><span class="p">:</span> <span class="mi">6</span><span class="p">,</span> <span class="s2">"learning_rate"</span><span class="p">:</span> <span class="mf">0.3</span><span class="p">},</span>
+    <span class="n">extra</span><span class="o">=</span><span class="s2">"boosting"</span><span class="p">,</span>
+    <span class="n">strict_params</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="n">_builtin</span><span class="p">(</span>
+    <span class="s2">"lightgbm"</span><span class="p">,</span>
+    <span class="s2">"lightgbm.LGBMClassifier"</span><span class="p">,</span>
+    <span class="s2">"LightGBM gradient boosting"</span><span class="p">,</span>
+    <span class="n">defaults</span><span class="o">=</span><span class="p">{</span><span class="s2">"n_estimators"</span><span class="p">:</span> <span class="mi">100</span><span class="p">,</span> <span class="s2">"max_depth"</span><span class="p">:</span> <span class="o">-</span><span class="mi">1</span><span class="p">,</span> <span class="s2">"learning_rate"</span><span class="p">:</span> <span class="mf">0.1</span><span class="p">,</span> <span class="s2">"verbose"</span><span class="p">:</span> <span class="o">-</span><span class="mi">1</span><span class="p">},</span>
+    <span class="n">extra</span><span class="o">=</span><span class="s2">"boosting"</span><span class="p">,</span>
+    <span class="n">strict_params</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span>
+<span class="p">)</span>
+
+<span class="k">for</span> <span class="n">_name</span><span class="p">,</span> <span class="n">_cls</span><span class="p">,</span> <span class="n">_desc</span> <span class="ow">in</span> <span class="p">[</span>
+    <span class="p">(</span><span class="s2">"dense_network"</span><span class="p">,</span> <span class="s2">"DenseNetworkClassifier"</span><span class="p">,</span> <span class="s2">"Fully connected neural network (Keras)"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"lstm_network"</span><span class="p">,</span> <span class="s2">"LSTMNetworkClassifier"</span><span class="p">,</span> <span class="s2">"LSTM with attention pooling (Keras)"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"tcn_network"</span><span class="p">,</span> <span class="s2">"TCNNetworkClassifier"</span><span class="p">,</span> <span class="s2">"Temporal convolutional network (Keras)"</span><span class="p">),</span>
+    <span class="p">(</span><span class="s2">"transformer_network"</span><span class="p">,</span> <span class="s2">"TransformerNetworkClassifier"</span><span class="p">,</span> <span class="s2">"Transformer encoder (Keras)"</span><span class="p">),</span>
+<span class="p">]:</span>
+    <span class="n">_builtin</span><span class="p">(</span>
+        <span class="n">_name</span><span class="p">,</span>
+        <span class="sa">f</span><span class="s2">"tranpy_core.models.neural.</span><span class="si">{</span><span class="n">_cls</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+        <span class="n">_desc</span><span class="p">,</span>
+        <span class="n">extra</span><span class="o">=</span><span class="s2">"neural"</span><span class="p">,</span>
+        <span class="n">requires</span><span class="o">=</span><span class="s2">"tensorflow"</span><span class="p">,</span>
+    <span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

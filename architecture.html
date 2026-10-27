@@ -1,0 +1,275 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="./">
+<head>
+  <meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Architecture &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="_static/jquery.js?v=5d32c60e"></script>
+      <script src="_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="_static/documentation_options.js?v=130a53a1"></script>
+      <script src="_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Data management" href="data.html" />
+    <link rel="prev" title="TranPy" href="index.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul class="current">
+<li class="toctree-l1 current"><a class="current reference internal" href="#">Architecture</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="#vocabulary">Vocabulary</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#modules">Modules</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-flow">Data flow</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#extension-points">Extension points</a></li>
+<li class="toctree-l2"><a class="reference internal" href="#data-hosting">Data hosting</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="index.html" class="icon icon-home" aria-label="Home"></a></li>
+      <li class="breadcrumb-item active">Architecture</li>
+      <li class="wy-breadcrumbs-aside">
+            <a href="_sources/architecture.md.txt" rel="nofollow"> View page source</a>
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <section id="architecture">
+<h1>Architecture<a class="headerlink" href="#architecture" title="Link to this heading"></a></h1>
+<p>TranPy has two layers in one distribution (<code class="docutils literal notranslate"><span class="pre">tranpy-ai</span></code>):</p>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">tranpy</span>        <span class="n">power</span><span class="o">-</span><span class="n">system</span> <span class="n">layer</span><span class="p">:</span> <span class="n">systems</span><span class="p">,</span> <span class="n">vocabulary</span><span class="p">,</span> <span class="n">datasets</span><span class="p">,</span> <span class="n">trajectory</span> <span class="n">features</span><span class="p">,</span>
+              <span class="n">early</span> <span class="n">prediction</span><span class="p">,</span> <span class="n">simulation</span> <span class="n">engines</span><span class="p">,</span> <span class="n">pretrained</span> <span class="n">models</span><span class="p">,</span> <span class="n">CLI</span><span class="p">,</span> <span class="n">plots</span>
+   <span class="o">|</span>
+   <span class="n">v</span>  <span class="p">(</span><span class="n">one</span><span class="o">-</span><span class="n">way</span> <span class="n">dependency</span><span class="p">,</span> <span class="n">enforced</span> <span class="n">by</span> <span class="n">tests</span><span class="o">/</span><span class="n">test_import_boundaries</span><span class="o">.</span><span class="n">py</span><span class="p">)</span>
+<span class="n">tranpy_core</span>   <span class="n">generic</span> <span class="n">layer</span><span class="p">:</span> <span class="n">labelled</span> <span class="n">tabular</span> <span class="o">/</span> <span class="n">time</span><span class="o">-</span><span class="n">series</span> <span class="n">data</span> <span class="o">-&gt;</span> <span class="n">features</span> <span class="o">-&gt;</span>
+              <span class="n">models</span> <span class="o">-&gt;</span> <span class="n">evaluation</span> <span class="o">-&gt;</span> <span class="n">explanation</span><span class="p">,</span> <span class="n">experiment</span> <span class="n">runner</span>
+</pre></div>
+</div>
+<p><code class="docutils literal notranslate"><span class="pre">tranpy_core</span></code> knows nothing about buses or generators; it could serve any labelled
+time-series or tabular classification problem (see notebook 06). Optional backends
+(SHAP, LIME, DALEX, TensorFlow, XGBoost, LightGBM, matplotlib, skops, PowerFactory) are
+imported only inside the functions that need them.</p>
+<section id="vocabulary">
+<h2>Vocabulary<a class="headerlink" href="#vocabulary" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Generic (<code class="docutils literal notranslate"><span class="pre">tranpy_core</span></code>)</p></th>
+<th class="head"><p>Power system (<code class="docutils literal notranslate"><span class="pre">tranpy</span></code>)</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p>sample</p></td>
+<td><p>simulated fault event</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">TabularDataset</span></code></p></td>
+<td><p>snapshot dataset (one feature vector per event)</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">SignalDataset</span></code></p></td>
+<td><p>event trajectories (all recorded variables over time)</p></td>
+</tr>
+<tr class="row-odd"><td><p>channel `”<element></p></td>
+<td><p><variable>”`</p></td>
+</tr>
+<tr class="row-even"><td><p>label 0 / 1</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">Stability.STABLE</span></code> / <code class="docutils literal notranslate"><span class="pre">Stability.UNSTABLE</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p>annotation</p></td>
+<td><p>per-event scalar, e.g. <code class="docutils literal notranslate"><span class="pre">fault_start_s</span></code>, <code class="docutils literal notranslate"><span class="pre">fault_clear_s</span></code></p></td>
+</tr>
+<tr class="row-even"><td><p>feature extractor</p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TrajectoryFeatures</span></code> (rotor, voltage, frequency, power, coherency)</p></td>
+</tr>
+<tr class="row-odd"><td><p>model registry entry</p></td>
+<td><p>classifier name, e.g. <code class="docutils literal notranslate"><span class="pre">random_forest</span></code></p></td>
+</tr>
+</tbody>
+</table>
+<p>Units are part of names where ambiguous: <code class="docutils literal notranslate"><span class="pre">_s</span></code> seconds, <code class="docutils literal notranslate"><span class="pre">_hz</span></code>, <code class="docutils literal notranslate"><span class="pre">_pu</span></code>, <code class="docutils literal notranslate"><span class="pre">_deg</span></code>, <code class="docutils literal notranslate"><span class="pre">_ohm</span></code>,
+<code class="docutils literal notranslate"><span class="pre">_pct</span></code>.</p>
+</section>
+<section id="modules">
+<h2>Modules<a class="headerlink" href="#modules" title="Link to this heading"></a></h2>
+<table class="docutils align-default">
+<thead>
+<tr class="row-odd"><th class="head"><p>Module</p></th>
+<th class="head"><p>Responsibility</p></th>
+</tr>
+</thead>
+<tbody>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.errors</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TranpyError</span></code> -&gt; <code class="docutils literal notranslate"><span class="pre">ConfigurationError</span></code>, <code class="docutils literal notranslate"><span class="pre">DataError</span></code> (<code class="docutils literal notranslate"><span class="pre">ChecksumError</span></code>), <code class="docutils literal notranslate"><span class="pre">ModelError</span></code>, <code class="docutils literal notranslate"><span class="pre">SimulationError</span></code>, <code class="docutils literal notranslate"><span class="pre">MissingDependencyError</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.config</span></code></p></td>
+<td><p>frozen dataclasses from mappings/YAML; unknown keys rejected, all problems reported together</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.random</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">make_rng(seed)</span></code>; no global RNG anywhere</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.data</span></code></p></td>
+<td><p>immutable containers, reproducible <code class="docutils literal notranslate"><span class="pre">.npz</span></code> storage, checksum-verified downloads, seeded stratified/grouped splits</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.features</span></code></p></td>
+<td><p>vectorised segment reductions over ragged samples, windows, generic statistics</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.models</span></code></p></td>
+<td><p>registry: name -&gt; scikit-learn estimator + defaults + seed parameter; Keras networks as estimators; skops persistence</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.evaluation</span></code></p></td>
+<td><p>metrics, cross-validation that clones the whole pipeline per fold</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.explain</span></code></p></td>
+<td><p>SHAP, LIME, break-down -&gt; <code class="docutils literal notranslate"><span class="pre">Explanation</span></code>; logistic surrogate</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.experiment</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">ExperimentSpec</span></code> -&gt; results (JSON)</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy_core.plotting</span></code></p></td>
+<td><p>publication style and generic plots</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.systems</span></code>, <code class="docutils literal notranslate"><span class="pre">tranpy.vocabulary</span></code></p></td>
+<td><p>test systems, stability enum, element kinds, variable names</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.datasets</span></code></p></td>
+<td><p>bundled snapshots, event loading (npz / PowerFactory CSV / download), labels, fault timing</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.features</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">TrajectoryFeatures</span></code> with an explicit window reference</p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.early_prediction</span></code></p></td>
+<td><p>accuracy versus observation window</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.simulation</span></code></p></td>
+<td><p><code class="docutils literal notranslate"><span class="pre">SimulationEngine</span></code> protocol, scenarios, <code class="docutils literal notranslate"><span class="pre">MockEngine</span></code>, <code class="docutils literal notranslate"><span class="pre">PowerFactoryEngine</span></code>, <code class="docutils literal notranslate"><span class="pre">generate_events</span></code></p></td>
+</tr>
+<tr class="row-odd"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.pretrained</span></code></p></td>
+<td><p>seeded training and verified loading of published pipelines</p></td>
+</tr>
+<tr class="row-even"><td><p><code class="docutils literal notranslate"><span class="pre">tranpy.cli</span></code></p></td>
+<td><p>`tranpy datasets</p></td>
+</tr>
+</tbody>
+</table>
+</section>
+<section id="data-flow">
+<h2>Data flow<a class="headerlink" href="#data-flow" title="Link to this heading"></a></h2>
+<div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">PowerFactory</span> <span class="o">/</span> <span class="n">MockEngine</span> <span class="o">--</span><span class="n">generate_events</span><span class="o">--&gt;</span> <span class="n">SignalDataset</span> <span class="p">(</span><span class="o">.</span><span class="n">npz</span><span class="p">)</span>
+                                                   <span class="o">|</span>
+                         <span class="n">TrajectoryFeatures</span><span class="p">(</span><span class="n">window_s</span><span class="p">,</span> <span class="n">reference</span><span class="p">)</span>
+                                                   <span class="n">v</span>
+<span class="n">bundled</span> <span class="n">snapshots</span> <span class="o">----------------------------&gt;</span> <span class="n">TabularDataset</span>
+                                                   <span class="o">|</span>
+                         <span class="n">train_test_split</span> <span class="o">/</span> <span class="n">kfold_splits</span> <span class="p">(</span><span class="n">seeded</span><span class="p">,</span> <span class="n">stratified</span><span class="p">)</span>
+                                                   <span class="n">v</span>
+                         <span class="n">make_pipeline</span><span class="p">(</span><span class="n">name</span><span class="p">)</span> <span class="o">=</span> <span class="n">StandardScaler</span> <span class="o">-&gt;</span> <span class="n">estimator</span>
+                                                   <span class="o">|</span>
+                         <span class="n">evaluate</span> <span class="o">/</span> <span class="n">cross_validate</span> <span class="o">/</span> <span class="n">run_experiment</span>
+                                                   <span class="n">v</span>
+                         <span class="n">explain_shap</span> <span class="o">/</span> <span class="n">explain_lime</span> <span class="o">/</span> <span class="n">fit_surrogate</span>
+</pre></div>
+</div>
+<p>Leakage rules built into this flow: feature extraction is stateless and only sees data
+up to the window end; anything fitted from data (scaling, models) lives in a pipeline and
+is refitted on each training fold; label-defining channels (<code class="docutils literal notranslate"><span class="pre">s:outofstep</span></code>) are removed
+when events are loaded.</p>
+</section>
+<section id="extension-points">
+<h2>Extension points<a class="headerlink" href="#extension-points" title="Link to this heading"></a></h2>
+<ul class="simple">
+<li><p><strong>Model</strong>: <code class="docutils literal notranslate"><span class="pre">register_model(ModelSpec(name=&quot;my_model&quot;,</span> <span class="pre">estimator=&quot;pkg.module.Class&quot;,</span> <span class="pre">defaults={...},</span> <span class="pre">seed_param=&quot;random_state&quot;,</span> <span class="pre">extra=&quot;...&quot;))</span></code>. Any scikit-learn compatible
+class works; implement <code class="docutils literal notranslate"><span class="pre">__init__</span></code> storing parameters only.</p></li>
+<li><p><strong>Feature extractor</strong>: any object with <code class="docutils literal notranslate"><span class="pre">transform(SignalDataset)</span> <span class="pre">-&gt;</span> <span class="pre">TabularDataset</span></code>
+(<code class="docutils literal notranslate"><span class="pre">tranpy_core.features.SignalFeatureExtractor</span></code>). Build it from
+<code class="docutils literal notranslate"><span class="pre">tranpy_core.features.segments</span></code> to stay vectorised.</p></li>
+<li><p><strong>Dataset</strong>: write a <code class="docutils literal notranslate"><span class="pre">TabularDataset</span></code>/<code class="docutils literal notranslate"><span class="pre">SignalDataset</span></code> with <code class="docutils literal notranslate"><span class="pre">save_tabular</span></code>/<code class="docutils literal notranslate"><span class="pre">save_signals</span></code>,
+then add an entry with filename, SHA-256 and URL to <code class="docutils literal notranslate"><span class="pre">src/tranpy/resources/registry.json</span></code>.</p></li>
+<li><p><strong>Explainer</strong>: a function <code class="docutils literal notranslate"><span class="pre">(model,</span> <span class="pre">X,</span> <span class="pre">*,</span> <span class="pre">background,</span> <span class="pre">seed)</span> <span class="pre">-&gt;</span> <span class="pre">Explanation</span></code>.</p></li>
+<li><p><strong>Simulation engine</strong>: implement the <code class="docutils literal notranslate"><span class="pre">SimulationEngine</span></code> protocol (<code class="docutils literal notranslate"><span class="pre">system</span></code>, <code class="docutils literal notranslate"><span class="pre">n_lines</span></code>,
+<code class="docutils literal notranslate"><span class="pre">n_loads</span></code>, <code class="docutils literal notranslate"><span class="pre">simulation_time_s</span></code>, <code class="docutils literal notranslate"><span class="pre">simulate(scenarios)</span> <span class="pre">-&gt;</span> <span class="pre">list[SimulationResult]</span></code>);
+<code class="docutils literal notranslate"><span class="pre">generate_events</span></code> then works unchanged.</p></li>
+</ul>
+</section>
+<section id="data-hosting">
+<h2>Data hosting<a class="headerlink" href="#data-hosting" title="Link to this heading"></a></h2>
+<p>See <a class="reference internal" href="data.html"><span class="std std-doc">data.md</span></a>: bundled snapshots, sharded event datasets streamed from GitHub release assets,
+lossless compact storage, checksums everywhere.</p>
+</section>
+</section>
+
+
+           </div>
+          </div>
+          <footer><div class="rst-footer-buttons" role="navigation" aria-label="Footer">
+        <a href="index.html" class="btn btn-neutral float-left" title="TranPy" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left" aria-hidden="true"></span> Previous</a>
+        <a href="data.html" class="btn btn-neutral float-right" title="Data management" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right" aria-hidden="true"></span></a>
+    </div>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

@@ -1,0 +1,229 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.vocabulary &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.vocabulary</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.vocabulary</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Power-system vocabulary: stability classes, network elements and recorded variables.</span>
+
+<span class="sd">Channel names follow the PowerFactory result export, ``"&lt;element&gt;|&lt;variable&gt; in &lt;unit&gt;"``,</span>
+<span class="sd">for example ``"G 01|c:firot in deg"`` (rotor angle of generator G 01 in degrees).</span>
+
+<span class="sd">Generic &lt;-&gt; domain mapping used throughout the package:</span>
+
+<span class="sd">=================  ==============================================</span>
+<span class="sd">generic (core)     power system (this package)</span>
+<span class="sd">=================  ==============================================</span>
+<span class="sd">sample             simulated fault event</span>
+<span class="sd">signal / channel   recorded variable of one network element</span>
+<span class="sd">label 0 / 1        :attr:`Stability.STABLE` / :attr:`Stability.UNSTABLE`</span>
+<span class="sd">annotation         event time, e.g. ``fault_start_s``</span>
+<span class="sd">=================  ==============================================</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">re</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">enum</span><span class="w"> </span><span class="kn">import</span> <span class="n">IntEnum</span><span class="p">,</span> <span class="n">StrEnum</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">DataError</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"LABEL_NAMES"</span><span class="p">,</span>
+    <span class="s2">"ChannelName"</span><span class="p">,</span>
+    <span class="s2">"ElementKind"</span><span class="p">,</span>
+    <span class="s2">"Stability"</span><span class="p">,</span>
+    <span class="s2">"Variable"</span><span class="p">,</span>
+    <span class="s2">"element_kind"</span><span class="p">,</span>
+<span class="p">]</span>
+
+
+<div class="viewcode-block" id="Stability">
+<a class="viewcode-back" href="../../api.html#tranpy.vocabulary.Stability">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Stability</span><span class="p">(</span><span class="n">IntEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""Transient stability class of a fault event (the classification label)."""</span>
+
+    <span class="n">STABLE</span> <span class="o">=</span> <span class="mi">0</span>
+    <span class="n">UNSTABLE</span> <span class="o">=</span> <span class="mi">1</span></div>
+
+
+
+<span class="n">LABEL_NAMES</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">s</span><span class="o">.</span><span class="n">name</span><span class="o">.</span><span class="n">lower</span><span class="p">()</span> <span class="k">for</span> <span class="n">s</span> <span class="ow">in</span> <span class="n">Stability</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="ElementKind">
+<a class="viewcode-back" href="../../api.html#tranpy.vocabulary.ElementKind">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">ElementKind</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+    <span class="n">BUS</span> <span class="o">=</span> <span class="s2">"bus"</span>
+    <span class="n">GENERATOR</span> <span class="o">=</span> <span class="s2">"generator"</span>
+    <span class="n">LINE</span> <span class="o">=</span> <span class="s2">"line"</span>
+    <span class="n">LOAD</span> <span class="o">=</span> <span class="s2">"load"</span>
+    <span class="n">TRANSFORMER</span> <span class="o">=</span> <span class="s2">"transformer"</span>
+    <span class="n">OTHER</span> <span class="o">=</span> <span class="s2">"other"</span></div>
+
+
+
+<div class="viewcode-block" id="Variable">
+<a class="viewcode-back" href="../../api.html#tranpy.vocabulary.Variable">[docs]</a>
+<span class="k">class</span><span class="w"> </span><span class="nc">Variable</span><span class="p">(</span><span class="n">StrEnum</span><span class="p">):</span>
+<span class="w">    </span><span class="sd">"""PowerFactory result variables used by this package (name and unit as exported)."""</span>
+
+    <span class="n">BUS_VOLTAGE_PU</span> <span class="o">=</span> <span class="s2">"m:u in p.u."</span>
+    <span class="n">BUS_ANGLE_DEG</span> <span class="o">=</span> <span class="s2">"m:phiu in deg"</span>
+    <span class="n">BUS_FREQUENCY_HZ</span> <span class="o">=</span> <span class="s2">"m:fehz in Hz"</span>
+    <span class="n">ROTOR_ANGLE_DEG</span> <span class="o">=</span> <span class="s2">"c:firot in deg"</span>
+<span class="w">    </span><span class="sd">"""Rotor angle relative to the reference machine."""</span>
+    <span class="n">ROTOR_SPEED_PU</span> <span class="o">=</span> <span class="s2">"s:xspeed in p.u."</span>
+    <span class="n">ROTOR_FREQUENCY_DEVIATION_HZ</span> <span class="o">=</span> <span class="s2">"c:dorhz in Hz"</span>
+    <span class="n">ACTIVE_POWER_MW</span> <span class="o">=</span> <span class="s2">"s:P1 in MW"</span>
+    <span class="n">REACTIVE_POWER_MVAR</span> <span class="o">=</span> <span class="s2">"s:Q1 in Mvar"</span>
+    <span class="n">OUT_OF_STEP</span> <span class="o">=</span> <span class="s2">"s:outofstep"</span>
+<span class="w">    </span><span class="sd">"""1 once the machine has lost synchronism (PowerFactory pole-slip flag)."""</span>
+    <span class="n">TIME_S</span> <span class="o">=</span> <span class="s2">"b:tnow in s"</span></div>
+
+
+
+<span class="n">_GENERATOR</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"^G\s*\d+$"</span><span class="p">)</span>
+<span class="n">_TRANSFORMER</span> <span class="o">=</span> <span class="n">re</span><span class="o">.</span><span class="n">compile</span><span class="p">(</span><span class="sa">r</span><span class="s2">"^(T|Trf)\s*\d+"</span><span class="p">)</span>
+
+
+<div class="viewcode-block" id="element_kind">
+<a class="viewcode-back" href="../../api.html#tranpy.vocabulary.element_kind">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">element_kind</span><span class="p">(</span><span class="n">element</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ElementKind</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Classify an element name as exported by PowerFactory."""</span>
+    <span class="n">name</span> <span class="o">=</span> <span class="n">element</span><span class="o">.</span><span class="n">strip</span><span class="p">()</span>
+    <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"Bus"</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">BUS</span>
+    <span class="k">if</span> <span class="n">_GENERATOR</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">GENERATOR</span>
+    <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"Line"</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">LINE</span>
+    <span class="k">if</span> <span class="n">name</span><span class="o">.</span><span class="n">startswith</span><span class="p">(</span><span class="s2">"Load"</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">LOAD</span>
+    <span class="k">if</span> <span class="n">_TRANSFORMER</span><span class="o">.</span><span class="n">match</span><span class="p">(</span><span class="n">name</span><span class="p">):</span>
+        <span class="k">return</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">TRANSFORMER</span>
+    <span class="k">return</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">OTHER</span></div>
+
+
+
+<div class="viewcode-block" id="ChannelName">
+<a class="viewcode-back" href="../../api.html#tranpy.vocabulary.ChannelName">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">ChannelName</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""A parsed channel name ``"&lt;element&gt;|&lt;variable&gt;"``."""</span>
+
+    <span class="n">element</span><span class="p">:</span> <span class="nb">str</span>
+    <span class="n">variable</span><span class="p">:</span> <span class="nb">str</span>
+
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">parse</span><span class="p">(</span><span class="bp">cls</span><span class="p">,</span> <span class="n">channel</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ChannelName</span><span class="p">:</span>
+        <span class="n">element</span><span class="p">,</span> <span class="n">sep</span><span class="p">,</span> <span class="n">variable</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">"|"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="n">sep</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">element</span> <span class="ow">or</span> <span class="ow">not</span> <span class="n">variable</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"channel name </span><span class="si">{</span><span class="n">channel</span><span class="si">!r}</span><span class="s2"> is not of the form 'element|variable'"</span><span class="p">)</span>
+        <span class="k">return</span> <span class="bp">cls</span><span class="p">(</span><span class="n">element</span><span class="o">=</span><span class="n">element</span><span class="p">,</span> <span class="n">variable</span><span class="o">=</span><span class="n">variable</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">kind</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">ElementKind</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">element_kind</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">element</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__str__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">element</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">variable</span><span class="si">}</span><span class="s2">"</span></div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

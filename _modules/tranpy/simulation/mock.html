@@ -1,0 +1,459 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.simulation.mock &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../../genindex.html" />
+    <link rel="search" title="Search" href="../../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.simulation.mock</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.simulation.mock</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Mock simulation engine: a classical multi-machine model integrated with NumPy.</span>
+
+<span class="sd">It replaces PowerFactory in tests, examples and method development. It is *not* a model</span>
+<span class="sd">of the real IEEE systems: the network is a synthetic, seeded graph with the system's</span>
+<span class="sd">number of generators and buses. What matters is that the stability label follows from</span>
+<span class="sd">the simulated dynamics, as in a real simulator, instead of being drawn first and the</span>
+<span class="sd">features generated from it.</span>
+
+<span class="sd">Model (per unit, swing equations of the classical generator model)::</span>
+
+<span class="sd">    d(delta_i)/dt = 2*pi*f0 * (omega_i - 1)</span>
+<span class="sd">    2*H_i * d(omega_i)/dt = Pm_i - Pe_i - D_i * (omega_i - 1)</span>
+<span class="sd">    Pe_i = sum_j E_i * E_j * B_ij * sin(delta_i - delta_j)</span>
+
+<span class="sd">A fault on line (a, b) depresses the electrical power of nearby machines while it lasts;</span>
+<span class="sd">clearing opens the line (B_ab = 0). Bus voltages are weighted phasor sums of the</span>
+<span class="sd">generator EMFs. A machine is out of step once its angle relative to the centre of</span>
+<span class="sd">inertia exceeds 180 degrees (latched), which defines the label.</span>
+
+<span class="sd">All scenarios are integrated together (fixed-step RK4), so generating hundreds of events</span>
+<span class="sd">takes seconds.</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">zlib</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span><span class="p">,</span> <span class="n">field</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.simulation.engine</span><span class="w"> </span><span class="kn">import</span> <span class="n">FaultScenario</span><span class="p">,</span> <span class="n">SimulationResult</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.systems</span><span class="w"> </span><span class="kn">import</span> <span class="n">PowerSystem</span><span class="p">,</span> <span class="n">get_system</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.vocabulary</span><span class="w"> </span><span class="kn">import</span> <span class="n">Variable</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigurationError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.random</span><span class="w"> </span><span class="kn">import</span> <span class="n">Seed</span><span class="p">,</span> <span class="n">make_rng</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span><span class="s2">"MockEngine"</span><span class="p">,</span> <span class="s2">"MockNetwork"</span><span class="p">]</span>
+
+<span class="n">FloatArray</span> <span class="o">=</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span>
+
+<span class="n">_BASE_MVA</span> <span class="o">=</span> <span class="mf">100.0</span>
+<span class="n">_FAULT_IMPEDANCE_REF_OHM</span> <span class="o">=</span> <span class="mf">0.05</span>
+<span class="n">_DEFAULT_ANGLE_SPREAD_RAD</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"ieee_9bus"</span><span class="p">:</span> <span class="mf">0.25</span><span class="p">,</span> <span class="s2">"new_england"</span><span class="p">:</span> <span class="mf">0.25</span><span class="p">}</span>
+
+
+<div class="viewcode-block" id="MockNetwork">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.mock.MockNetwork">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">,</span> <span class="n">eq</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MockNetwork</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Parameters of the synthetic network (all arrays read-only)."""</span>
+
+    <span class="n">inertia_s</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">damping_pu</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">emf_pu</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">coupling_pu</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">lines</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">initial_angle_rad</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">mechanical_power_pu</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">bus_weights</span><span class="p">:</span> <span class="n">FloatArray</span>
+    <span class="n">load_generator</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span>
+    <span class="n">load_base_pu</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.5</span>
+
+<div class="viewcode-block" id="MockNetwork.build">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.mock.MockNetwork.build">[docs]</a>
+    <span class="nd">@classmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">build</span><span class="p">(</span>
+        <span class="bp">cls</span><span class="p">,</span>
+        <span class="n">system</span><span class="p">:</span> <span class="n">PowerSystem</span><span class="p">,</span>
+        <span class="n">seed</span><span class="p">:</span> <span class="n">Seed</span><span class="p">,</span>
+        <span class="o">*</span><span class="p">,</span>
+        <span class="n">coupling_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span><span class="p">,</span>
+        <span class="n">angle_spread_rad</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.25</span><span class="p">,</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MockNetwork</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Seeded random network with the size of ``system``."""</span>
+        <span class="n">rng</span> <span class="o">=</span> <span class="n">make_rng</span><span class="p">(</span><span class="n">seed</span><span class="p">)</span>
+        <span class="n">g</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">system</span><span class="o">.</span><span class="n">n_generators</span><span class="p">,</span> <span class="n">system</span><span class="o">.</span><span class="n">n_buses</span>
+        <span class="n">edges</span> <span class="o">=</span> <span class="p">{</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">((</span><span class="n">i</span><span class="p">,</span> <span class="p">(</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">)</span> <span class="o">%</span> <span class="n">g</span><span class="p">)))</span> <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">g</span><span class="p">)}</span>
+        <span class="n">target</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="nb">round</span><span class="p">(</span><span class="mf">1.5</span> <span class="o">*</span> <span class="n">g</span><span class="p">))</span>
+        <span class="k">while</span> <span class="nb">len</span><span class="p">(</span><span class="n">edges</span><span class="p">)</span> <span class="o">&lt;</span> <span class="nb">min</span><span class="p">(</span><span class="n">target</span><span class="p">,</span> <span class="n">g</span> <span class="o">*</span> <span class="p">(</span><span class="n">g</span> <span class="o">-</span> <span class="mi">1</span><span class="p">)</span> <span class="o">//</span> <span class="mi">2</span><span class="p">):</span>
+            <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">choice</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">replace</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+            <span class="n">edges</span><span class="o">.</span><span class="n">add</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="nb">min</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">)),</span> <span class="nb">int</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">))))</span>
+        <span class="n">lines</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">int</span><span class="p">,</span> <span class="nb">int</span><span class="p">],</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">((</span><span class="nb">int</span><span class="p">(</span><span class="n">a</span><span class="p">),</span> <span class="nb">int</span><span class="p">(</span><span class="n">b</span><span class="p">))</span> <span class="k">for</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="ow">in</span> <span class="n">edges</span><span class="p">))</span>
+        <span class="n">coupling</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">g</span><span class="p">,</span> <span class="n">g</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">i</span><span class="p">,</span> <span class="n">j</span> <span class="ow">in</span> <span class="n">lines</span><span class="p">:</span>
+            <span class="n">coupling</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">j</span><span class="p">]</span> <span class="o">=</span> <span class="n">coupling</span><span class="p">[</span><span class="n">j</span><span class="p">,</span> <span class="n">i</span><span class="p">]</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">3.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">coupling_scale</span>
+        <span class="n">angles</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="mf">0.0</span><span class="p">,</span> <span class="n">angle_spread_rad</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">g</span><span class="p">)</span>
+        <span class="n">angles</span> <span class="o">-=</span> <span class="n">angles</span><span class="o">.</span><span class="n">mean</span><span class="p">()</span>
+        <span class="n">emf</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="mf">1.0</span><span class="p">,</span> <span class="mf">1.1</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">g</span><span class="p">)</span>
+        <span class="n">pm</span> <span class="o">=</span> <span class="n">emf</span> <span class="o">*</span> <span class="p">(</span><span class="n">coupling</span> <span class="o">*</span> <span class="n">emf</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">angles</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">angles</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">weights</span> <span class="o">=</span> <span class="n">rng</span><span class="o">.</span><span class="n">dirichlet</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="mf">0.3</span><span class="p">),</span> <span class="n">size</span><span class="o">=</span><span class="n">b</span><span class="p">)</span>
+        <span class="n">n_loads</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">3</span><span class="p">,</span> <span class="n">b</span> <span class="o">//</span> <span class="mi">3</span><span class="p">)</span>
+        <span class="n">net</span> <span class="o">=</span> <span class="bp">cls</span><span class="p">(</span>
+            <span class="n">inertia_s</span><span class="o">=</span><span class="n">rng</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="mf">3.0</span><span class="p">,</span> <span class="mf">6.0</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">g</span><span class="p">),</span>
+            <span class="n">damping_pu</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">g</span><span class="p">,</span> <span class="mf">2.0</span><span class="p">),</span>
+            <span class="n">emf_pu</span><span class="o">=</span><span class="n">emf</span><span class="p">,</span>
+            <span class="n">coupling_pu</span><span class="o">=</span><span class="n">coupling</span><span class="p">,</span>
+            <span class="n">lines</span><span class="o">=</span><span class="n">lines</span><span class="p">,</span>
+            <span class="n">initial_angle_rad</span><span class="o">=</span><span class="n">angles</span><span class="p">,</span>
+            <span class="n">mechanical_power_pu</span><span class="o">=</span><span class="n">pm</span><span class="p">,</span>
+            <span class="n">bus_weights</span><span class="o">=</span><span class="n">weights</span><span class="p">,</span>
+            <span class="n">load_generator</span><span class="o">=</span><span class="nb">tuple</span><span class="p">(</span><span class="nb">int</span><span class="p">(</span><span class="n">x</span><span class="p">)</span> <span class="k">for</span> <span class="n">x</span> <span class="ow">in</span> <span class="n">rng</span><span class="o">.</span><span class="n">integers</span><span class="p">(</span><span class="mi">0</span><span class="p">,</span> <span class="n">g</span><span class="p">,</span> <span class="n">size</span><span class="o">=</span><span class="n">n_loads</span><span class="p">)),</span>
+        <span class="p">)</span>
+        <span class="k">for</span> <span class="n">name</span> <span class="ow">in</span> <span class="p">(</span>
+            <span class="s2">"inertia_s"</span><span class="p">,</span>
+            <span class="s2">"damping_pu"</span><span class="p">,</span>
+            <span class="s2">"emf_pu"</span><span class="p">,</span>
+            <span class="s2">"coupling_pu"</span><span class="p">,</span>
+            <span class="s2">"initial_angle_rad"</span><span class="p">,</span>
+            <span class="s2">"mechanical_power_pu"</span><span class="p">,</span>
+            <span class="s2">"bus_weights"</span><span class="p">,</span>
+        <span class="p">):</span>
+            <span class="nb">getattr</span><span class="p">(</span><span class="n">net</span><span class="p">,</span> <span class="n">name</span><span class="p">)</span><span class="o">.</span><span class="n">setflags</span><span class="p">(</span><span class="n">write</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">net</span></div>
+
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_generators</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">emf_pu</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_buses</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">bus_weights</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span></div>
+
+
+
+<div class="viewcode-block" id="MockEngine">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.mock.MockEngine">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">MockEngine</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Always-available :class:`~tranpy.simulation.engine.SimulationEngine`.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        system_name: system whose size the synthetic network copies.</span>
+<span class="sd">        network_seed: seed of the network parameters (fixed per system by default, so</span>
+<span class="sd">            every scenario of a dataset runs on the same network).</span>
+<span class="sd">        simulation_time_s: end of the simulation; recording starts at ``-0.1`` s.</span>
+<span class="sd">        step_s: integration and output step.</span>
+<span class="sd">        coupling_scale: multiplies all line couplings.</span>
+<span class="sd">        opened_line_fraction: share of a line's coupling that remains when it is opened</span>
+<span class="sd">            (parallel paths of the real network); 0 removes the line completely, which makes</span>
+<span class="sd">            the outcome depend on the faulted line alone.</span>
+<span class="sd">        angle_spread_rad: spread of the pre-fault rotor angles, i.e. how heavily the</span>
+<span class="sd">            network is loaded (larger = less stable). Default 0.25 rad: with operating</span>
+<span class="sd">            points drawn from (0.6, 1.4) about 45 % of events are unstable at 20 cycles</span>
+<span class="sd">            (9-bus) or 12 cycles (39-bus) clearing time, almost none for very short faults,</span>
+<span class="sd">            and the outcome depends on fault duration and loading, not only on the line.</span>
+<span class="sd">    """</span>
+
+    <span class="n">system_name</span><span class="p">:</span> <span class="nb">str</span> <span class="o">=</span> <span class="s2">"ieee_9bus"</span>
+    <span class="n">network_seed</span><span class="p">:</span> <span class="nb">int</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">simulation_time_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">10.0</span>
+    <span class="n">step_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.01</span>
+    <span class="n">coupling_scale</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">1.0</span>
+    <span class="n">angle_spread_rad</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">opened_line_fraction</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.4</span>
+    <span class="n">_network</span><span class="p">:</span> <span class="n">MockNetwork</span> <span class="o">=</span> <span class="n">field</span><span class="p">(</span><span class="n">init</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="nb">repr</span><span class="o">=</span><span class="kc">False</span><span class="p">,</span> <span class="n">compare</span><span class="o">=</span><span class="kc">False</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulation_time_s</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"need 0 &lt; step_s &lt; simulation_time_s"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="ow">not</span> <span class="mf">0.0</span> <span class="o">&lt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">opened_line_fraction</span> <span class="o">&lt;</span> <span class="mf">1.0</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"opened_line_fraction must lie in [0, 1)"</span><span class="p">)</span>
+        <span class="n">seed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">network_seed</span>
+        <span class="k">if</span> <span class="n">seed</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">seed</span> <span class="o">=</span> <span class="n">zlib</span><span class="o">.</span><span class="n">crc32</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">system</span><span class="o">.</span><span class="n">key</span><span class="o">.</span><span class="n">encode</span><span class="p">())</span>
+        <span class="n">spread</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">angle_spread_rad</span>
+        <span class="k">if</span> <span class="n">spread</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="n">spread</span> <span class="o">=</span> <span class="n">_DEFAULT_ANGLE_SPREAD_RAD</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">system</span><span class="o">.</span><span class="n">key</span><span class="p">,</span> <span class="mf">0.2</span><span class="p">)</span>
+        <span class="n">network</span> <span class="o">=</span> <span class="n">MockNetwork</span><span class="o">.</span><span class="n">build</span><span class="p">(</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">system</span><span class="p">,</span> <span class="n">seed</span><span class="p">,</span> <span class="n">coupling_scale</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">coupling_scale</span><span class="p">,</span> <span class="n">angle_spread_rad</span><span class="o">=</span><span class="n">spread</span>
+        <span class="p">)</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"_network"</span><span class="p">,</span> <span class="n">network</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">system</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">PowerSystem</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">get_system</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">system_name</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">network</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">MockNetwork</span><span class="p">:</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">_network</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_lines</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_network</span><span class="o">.</span><span class="n">lines</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_loads</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_network</span><span class="o">.</span><span class="n">load_generator</span><span class="p">)</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">channel_names</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]:</span>
+        <span class="n">net</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_network</span>
+        <span class="n">width</span> <span class="o">=</span> <span class="nb">max</span><span class="p">(</span><span class="mi">2</span><span class="p">,</span> <span class="nb">len</span><span class="p">(</span><span class="nb">str</span><span class="p">(</span><span class="nb">max</span><span class="p">(</span><span class="n">net</span><span class="o">.</span><span class="n">n_buses</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">n_generators</span><span class="p">))))</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">net</span><span class="o">.</span><span class="n">n_buses</span><span class="p">):</span>
+            <span class="n">bus</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"Bus </span><span class="si">{</span><span class="n">k</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">:</span><span class="s2">0</span><span class="si">{</span><span class="n">width</span><span class="si">}</span><span class="s2">d</span><span class="si">}</span><span class="s2">"</span>
+            <span class="n">names</span> <span class="o">+=</span> <span class="p">[</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">bus</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">BUS_VOLTAGE_PU</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">bus</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">BUS_ANGLE_DEG</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">bus</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">BUS_FREQUENCY_HZ</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+            <span class="p">]</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">net</span><span class="o">.</span><span class="n">n_generators</span><span class="p">):</span>
+            <span class="n">gen</span> <span class="o">=</span> <span class="sa">f</span><span class="s2">"G </span><span class="si">{</span><span class="n">i</span><span class="w"> </span><span class="o">+</span><span class="w"> </span><span class="mi">1</span><span class="si">:</span><span class="s2">0</span><span class="si">{</span><span class="n">width</span><span class="si">}</span><span class="s2">d</span><span class="si">}</span><span class="s2">"</span>
+            <span class="n">names</span> <span class="o">+=</span> <span class="p">[</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">gen</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">v</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span>
+                <span class="k">for</span> <span class="n">v</span> <span class="ow">in</span> <span class="p">(</span>
+                    <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_SPEED_PU</span><span class="p">,</span>
+                    <span class="n">Variable</span><span class="o">.</span><span class="n">ACTIVE_POWER_MW</span><span class="p">,</span>
+                    <span class="n">Variable</span><span class="o">.</span><span class="n">REACTIVE_POWER_MVAR</span><span class="p">,</span>
+                    <span class="n">Variable</span><span class="o">.</span><span class="n">OUT_OF_STEP</span><span class="p">,</span>
+                    <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_ANGLE_DEG</span><span class="p">,</span>
+                    <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_FREQUENCY_DEVIATION_HZ</span><span class="p">,</span>
+                <span class="p">)</span>
+            <span class="p">]</span>
+        <span class="k">return</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">names</span><span class="p">)</span>
+
+<div class="viewcode-block" id="MockEngine.simulate">
+<a class="viewcode-back" href="../../../api.html#tranpy.simulation.mock.MockEngine.simulate">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">simulate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">scenarios</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="n">FaultScenario</span><span class="p">])</span> <span class="o">-&gt;</span> <span class="nb">list</span><span class="p">[</span><span class="n">SimulationResult</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""Integrate all scenarios together and return one result per scenario."""</span>
+        <span class="n">net</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_network</span>
+        <span class="n">s</span><span class="p">,</span> <span class="n">g</span> <span class="o">=</span> <span class="nb">len</span><span class="p">(</span><span class="n">scenarios</span><span class="p">),</span> <span class="n">net</span><span class="o">.</span><span class="n">n_generators</span>
+        <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">:</span>
+            <span class="n">bad</span> <span class="o">=</span> <span class="p">[</span>
+                <span class="n">i</span>
+                <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="p">(</span><span class="n">sc</span><span class="o">.</span><span class="n">fault_line</span><span class="p">,</span> <span class="n">sc</span><span class="o">.</span><span class="n">trip_line</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">i</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="ow">and</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">i</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_lines</span>
+            <span class="p">]</span>
+            <span class="k">if</span> <span class="n">bad</span> <span class="ow">or</span> <span class="ow">not</span> <span class="mi">0</span> <span class="o">&lt;=</span> <span class="n">sc</span><span class="o">.</span><span class="n">load_index</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_loads</span><span class="p">:</span>
+                <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span>
+                    <span class="sa">f</span><span class="s2">"scenario </span><span class="si">{</span><span class="n">sc</span><span class="o">.</span><span class="n">scenario_id</span><span class="si">}</span><span class="s2"> refers to elements outside the network"</span>
+                <span class="p">)</span>
+        <span class="n">f0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">system</span><span class="o">.</span><span class="n">nominal_frequency_hz</span>
+        <span class="n">omega_s</span> <span class="o">=</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span> <span class="o">*</span> <span class="n">f0</span>
+        <span class="n">time</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">round</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">arange</span><span class="p">(</span><span class="o">-</span><span class="mf">0.1</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">simulation_time_s</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span> <span class="o">/</span> <span class="mi">2</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span><span class="p">),</span> <span class="mi">10</span><span class="p">)</span>
+
+        <span class="n">start</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">sc</span><span class="o">.</span><span class="n">fault_start_s</span> <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">])</span>
+        <span class="n">clear</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">sc</span><span class="o">.</span><span class="n">fault_clear_s</span> <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">])</span>
+        <span class="n">trip_at</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="n">sc</span><span class="o">.</span><span class="n">fault_clear_s</span> <span class="o">+</span> <span class="n">sc</span><span class="o">.</span><span class="n">trip_delay_s</span> <span class="k">if</span> <span class="n">sc</span><span class="o">.</span><span class="n">trip_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span> <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">inf</span>
+                <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span>
+            <span class="p">]</span>
+        <span class="p">)</span>
+        <span class="n">z_fault</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">hypot</span><span class="p">(</span>
+            <span class="p">[</span><span class="n">sc</span><span class="o">.</span><span class="n">fault_resistance_ohm</span> <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+            <span class="p">[</span><span class="n">sc</span><span class="o">.</span><span class="n">fault_reactance_ohm</span> <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">],</span>
+        <span class="p">)</span>
+        <span class="n">depth</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">/</span> <span class="p">(</span><span class="mf">1.0</span> <span class="o">+</span> <span class="n">z_fault</span> <span class="o">/</span> <span class="n">_FAULT_IMPEDANCE_REF_OHM</span><span class="p">)</span>
+
+        <span class="n">b_pre</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">coupling_pu</span>
+        <span class="n">b_post</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">repeat</span><span class="p">(</span><span class="n">b_pre</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="n">s</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span>
+        <span class="n">b_trip</span> <span class="o">=</span> <span class="n">b_post</span><span class="o">.</span><span class="n">copy</span><span class="p">()</span>
+        <span class="n">near_gen</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">s</span><span class="p">,</span> <span class="n">g</span><span class="p">))</span>
+        <span class="n">near_bus</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">s</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">n_buses</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">sc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">scenarios</span><span class="p">):</span>
+            <span class="n">a</span><span class="p">,</span> <span class="n">b</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">lines</span><span class="p">[</span><span class="n">sc</span><span class="o">.</span><span class="n">fault_line</span><span class="p">]</span>
+            <span class="n">b_post</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_post</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">b</span><span class="p">,</span> <span class="n">a</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_pre</span><span class="p">[</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">opened_line_fraction</span>
+            <span class="n">b_trip</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_post</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+            <span class="k">if</span> <span class="n">sc</span><span class="o">.</span><span class="n">trip_line</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">c</span><span class="p">,</span> <span class="n">d</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">lines</span><span class="p">[</span><span class="n">sc</span><span class="o">.</span><span class="n">trip_line</span><span class="p">]</span>
+                <span class="n">b_trip</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_trip</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">d</span><span class="p">,</span> <span class="n">c</span><span class="p">]</span> <span class="o">=</span> <span class="n">b_pre</span><span class="p">[</span><span class="n">c</span><span class="p">,</span> <span class="n">d</span><span class="p">]</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">opened_line_fraction</span>
+            <span class="n">near_gen</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="mf">0.3</span> <span class="o">*</span> <span class="p">(</span><span class="n">b_pre</span><span class="p">[</span><span class="n">a</span><span class="p">]</span> <span class="o">+</span> <span class="n">b_pre</span><span class="p">[</span><span class="n">b</span><span class="p">])</span> <span class="o">/</span> <span class="n">np</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">b_pre</span><span class="p">)</span>
+            <span class="n">near_gen</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="p">[</span><span class="n">a</span><span class="p">,</span> <span class="n">b</span><span class="p">]]</span> <span class="o">=</span> <span class="mf">1.0</span>
+            <span class="n">near_bus</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">bus_weights</span><span class="p">[:,</span> <span class="n">a</span><span class="p">]</span> <span class="o">+</span> <span class="n">net</span><span class="o">.</span><span class="n">bus_weights</span><span class="p">[:,</span> <span class="n">b</span><span class="p">]</span>
+        <span class="n">loading</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">array</span><span class="p">([</span><span class="n">sc</span><span class="o">.</span><span class="n">operating_point</span> <span class="k">for</span> <span class="n">sc</span> <span class="ow">in</span> <span class="n">scenarios</span><span class="p">])</span>
+        <span class="n">delta0</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">initial_angle_rad</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">loading</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span>
+        <span class="n">diff0</span> <span class="o">=</span> <span class="n">delta0</span><span class="p">[:,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">delta0</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>
+        <span class="n">pm</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">emf_pu</span> <span class="o">*</span> <span class="p">(</span><span class="n">b_pre</span> <span class="o">*</span> <span class="n">net</span><span class="o">.</span><span class="n">emf_pu</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">diff0</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">sc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">scenarios</span><span class="p">):</span>
+            <span class="n">pm</span><span class="p">[</span><span class="n">k</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">load_generator</span><span class="p">[</span><span class="n">sc</span><span class="o">.</span><span class="n">load_index</span><span class="p">]]</span> <span class="o">-=</span> <span class="p">(</span>
+                <span class="n">sc</span><span class="o">.</span><span class="n">load_change_pct</span> <span class="o">/</span> <span class="mf">100.0</span> <span class="o">*</span> <span class="n">net</span><span class="o">.</span><span class="n">load_base_pu</span>
+            <span class="p">)</span>
+
+        <span class="n">emf</span><span class="p">,</span> <span class="n">h</span><span class="p">,</span> <span class="n">damping</span> <span class="o">=</span> <span class="n">net</span><span class="o">.</span><span class="n">emf_pu</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">inertia_s</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">damping_pu</span>
+        <span class="n">ee</span> <span class="o">=</span> <span class="n">emf</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">emf</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">regime</span><span class="p">(</span><span class="n">t</span><span class="p">:</span> <span class="nb">float</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FloatArray</span><span class="p">,</span> <span class="n">FloatArray</span><span class="p">]:</span>
+            <span class="n">on</span> <span class="o">=</span> <span class="p">(</span><span class="n">t</span> <span class="o">&gt;=</span> <span class="n">start</span><span class="p">)</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">t</span> <span class="o">&lt;</span> <span class="n">clear</span><span class="p">)</span>
+            <span class="n">coupling</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+                <span class="p">(</span><span class="n">t</span> <span class="o">&gt;=</span> <span class="n">trip_at</span><span class="p">)[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">],</span>
+                <span class="n">b_trip</span><span class="p">,</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">((</span><span class="n">t</span> <span class="o">&gt;=</span> <span class="n">clear</span><span class="p">)[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">],</span> <span class="n">b_post</span><span class="p">,</span> <span class="n">b_pre</span><span class="p">),</span>
+            <span class="p">)</span>
+            <span class="n">scale</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="p">(</span><span class="n">depth</span> <span class="o">*</span> <span class="n">on</span><span class="p">)[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span><span class="n">near_gen</span><span class="p">,</span> <span class="mf">1.0</span><span class="p">)</span>
+            <span class="k">return</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">scale</span>
+
+        <span class="k">def</span><span class="w"> </span><span class="nf">derivatives</span><span class="p">(</span>
+            <span class="n">delta</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">,</span> <span class="n">omega</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">,</span> <span class="n">coupling</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">,</span> <span class="n">scale</span><span class="p">:</span> <span class="n">FloatArray</span>
+        <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FloatArray</span><span class="p">,</span> <span class="n">FloatArray</span><span class="p">]:</span>
+            <span class="n">diff</span> <span class="o">=</span> <span class="n">delta</span><span class="p">[:,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">delta</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:]</span>
+            <span class="n">pe</span> <span class="o">=</span> <span class="p">(</span><span class="n">coupling</span> <span class="o">*</span> <span class="n">ee</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">diff</span><span class="p">))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span> <span class="o">*</span> <span class="n">scale</span>
+            <span class="k">return</span> <span class="n">omega_s</span> <span class="o">*</span> <span class="p">(</span><span class="n">omega</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">),</span> <span class="p">(</span><span class="n">pm</span> <span class="o">-</span> <span class="n">pe</span> <span class="o">-</span> <span class="n">damping</span> <span class="o">*</span> <span class="p">(</span><span class="n">omega</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">))</span> <span class="o">/</span> <span class="p">(</span><span class="mf">2.0</span> <span class="o">*</span> <span class="n">h</span><span class="p">)</span>
+
+        <span class="n">n_t</span> <span class="o">=</span> <span class="n">time</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span>
+        <span class="n">delta</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">n_t</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">g</span><span class="p">))</span>
+        <span class="n">omega</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">n_t</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">g</span><span class="p">))</span>
+        <span class="n">pe_rec</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">n_t</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="n">g</span><span class="p">))</span>
+        <span class="n">delta</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="n">delta0</span>
+        <span class="n">omega</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">=</span> <span class="mf">1.0</span>
+        <span class="n">dt</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span>
+        <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_t</span><span class="p">):</span>
+            <span class="n">coupling</span><span class="p">,</span> <span class="n">scale</span> <span class="o">=</span> <span class="n">regime</span><span class="p">(</span><span class="n">time</span><span class="p">[</span><span class="n">k</span><span class="p">])</span>
+            <span class="n">d0</span><span class="p">,</span> <span class="n">w0</span> <span class="o">=</span> <span class="n">delta</span><span class="p">[</span><span class="n">k</span><span class="p">],</span> <span class="n">omega</span><span class="p">[</span><span class="n">k</span><span class="p">]</span>
+            <span class="n">pe_rec</span><span class="p">[</span><span class="n">k</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">coupling</span> <span class="o">*</span> <span class="n">ee</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">sin</span><span class="p">(</span><span class="n">d0</span><span class="p">[:,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">d0</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:]))</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span>
+                <span class="n">axis</span><span class="o">=</span><span class="mi">2</span>
+            <span class="p">)</span> <span class="o">*</span> <span class="n">scale</span>
+            <span class="k">if</span> <span class="n">k</span> <span class="o">==</span> <span class="n">n_t</span> <span class="o">-</span> <span class="mi">1</span><span class="p">:</span>
+                <span class="k">break</span>
+            <span class="n">k1d</span><span class="p">,</span> <span class="n">k1w</span> <span class="o">=</span> <span class="n">derivatives</span><span class="p">(</span><span class="n">d0</span><span class="p">,</span> <span class="n">w0</span><span class="p">,</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">scale</span><span class="p">)</span>
+            <span class="n">k2d</span><span class="p">,</span> <span class="n">k2w</span> <span class="o">=</span> <span class="n">derivatives</span><span class="p">(</span><span class="n">d0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k1d</span><span class="p">,</span> <span class="n">w0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k1w</span><span class="p">,</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">scale</span><span class="p">)</span>
+            <span class="n">k3d</span><span class="p">,</span> <span class="n">k3w</span> <span class="o">=</span> <span class="n">derivatives</span><span class="p">(</span><span class="n">d0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k2d</span><span class="p">,</span> <span class="n">w0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">/</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k2w</span><span class="p">,</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">scale</span><span class="p">)</span>
+            <span class="n">k4d</span><span class="p">,</span> <span class="n">k4w</span> <span class="o">=</span> <span class="n">derivatives</span><span class="p">(</span><span class="n">d0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">k3d</span><span class="p">,</span> <span class="n">w0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">*</span> <span class="n">k3w</span><span class="p">,</span> <span class="n">coupling</span><span class="p">,</span> <span class="n">scale</span><span class="p">)</span>
+            <span class="n">delta</span><span class="p">[</span><span class="n">k</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">d0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">/</span> <span class="mi">6</span> <span class="o">*</span> <span class="p">(</span><span class="n">k1d</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k2d</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k3d</span> <span class="o">+</span> <span class="n">k4d</span><span class="p">)</span>
+            <span class="n">omega</span><span class="p">[</span><span class="n">k</span> <span class="o">+</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="n">w0</span> <span class="o">+</span> <span class="n">dt</span> <span class="o">/</span> <span class="mi">6</span> <span class="o">*</span> <span class="p">(</span><span class="n">k1w</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k2w</span> <span class="o">+</span> <span class="mi">2</span> <span class="o">*</span> <span class="n">k3w</span> <span class="o">+</span> <span class="n">k4w</span><span class="p">)</span>
+
+        <span class="n">coi</span> <span class="o">=</span> <span class="p">(</span><span class="n">delta</span> <span class="o">*</span> <span class="n">h</span><span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">,</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span> <span class="o">/</span> <span class="n">h</span><span class="o">.</span><span class="n">sum</span><span class="p">()</span>
+        <span class="n">relative</span> <span class="o">=</span> <span class="n">delta</span> <span class="o">-</span> <span class="n">coi</span>
+        <span class="n">out_of_step</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="o">.</span><span class="n">accumulate</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">relative</span><span class="p">)</span> <span class="o">&gt;</span> <span class="n">np</span><span class="o">.</span><span class="n">pi</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="mi">0</span><span class="p">)</span><span class="o">.</span><span class="n">astype</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">)</span>
+        <span class="n">phasor</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">"bg,tsg-&gt;tsb"</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">bus_weights</span><span class="p">,</span> <span class="n">emf</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">exp</span><span class="p">(</span><span class="mi">1</span><span class="n">j</span> <span class="o">*</span> <span class="n">delta</span><span class="p">))</span>
+        <span class="n">fault_on</span> <span class="o">=</span> <span class="p">(</span><span class="n">time</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&gt;=</span> <span class="n">start</span><span class="p">[</span><span class="kc">None</span><span class="p">])</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">time</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">&lt;</span> <span class="n">clear</span><span class="p">[</span><span class="kc">None</span><span class="p">])</span>
+        <span class="n">dip</span> <span class="o">=</span> <span class="mf">1.0</span> <span class="o">-</span> <span class="p">(</span><span class="n">depth</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">fault_on</span><span class="p">[:,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">])</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">minimum</span><span class="p">(</span><span class="n">near_bus</span><span class="p">[</span><span class="kc">None</span><span class="p">],</span> <span class="mf">1.0</span><span class="p">)</span>
+        <span class="n">voltage</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">phasor</span><span class="p">)</span> <span class="o">*</span> <span class="n">dip</span>
+        <span class="n">bus_angle</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">degrees</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">angle</span><span class="p">(</span><span class="n">phasor</span><span class="p">))</span>
+        <span class="n">bus_freq</span> <span class="o">=</span> <span class="n">f0</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">einsum</span><span class="p">(</span><span class="s2">"bg,tsg-&gt;tsb"</span><span class="p">,</span> <span class="n">net</span><span class="o">.</span><span class="n">bus_weights</span><span class="p">,</span> <span class="n">omega</span><span class="p">)</span>
+        <span class="n">reactive</span> <span class="o">=</span> <span class="n">emf</span> <span class="o">*</span> <span class="p">(</span><span class="n">emf</span> <span class="o">*</span> <span class="n">net</span><span class="o">.</span><span class="n">coupling_pu</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">))</span> <span class="o">-</span> <span class="p">(</span>
+            <span class="n">ee</span><span class="p">[</span><span class="kc">None</span><span class="p">,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">*</span> <span class="n">net</span><span class="o">.</span><span class="n">coupling_pu</span> <span class="o">*</span> <span class="n">np</span><span class="o">.</span><span class="n">cos</span><span class="p">(</span><span class="n">delta</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="p">:,</span> <span class="kc">None</span><span class="p">]</span> <span class="o">-</span> <span class="n">delta</span><span class="p">[</span><span class="o">...</span><span class="p">,</span> <span class="kc">None</span><span class="p">,</span> <span class="p">:])</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">sum</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+
+        <span class="n">bus_block</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">([</span><span class="n">voltage</span><span class="p">,</span> <span class="n">bus_angle</span><span class="p">,</span> <span class="n">bus_freq</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">n_t</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">gen_block</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">stack</span><span class="p">(</span>
+            <span class="p">[</span>
+                <span class="n">omega</span><span class="p">,</span>
+                <span class="n">pe_rec</span> <span class="o">*</span> <span class="n">_BASE_MVA</span><span class="p">,</span>
+                <span class="n">reactive</span> <span class="o">*</span> <span class="n">_BASE_MVA</span><span class="p">,</span>
+                <span class="n">out_of_step</span><span class="p">,</span>
+                <span class="n">np</span><span class="o">.</span><span class="n">degrees</span><span class="p">(</span><span class="n">relative</span><span class="p">),</span>
+                <span class="p">(</span><span class="n">omega</span> <span class="o">-</span> <span class="mf">1.0</span><span class="p">)</span> <span class="o">*</span> <span class="n">f0</span><span class="p">,</span>
+            <span class="p">],</span>
+            <span class="n">axis</span><span class="o">=</span><span class="mi">3</span><span class="p">,</span>
+        <span class="p">)</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">n_t</span><span class="p">,</span> <span class="n">s</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">values</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">concatenate</span><span class="p">([</span><span class="n">bus_block</span><span class="p">,</span> <span class="n">gen_block</span><span class="p">],</span> <span class="n">axis</span><span class="o">=</span><span class="mi">2</span><span class="p">)</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">channel_names</span>
+        <span class="k">return</span> <span class="p">[</span>
+            <span class="n">SimulationResult</span><span class="p">(</span>
+                <span class="n">scenario</span><span class="o">=</span><span class="n">sc</span><span class="p">,</span>
+                <span class="n">time</span><span class="o">=</span><span class="n">time</span><span class="o">.</span><span class="n">copy</span><span class="p">(),</span>
+                <span class="n">values</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">ascontiguousarray</span><span class="p">(</span><span class="n">values</span><span class="p">[:,</span> <span class="n">k</span><span class="p">]),</span>
+                <span class="n">channel_names</span><span class="o">=</span><span class="n">names</span><span class="p">,</span>
+            <span class="p">)</span>
+            <span class="k">for</span> <span class="n">k</span><span class="p">,</span> <span class="n">sc</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">scenarios</span><span class="p">)</span>
+        <span class="p">]</span></div>
+</div>
+
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>

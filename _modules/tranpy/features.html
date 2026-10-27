@@ -1,0 +1,541 @@
+
+
+<!DOCTYPE html>
+<html class="writer-html5" lang="en" data-content_root="../../">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>tranpy.features &mdash; TranPy 0.2.0.dev0 documentation</title>
+      <link rel="stylesheet" type="text/css" href="../../_static/pygments.css?v=b86133f3" />
+      <link rel="stylesheet" type="text/css" href="../../_static/css/theme.css?v=9edc463e" />
+
+  
+      <script src="../../_static/jquery.js?v=5d32c60e"></script>
+      <script src="../../_static/_sphinx_javascript_frameworks_compat.js?v=2cd50e6c"></script>
+      <script src="../../_static/documentation_options.js?v=130a53a1"></script>
+      <script src="../../_static/doctools.js?v=fd6eb6e6"></script>
+      <script src="../../_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script src="../../_static/js/theme.js"></script>
+    <link rel="index" title="Index" href="../../genindex.html" />
+    <link rel="search" title="Search" href="../../search.html" /> 
+</head>
+
+<body class="wy-body-for-nav"> 
+  <div class="wy-grid-for-nav">
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+
+          
+          
+          <a href="../../index.html" class="icon icon-home">
+            TranPy
+          </a>
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="../../search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" aria-label="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+        </div><div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="Navigation menu">
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="../../architecture.html">Architecture</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../data.html">Data management</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../validation.html">Validation of the 0.2 refactor</a></li>
+<li class="toctree-l1"><a class="reference internal" href="../../api.html">API reference</a></li>
+</ul>
+
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap"><nav class="wy-nav-top" aria-label="Mobile navigation menu" >
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="../../index.html">TranPy</a>
+      </nav>
+
+      <div class="wy-nav-content">
+        <div class="rst-content">
+          <div role="navigation" aria-label="Page navigation">
+  <ul class="wy-breadcrumbs">
+      <li><a href="../../index.html" class="icon icon-home" aria-label="Home"></a></li>
+          <li class="breadcrumb-item"><a href="../index.html">Module code</a></li>
+      <li class="breadcrumb-item active">tranpy.features</li>
+      <li class="wy-breadcrumbs-aside">
+      </li>
+  </ul>
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+             
+  <h1>Source code for tranpy.features</h1><div class="highlight"><pre>
+<span></span><span class="sd">"""Physics-informed features of fault-event trajectories.</span>
+
+<span class="sd">:class:`TrajectoryFeatures` turns a :class:`~tranpy_core.SignalDataset` of events into a</span>
+<span class="sd">feature table: rotor-angle and speed dynamics per generator, system voltage recovery,</span>
+<span class="sd">frequency response, power swings and inter-generator coherency. All events are processed</span>
+<span class="sd">together with segment reductions (no per-event DataFrames).</span>
+
+<span class="sd">The observation window ends ``window_s`` seconds after a *reference* instant per event:</span>
+
+<span class="sd">* ``"fault_start"`` - detected fault inception (causal: known when it happens);</span>
+<span class="sd">* ``"fault_clear"`` - detected fault clearing (**not causal**, see</span>
+<span class="sd">  :func:`tranpy.datasets.detect_fault_timing`; kept to reproduce earlier results);</span>
+<span class="sd">* ``"absolute"`` - simulation time ``window_s``.</span>
+
+<span class="sd">Every window starts at the beginning of the recording, so pre-fault data provide the</span>
+<span class="sd">baseline values (subscript 0 below).</span>
+<span class="sd">"""</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">__future__</span><span class="w"> </span><span class="kn">import</span> <span class="n">annotations</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">collections.abc</span><span class="w"> </span><span class="kn">import</span> <span class="n">Sequence</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">dataclasses</span><span class="w"> </span><span class="kn">import</span> <span class="n">dataclass</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">typing</span><span class="w"> </span><span class="kn">import</span> <span class="n">Literal</span>
+
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">np</span>
+<span class="kn">import</span><span class="w"> </span><span class="nn">numpy.typing</span><span class="w"> </span><span class="k">as</span><span class="w"> </span><span class="nn">npt</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">scipy.signal</span><span class="w"> </span><span class="kn">import</span> <span class="n">find_peaks</span>
+
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.datasets</span><span class="w"> </span><span class="kn">import</span> <span class="n">FAULT_CLEAR</span><span class="p">,</span> <span class="n">FAULT_START</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy.vocabulary</span><span class="w"> </span><span class="kn">import</span> <span class="n">ElementKind</span><span class="p">,</span> <span class="n">Variable</span><span class="p">,</span> <span class="n">element_kind</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.data</span><span class="w"> </span><span class="kn">import</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="n">TabularDataset</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.errors</span><span class="w"> </span><span class="kn">import</span> <span class="n">ConfigurationError</span><span class="p">,</span> <span class="n">DataError</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.features</span><span class="w"> </span><span class="kn">import</span> <span class="n">crop_to_window</span><span class="p">,</span> <span class="n">resample_to_grid</span>
+<span class="kn">from</span><span class="w"> </span><span class="nn">tranpy_core.features</span><span class="w"> </span><span class="kn">import</span> <span class="n">segments</span> <span class="k">as</span> <span class="n">seg</span>
+
+<span class="n">__all__</span> <span class="o">=</span> <span class="p">[</span>
+    <span class="s2">"DEFAULT_SEQUENCE_CHANNELS"</span><span class="p">,</span>
+    <span class="s2">"TrajectoryFeatures"</span><span class="p">,</span>
+    <span class="s2">"TrajectorySequence"</span><span class="p">,</span>
+    <span class="s2">"WindowReference"</span><span class="p">,</span>
+    <span class="s2">"window_end_times"</span><span class="p">,</span>
+<span class="p">]</span>
+
+<span class="n">WindowReference</span> <span class="o">=</span> <span class="n">Literal</span><span class="p">[</span><span class="s2">"fault_start"</span><span class="p">,</span> <span class="s2">"fault_clear"</span><span class="p">,</span> <span class="s2">"absolute"</span><span class="p">]</span>
+<span class="n">FloatArray</span> <span class="o">=</span> <span class="n">npt</span><span class="o">.</span><span class="n">NDArray</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span><span class="p">]</span>
+
+<span class="n">_REFERENCE_ANNOTATION</span> <span class="o">=</span> <span class="p">{</span><span class="s2">"fault_start"</span><span class="p">:</span> <span class="n">FAULT_START</span><span class="p">,</span> <span class="s2">"fault_clear"</span><span class="p">:</span> <span class="n">FAULT_CLEAR</span><span class="p">}</span>
+
+
+<div class="viewcode-block" id="window_end_times">
+<a class="viewcode-back" href="../../api.html#tranpy.features.window_end_times">[docs]</a>
+<span class="k">def</span><span class="w"> </span><span class="nf">window_end_times</span><span class="p">(</span>
+    <span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="n">window_s</span><span class="p">:</span> <span class="nb">float</span><span class="p">,</span> <span class="n">reference</span><span class="p">:</span> <span class="n">WindowReference</span>
+<span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FloatArray</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""End time of the observation window of every event."""</span>
+    <span class="k">if</span> <span class="n">reference</span> <span class="o">==</span> <span class="s2">"absolute"</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">np</span><span class="o">.</span><span class="n">full</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">n_samples</span><span class="p">,</span> <span class="nb">float</span><span class="p">(</span><span class="n">window_s</span><span class="p">))</span>
+    <span class="n">key</span> <span class="o">=</span> <span class="n">_REFERENCE_ANNOTATION</span><span class="p">[</span><span class="n">reference</span><span class="p">]</span>
+    <span class="k">if</span> <span class="n">key</span> <span class="ow">not</span> <span class="ow">in</span> <span class="n">dataset</span><span class="o">.</span><span class="n">annotations</span><span class="p">:</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span><span class="sa">f</span><span class="s2">"dataset has no </span><span class="si">{</span><span class="n">key</span><span class="si">!r}</span><span class="s2"> annotation needed for reference=</span><span class="si">{</span><span class="n">reference</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+    <span class="n">ref</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span><span class="n">dataset</span><span class="o">.</span><span class="n">annotations</span><span class="p">[</span><span class="n">key</span><span class="p">])</span>
+    <span class="k">if</span> <span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">ref</span><span class="p">)</span><span class="o">.</span><span class="n">any</span><span class="p">():</span>
+        <span class="k">assert</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_ids</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+        <span class="n">bad</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">sample_ids</span><span class="p">[</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">ref</span><span class="p">)]</span>
+        <span class="k">raise</span> <span class="n">DataError</span><span class="p">(</span>
+            <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">bad</span><span class="o">.</span><span class="n">size</span><span class="si">}</span><span class="s2"> events have no detected </span><span class="si">{</span><span class="n">key</span><span class="si">}</span><span class="s2"> (sample ids </span><span class="si">{</span><span class="n">bad</span><span class="p">[:</span><span class="mi">5</span><span class="p">]</span><span class="o">.</span><span class="n">tolist</span><span class="p">()</span><span class="si">}</span><span class="s2"> ...)"</span>
+        <span class="p">)</span>
+    <span class="k">return</span> <span class="n">ref</span> <span class="o">+</span> <span class="n">window_s</span></div>
+
+
+
+<div class="viewcode-block" id="TrajectoryFeatures">
+<a class="viewcode-back" href="../../api.html#tranpy.features.TrajectoryFeatures">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TrajectoryFeatures</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Feature extractor for event trajectories.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        window_s: observation time after the reference instant; None = whole trajectory.</span>
+<span class="sd">        reference: reference instant of the window (required when ``window_s`` is set).</span>
+<span class="sd">        include_rotor: per-generator rotor angle, speed and frequency-deviation features.</span>
+<span class="sd">        include_voltage: system voltage nadir, deviation and recovery features.</span>
+<span class="sd">        include_frequency: system frequency nadir, RoCoF and spread features.</span>
+<span class="sd">        include_power: per-generator active/reactive power swing features.</span>
+<span class="sd">        include_coherency: rotor-angle spread across generators.</span>
+<span class="sd">        nominal_frequency_hz: fallback frequency baseline when an event has no pre-fault data.</span>
+<span class="sd">        voltage_recovery_pu: threshold for ``sys_voltage_recovery_time``.</span>
+<span class="sd">    """</span>
+
+    <span class="n">window_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">reference</span><span class="p">:</span> <span class="n">WindowReference</span> <span class="o">|</span> <span class="kc">None</span> <span class="o">=</span> <span class="kc">None</span>
+    <span class="n">include_rotor</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">include_voltage</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">include_frequency</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">include_power</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">include_coherency</span><span class="p">:</span> <span class="nb">bool</span> <span class="o">=</span> <span class="kc">True</span>
+    <span class="n">nominal_frequency_hz</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">50.0</span>
+    <span class="n">voltage_recovery_pu</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.9</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">problems</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+                <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"window_s must be &gt;= 0, got </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">window_s</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+            <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span> <span class="ow">is</span> <span class="kc">None</span><span class="p">:</span>
+                <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span>
+                    <span class="s2">"reference is required when window_s is set "</span>
+                    <span class="s2">"(fault_start, fault_clear or absolute)"</span>
+                <span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="kc">None</span><span class="p">,</span> <span class="s2">"fault_start"</span><span class="p">,</span> <span class="s2">"fault_clear"</span><span class="p">,</span> <span class="s2">"absolute"</span><span class="p">):</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"unknown reference </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">problems</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"invalid trajectory feature settings:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">problems</span><span class="p">))</span>
+
+<div class="viewcode-block" id="TrajectoryFeatures.transform">
+<a class="viewcode-back" href="../../api.html#tranpy.features.TrajectoryFeatures.transform">[docs]</a>
+    <span class="k">def</span><span class="w"> </span><span class="nf">transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Feature table with one row per event; columns sorted by name."""</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">dataset</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span><span class="p">:</span>
+            <span class="k">assert</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span> <span class="ow">is</span> <span class="ow">not</span> <span class="kc">None</span>
+            <span class="n">data</span> <span class="o">=</span> <span class="n">crop_to_window</span><span class="p">(</span>
+                <span class="n">dataset</span><span class="p">,</span> <span class="n">window_end_times</span><span class="p">(</span><span class="n">dataset</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="p">),</span> <span class="n">min_steps</span><span class="o">=</span><span class="mi">3</span>
+            <span class="p">)</span>
+        <span class="n">features</span> <span class="o">=</span> <span class="n">_Extraction</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="p">)</span><span class="o">.</span><span class="n">run</span><span class="p">()</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="nb">sorted</span><span class="p">(</span><span class="n">features</span><span class="p">))</span>
+        <span class="k">return</span> <span class="n">TabularDataset</span><span class="p">(</span>
+            <span class="n">features</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">column_stack</span><span class="p">([</span><span class="n">features</span><span class="p">[</span><span class="n">n</span><span class="p">]</span> <span class="k">for</span> <span class="n">n</span> <span class="ow">in</span> <span class="n">names</span><span class="p">])</span>
+            <span class="k">if</span> <span class="n">names</span>
+            <span class="k">else</span> <span class="n">np</span><span class="o">.</span><span class="n">empty</span><span class="p">((</span><span class="n">data</span><span class="o">.</span><span class="n">n_samples</span><span class="p">,</span> <span class="mi">0</span><span class="p">)),</span>
+            <span class="n">labels</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">labels</span><span class="p">,</span>
+            <span class="n">feature_names</span><span class="o">=</span><span class="n">names</span><span class="p">,</span>
+            <span class="n">label_names</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">label_names</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">_features"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"trajectory features of </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> "</span>
+                <span class="sa">f</span><span class="s2">"(window_s=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">window_s</span><span class="si">}</span><span class="s2">, reference=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="si">}</span><span class="s2">)"</span>
+            <span class="p">),</span>
+            <span class="n">sample_ids</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">sample_ids</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span><span class="s2">"window_s"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span><span class="p">,</span> <span class="s2">"reference"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="p">},</span>
+        <span class="p">)</span></div>
+</div>
+
+
+
+<span class="n">DEFAULT_SEQUENCE_CHANNELS</span><span class="p">:</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="o">...</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span>
+    <span class="sa">f</span><span class="s2">"G*|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_ANGLE_DEG</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">"G*|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_SPEED_PU</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+    <span class="sa">f</span><span class="s2">"Bus*|</span><span class="si">{</span><span class="n">Variable</span><span class="o">.</span><span class="n">BUS_VOLTAGE_PU</span><span class="o">.</span><span class="n">value</span><span class="si">}</span><span class="s2">"</span><span class="p">,</span>
+<span class="p">)</span>
+<span class="sd">"""Rotor angles, rotor speeds and bus voltage magnitudes."""</span>
+
+
+<div class="viewcode-block" id="TrajectorySequence">
+<a class="viewcode-back" href="../../api.html#tranpy.features.TrajectorySequence">[docs]</a>
+<span class="nd">@dataclass</span><span class="p">(</span><span class="n">frozen</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="k">class</span><span class="w"> </span><span class="nc">TrajectorySequence</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""Raw signals on a uniform time grid, for sequence models (the time dimension).</span>
+
+<span class="sd">    Each event is cropped to its observation window and linearly resampled onto</span>
+<span class="sd">    ``reference - history_s ... reference + window_s`` with spacing ``step_s``. The result</span>
+<span class="sd">    is a feature table in time-major order (all channels of step 0, then step 1, ...);</span>
+<span class="sd">    ``metadata["n_steps"]`` tells sequence models how to reshape it (the</span>
+<span class="sd">    ``*_network`` registry models take ``n_steps``). Nothing after the window end is used.</span>
+
+<span class="sd">    Attributes:</span>
+<span class="sd">        window_s: observation time after the reference instant.</span>
+<span class="sd">        reference: ``"fault_start"``, ``"fault_clear"`` or ``"absolute"``.</span>
+<span class="sd">        step_s: grid spacing.</span>
+<span class="sd">        history_s: pre-reference time included (pre-fault baseline).</span>
+<span class="sd">        channels: shell-style channel patterns (default: :data:`DEFAULT_SEQUENCE_CHANNELS`).</span>
+<span class="sd">    """</span>
+
+    <span class="n">window_s</span><span class="p">:</span> <span class="nb">float</span>
+    <span class="n">reference</span><span class="p">:</span> <span class="n">WindowReference</span>
+    <span class="n">step_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.02</span>
+    <span class="n">history_s</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">0.1</span>
+    <span class="n">channels</span><span class="p">:</span> <span class="n">Sequence</span><span class="p">[</span><span class="nb">str</span><span class="p">]</span> <span class="o">=</span> <span class="n">DEFAULT_SEQUENCE_CHANNELS</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">__post_init__</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">problems</span> <span class="o">=</span> <span class="p">[]</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span> <span class="o">&lt;=</span> <span class="mi">0</span> <span class="ow">or</span> <span class="bp">self</span><span class="o">.</span><span class="n">history_s</span> <span class="o">&lt;</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="s2">"need window_s &gt; 0, step_s &gt; 0 and history_s &gt;= 0"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span> <span class="ow">not</span> <span class="ow">in</span> <span class="p">(</span><span class="s2">"fault_start"</span><span class="p">,</span> <span class="s2">"fault_clear"</span><span class="p">,</span> <span class="s2">"absolute"</span><span class="p">):</span>
+            <span class="n">problems</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="sa">f</span><span class="s2">"unknown reference </span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="si">!r}</span><span class="s2">"</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">problems</span><span class="p">:</span>
+            <span class="k">raise</span> <span class="n">ConfigurationError</span><span class="p">(</span><span class="s2">"invalid trajectory sequence settings:"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="n">problems</span><span class="p">))</span>
+        <span class="nb">object</span><span class="o">.</span><span class="fm">__setattr__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="s2">"channels"</span><span class="p">,</span> <span class="nb">tuple</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channels</span><span class="p">))</span>
+
+    <span class="nd">@property</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">n_steps</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">int</span><span class="p">:</span>
+        <span class="k">return</span> <span class="nb">int</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">floor</span><span class="p">((</span><span class="bp">self</span><span class="o">.</span><span class="n">window_s</span> <span class="o">+</span> <span class="bp">self</span><span class="o">.</span><span class="n">history_s</span><span class="p">)</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span> <span class="o">+</span> <span class="mf">1e-9</span><span class="p">))</span> <span class="o">+</span> <span class="mi">1</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">transform</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">dataset</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">TabularDataset</span><span class="p">:</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">dataset</span><span class="o">.</span><span class="n">select_channels</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">channels</span><span class="p">)</span>
+        <span class="n">end</span> <span class="o">=</span> <span class="n">window_end_times</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="p">)</span>
+        <span class="n">data</span> <span class="o">=</span> <span class="n">crop_to_window</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">end</span><span class="p">)</span>
+        <span class="n">start</span> <span class="o">=</span> <span class="n">end</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">window_s</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">history_s</span>
+        <span class="n">grid</span> <span class="o">=</span> <span class="n">resample_to_grid</span><span class="p">(</span><span class="n">data</span><span class="p">,</span> <span class="n">start</span><span class="p">,</span> <span class="n">step</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">step_s</span><span class="p">,</span> <span class="n">n_steps</span><span class="o">=</span><span class="bp">self</span><span class="o">.</span><span class="n">n_steps</span><span class="p">)</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="nb">tuple</span><span class="p">(</span><span class="sa">f</span><span class="s2">"t</span><span class="si">{</span><span class="n">k</span><span class="si">:</span><span class="s2">03d</span><span class="si">}</span><span class="s2">|</span><span class="si">{</span><span class="n">c</span><span class="si">}</span><span class="s2">"</span> <span class="k">for</span> <span class="n">k</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">n_steps</span><span class="p">)</span> <span class="k">for</span> <span class="n">c</span> <span class="ow">in</span> <span class="n">data</span><span class="o">.</span><span class="n">channel_names</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">TabularDataset</span><span class="p">(</span>
+            <span class="n">features</span><span class="o">=</span><span class="n">grid</span><span class="o">.</span><span class="n">reshape</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">n_samples</span><span class="p">,</span> <span class="o">-</span><span class="mi">1</span><span class="p">),</span>
+            <span class="n">labels</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">labels</span><span class="p">,</span>
+            <span class="n">feature_names</span><span class="o">=</span><span class="n">names</span><span class="p">,</span>
+            <span class="n">label_names</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">label_names</span><span class="p">,</span>
+            <span class="n">name</span><span class="o">=</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2">_sequence"</span><span class="p">,</span>
+            <span class="n">description</span><span class="o">=</span><span class="p">(</span>
+                <span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">n_steps</span><span class="si">}</span><span class="s2"> x </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">n_channels</span><span class="si">}</span><span class="s2"> resampled signals of </span><span class="si">{</span><span class="n">data</span><span class="o">.</span><span class="n">name</span><span class="si">}</span><span class="s2"> "</span>
+                <span class="sa">f</span><span class="s2">"(window_s=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">window_s</span><span class="si">}</span><span class="s2">, reference=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">reference</span><span class="si">}</span><span class="s2">, step_s=</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">step_s</span><span class="si">}</span><span class="s2">)"</span>
+            <span class="p">),</span>
+            <span class="n">sample_ids</span><span class="o">=</span><span class="n">data</span><span class="o">.</span><span class="n">sample_ids</span><span class="p">,</span>
+            <span class="n">metadata</span><span class="o">=</span><span class="p">{</span>
+                <span class="s2">"n_steps"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">n_steps</span><span class="p">,</span>
+                <span class="s2">"n_channels"</span><span class="p">:</span> <span class="n">data</span><span class="o">.</span><span class="n">n_channels</span><span class="p">,</span>
+                <span class="s2">"step_s"</span><span class="p">:</span> <span class="bp">self</span><span class="o">.</span><span class="n">step_s</span><span class="p">,</span>
+            <span class="p">},</span>
+        <span class="p">)</span></div>
+
+
+
+<span class="k">class</span><span class="w"> </span><span class="nc">_Extraction</span><span class="p">:</span>
+<span class="w">    </span><span class="sd">"""State shared by the feature groups for one (windowed) dataset."""</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="fm">__init__</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">data</span><span class="p">:</span> <span class="n">SignalDataset</span><span class="p">,</span> <span class="n">settings</span><span class="p">:</span> <span class="n">TrajectoryFeatures</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">data</span> <span class="o">=</span> <span class="n">data</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">settings</span> <span class="o">=</span> <span class="n">settings</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">t</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">time</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">off</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">offsets</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span> <span class="o">=</span> <span class="n">data</span><span class="o">.</span><span class="n">sample_index</span>
+        <span class="n">fault</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">asarray</span><span class="p">(</span>
+            <span class="n">data</span><span class="o">.</span><span class="n">annotations</span><span class="o">.</span><span class="n">get</span><span class="p">(</span><span class="n">FAULT_START</span><span class="p">,</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">n_samples</span><span class="p">)),</span> <span class="n">dtype</span><span class="o">=</span><span class="n">np</span><span class="o">.</span><span class="n">float64</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">fault</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">isnan</span><span class="p">(</span><span class="n">fault</span><span class="p">),</span> <span class="mf">0.0</span><span class="p">,</span> <span class="n">fault</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">prefault</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">t</span> <span class="o">&lt;</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dt</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_diff</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">dt_safe</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dt</span> <span class="o">==</span> <span class="mi">0</span><span class="p">,</span> <span class="mf">1e-6</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">FloatArray</span><span class="p">]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">buses</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]]</span> <span class="o">=</span> <span class="p">{}</span>
+        <span class="k">for</span> <span class="n">col</span><span class="p">,</span> <span class="n">channel</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">data</span><span class="o">.</span><span class="n">channel_names</span><span class="p">):</span>
+            <span class="n">element</span><span class="p">,</span> <span class="n">_</span><span class="p">,</span> <span class="n">variable</span> <span class="o">=</span> <span class="n">channel</span><span class="o">.</span><span class="n">partition</span><span class="p">(</span><span class="s2">"|"</span><span class="p">)</span>
+            <span class="n">kind</span> <span class="o">=</span> <span class="n">element_kind</span><span class="p">(</span><span class="n">element</span><span class="p">)</span>
+            <span class="k">if</span> <span class="n">kind</span> <span class="ow">is</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">GENERATOR</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="p">{})[</span><span class="n">variable</span><span class="p">]</span> <span class="o">=</span> <span class="n">col</span>
+            <span class="k">elif</span> <span class="n">kind</span> <span class="ow">is</span> <span class="n">ElementKind</span><span class="o">.</span><span class="n">BUS</span><span class="p">:</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">buses</span><span class="o">.</span><span class="n">setdefault</span><span class="p">(</span><span class="n">element</span><span class="p">,</span> <span class="p">{})[</span><span class="n">variable</span><span class="p">]</span> <span class="o">=</span> <span class="n">col</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">run</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="n">FloatArray</span><span class="p">]:</span>
+        <span class="n">s</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span>
+        <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">include_rotor</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_rotor</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">include_voltage</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_voltage</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">include_frequency</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_frequency</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">include_power</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_power</span><span class="p">()</span>
+        <span class="k">if</span> <span class="n">s</span><span class="o">.</span><span class="n">include_coherency</span> <span class="ow">and</span> <span class="nb">len</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">)</span> <span class="o">&gt;</span> <span class="mi">1</span><span class="p">:</span>
+            <span class="bp">self</span><span class="o">.</span><span class="n">_coherency</span><span class="p">()</span>
+        <span class="k">return</span> <span class="bp">self</span><span class="o">.</span><span class="n">out</span>
+
+    <span class="c1"># -- helpers -------------------------------------------------------------------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_matrix</span><span class="p">(</span>
+        <span class="bp">self</span><span class="p">,</span> <span class="n">elements</span><span class="p">:</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">dict</span><span class="p">[</span><span class="nb">str</span><span class="p">,</span> <span class="nb">int</span><span class="p">]],</span> <span class="n">variable</span><span class="p">:</span> <span class="n">Variable</span>
+    <span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="nb">list</span><span class="p">[</span><span class="nb">str</span><span class="p">],</span> <span class="n">FloatArray</span><span class="p">]:</span>
+        <span class="n">names</span> <span class="o">=</span> <span class="p">[</span><span class="n">e</span> <span class="k">for</span> <span class="n">e</span><span class="p">,</span> <span class="n">cols</span> <span class="ow">in</span> <span class="n">elements</span><span class="o">.</span><span class="n">items</span><span class="p">()</span> <span class="k">if</span> <span class="n">variable</span><span class="o">.</span><span class="n">value</span> <span class="ow">in</span> <span class="n">cols</span><span class="p">]</span>
+        <span class="n">cols</span> <span class="o">=</span> <span class="p">[</span><span class="n">elements</span><span class="p">[</span><span class="n">e</span><span class="p">][</span><span class="n">variable</span><span class="o">.</span><span class="n">value</span><span class="p">]</span> <span class="k">for</span> <span class="n">e</span> <span class="ow">in</span> <span class="n">names</span><span class="p">]</span>
+        <span class="k">return</span> <span class="n">names</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">data</span><span class="o">.</span><span class="n">values</span><span class="p">[:,</span> <span class="n">cols</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_baseline</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FloatArray</span><span class="p">:</span>
+<span class="w">        </span><span class="sd">"""Last pre-fault value per event (first value if there is no pre-fault data)."""</span>
+        <span class="k">return</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_last_where</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">prefault</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_rate</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">values</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="n">FloatArray</span><span class="p">:</span>
+        <span class="n">diff</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_diff</span><span class="p">(</span><span class="n">values</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="k">return</span> <span class="n">diff</span> <span class="o">/</span> <span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_safe</span> <span class="k">if</span> <span class="n">values</span><span class="o">.</span><span class="n">ndim</span> <span class="o">==</span> <span class="mi">1</span> <span class="k">else</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_safe</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">])</span>
+
+    <span class="nd">@staticmethod</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_prefix</span><span class="p">(</span><span class="n">element</span><span class="p">:</span> <span class="nb">str</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">str</span><span class="p">:</span>
+        <span class="k">return</span> <span class="n">element</span><span class="o">.</span><span class="n">replace</span><span class="p">(</span><span class="s2">" "</span><span class="p">,</span> <span class="s2">""</span><span class="p">)</span>
+
+    <span class="c1"># -- feature groups ------------------------------------------------------------------</span>
+    <span class="k">def</span><span class="w"> </span><span class="nf">_rotor</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">names</span><span class="p">,</span> <span class="n">angle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_ANGLE_DEG</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">a0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_baseline</span><span class="p">(</span><span class="n">angle</span><span class="p">)</span>
+            <span class="n">rate</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_rate</span><span class="p">(</span><span class="n">angle</span><span class="p">)</span>
+            <span class="n">accel_diff</span><span class="p">,</span> <span class="n">off_2</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_diff</span><span class="p">(</span><span class="n">rate</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+            <span class="n">keep</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">dt_safe</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+            <span class="n">keep</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">[</span><span class="mi">1</span><span class="p">:]</span> <span class="o">-</span> <span class="mi">1</span><span class="p">]</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">accel</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">accel_diff</span> <span class="o">/</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt_safe</span><span class="p">[</span><span class="n">keep</span><span class="p">][:,</span> <span class="kc">None</span><span class="p">])</span>
+            <span class="n">delta_max</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">angle</span> <span class="o">-</span> <span class="n">a0</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">]),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+            <span class="n">delta_final</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="n">angle</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span> <span class="o">-</span> <span class="n">a0</span>
+            <span class="n">rate_max</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">rate</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+            <span class="n">rate_mean</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_mean</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">rate</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+            <span class="n">accel_max</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">accel</span><span class="p">,</span> <span class="n">off_2</span><span class="p">)</span>
+            <span class="n">first_swing</span><span class="p">,</span> <span class="n">damping</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_swings</span><span class="p">(</span><span class="n">angle</span><span class="p">,</span> <span class="n">a0</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prefix</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_delta_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">delta_max</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_delta_final"</span><span class="p">]</span> <span class="o">=</span> <span class="n">delta_final</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_delta_rate_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">rate_max</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_delta_rate_mean"</span><span class="p">]</span> <span class="o">=</span> <span class="n">rate_mean</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_delta_accel_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">accel_max</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_first_swing_amp"</span><span class="p">]</span> <span class="o">=</span> <span class="n">first_swing</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_damping_ratio"</span><span class="p">]</span> <span class="o">=</span> <span class="n">damping</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+        <span class="n">names</span><span class="p">,</span> <span class="n">speed</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_SPEED_PU</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">s0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_baseline</span><span class="p">(</span><span class="n">speed</span><span class="p">)</span>
+            <span class="n">not_first</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">dtype</span><span class="o">=</span><span class="nb">bool</span><span class="p">)</span>
+            <span class="n">not_first</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]]</span> <span class="o">=</span> <span class="kc">False</span>
+            <span class="n">deviation</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">speed</span><span class="p">[</span><span class="n">not_first</span><span class="p">]</span> <span class="o">-</span> <span class="n">s0</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">[</span><span class="n">not_first</span><span class="p">]])</span>
+            <span class="n">integral</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_sum</span><span class="p">(</span><span class="n">deviation</span> <span class="o">*</span> <span class="bp">self</span><span class="o">.</span><span class="n">dt</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">],</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+            <span class="n">peak</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">speed</span> <span class="o">-</span> <span class="n">s0</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">]),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+            <span class="n">final</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="n">speed</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span> <span class="o">-</span> <span class="n">s0</span>
+            <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prefix</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_speed_dev_peak"</span><span class="p">]</span> <span class="o">=</span> <span class="n">peak</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_speed_dev_final"</span><span class="p">]</span> <span class="o">=</span> <span class="n">final</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_speed_integral"</span><span class="p">]</span> <span class="o">=</span> <span class="n">integral</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+        <span class="n">names</span><span class="p">,</span> <span class="n">freq_dev</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_FREQUENCY_DEVIATION_HZ</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">peak</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">freq_dev</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prefix</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="si">}</span><span class="s2">_freq_dev_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">peak</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_swings</span><span class="p">(</span><span class="bp">self</span><span class="p">,</span> <span class="n">angle</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">,</span> <span class="n">a0</span><span class="p">:</span> <span class="n">FloatArray</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="nb">tuple</span><span class="p">[</span><span class="n">FloatArray</span><span class="p">,</span> <span class="n">FloatArray</span><span class="p">]:</span>
+<span class="w">        </span><span class="sd">"""First-swing amplitude and damping ratio (second vs first peak) after the fault."""</span>
+        <span class="n">n</span><span class="p">,</span> <span class="n">n_gen</span> <span class="o">=</span> <span class="n">a0</span><span class="o">.</span><span class="n">shape</span>
+        <span class="n">first</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">((</span><span class="n">n</span><span class="p">,</span> <span class="n">n_gen</span><span class="p">))</span>
+        <span class="n">damping</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">ones</span><span class="p">((</span><span class="n">n</span><span class="p">,</span> <span class="n">n_gen</span><span class="p">))</span>
+        <span class="k">for</span> <span class="n">i</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n</span><span class="p">):</span>
+            <span class="n">lo</span><span class="p">,</span> <span class="n">hi</span> <span class="o">=</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">[</span><span class="n">i</span><span class="p">]),</span> <span class="nb">int</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">[</span><span class="n">i</span> <span class="o">+</span> <span class="mi">1</span><span class="p">])</span>
+            <span class="n">post</span> <span class="o">=</span> <span class="n">angle</span><span class="p">[</span><span class="n">lo</span><span class="p">:</span><span class="n">hi</span><span class="p">][</span><span class="o">~</span><span class="bp">self</span><span class="o">.</span><span class="n">prefault</span><span class="p">[</span><span class="n">lo</span><span class="p">:</span><span class="n">hi</span><span class="p">]]</span>
+            <span class="k">if</span> <span class="n">post</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">]</span> <span class="o">&lt;=</span> <span class="mi">3</span><span class="p">:</span>
+                <span class="k">continue</span>
+            <span class="n">excursion</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">post</span> <span class="o">-</span> <span class="n">a0</span><span class="p">[</span><span class="n">i</span><span class="p">])</span>
+            <span class="k">for</span> <span class="n">g</span> <span class="ow">in</span> <span class="nb">range</span><span class="p">(</span><span class="n">n_gen</span><span class="p">):</span>
+                <span class="n">peaks</span><span class="p">,</span> <span class="n">_</span> <span class="o">=</span> <span class="n">find_peaks</span><span class="p">(</span><span class="n">excursion</span><span class="p">[:,</span> <span class="n">g</span><span class="p">],</span> <span class="n">distance</span><span class="o">=</span><span class="mi">3</span><span class="p">)</span>
+                <span class="k">if</span> <span class="n">peaks</span><span class="o">.</span><span class="n">size</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+                    <span class="n">first</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">g</span><span class="p">]</span> <span class="o">=</span> <span class="n">excursion</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span><span class="o">.</span><span class="n">max</span><span class="p">()</span>
+                    <span class="k">continue</span>
+                <span class="n">a1</span> <span class="o">=</span> <span class="n">excursion</span><span class="p">[</span><span class="n">peaks</span><span class="p">[</span><span class="mi">0</span><span class="p">],</span> <span class="n">g</span><span class="p">]</span>
+                <span class="n">first</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">g</span><span class="p">]</span> <span class="o">=</span> <span class="n">a1</span>
+                <span class="k">if</span> <span class="n">peaks</span><span class="o">.</span><span class="n">size</span> <span class="o">&gt;=</span> <span class="mi">2</span><span class="p">:</span>
+                    <span class="n">damping</span><span class="p">[</span><span class="n">i</span><span class="p">,</span> <span class="n">g</span><span class="p">]</span> <span class="o">=</span> <span class="p">(</span><span class="n">a1</span> <span class="o">-</span> <span class="n">excursion</span><span class="p">[</span><span class="n">peaks</span><span class="p">[</span><span class="mi">1</span><span class="p">],</span> <span class="n">g</span><span class="p">])</span> <span class="o">/</span> <span class="n">a1</span> <span class="k">if</span> <span class="n">a1</span> <span class="o">&gt;</span> <span class="mf">1e-6</span> <span class="k">else</span> <span class="mf">0.0</span>
+        <span class="k">return</span> <span class="n">first</span><span class="p">,</span> <span class="n">damping</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_voltage</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">voltage</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buses</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">BUS_VOLTAGE_PU</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">voltage</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">v0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_baseline</span><span class="p">(</span><span class="n">voltage</span><span class="p">)</span>
+        <span class="n">deviation</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">voltage</span> <span class="o">-</span> <span class="n">v0</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">])</span>
+        <span class="n">lowest</span> <span class="o">=</span> <span class="n">voltage</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">post</span> <span class="o">=</span> <span class="o">~</span><span class="bp">self</span><span class="o">.</span><span class="n">prefault</span>
+        <span class="n">recovered</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">first_true_index</span><span class="p">(</span>
+            <span class="n">post</span> <span class="o">&amp;</span> <span class="p">(</span><span class="n">lowest</span> <span class="o">&gt;=</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">voltage_recovery_pu</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span>
+        <span class="p">)</span>
+        <span class="n">t_end</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="n">t_recovered</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span>
+            <span class="n">recovered</span> <span class="o">&gt;=</span> <span class="mi">0</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">[:</span><span class="o">-</span><span class="mi">1</span><span class="p">]</span> <span class="o">+</span> <span class="n">np</span><span class="o">.</span><span class="n">maximum</span><span class="p">(</span><span class="n">recovered</span><span class="p">,</span> <span class="mi">0</span><span class="p">)],</span> <span class="n">t_end</span>
+        <span class="p">)</span>
+        <span class="n">post_max</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">post</span><span class="p">[:,</span> <span class="kc">None</span><span class="p">],</span> <span class="n">voltage</span><span class="p">,</span> <span class="o">-</span><span class="n">np</span><span class="o">.</span><span class="n">inf</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_voltage_nadir"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_min</span><span class="p">(</span><span class="n">voltage</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_voltage_dev_mean"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_mean</span><span class="p">(</span><span class="n">deviation</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_voltage_dev_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">deviation</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_voltage_recovery_time"</span><span class="p">]</span> <span class="o">=</span> <span class="n">t_recovered</span> <span class="o">-</span> <span class="bp">self</span><span class="o">.</span><span class="n">fault</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_voltage_overshoot"</span><span class="p">]</span> <span class="o">=</span> <span class="n">post_max</span> <span class="o">-</span> <span class="n">v0</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_voltage_final_dev"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="n">voltage</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span> <span class="o">-</span> <span class="n">v0</span><span class="p">)</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span>
+            <span class="n">axis</span><span class="o">=</span><span class="mi">1</span>
+        <span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_frequency</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">_</span><span class="p">,</span> <span class="n">freq</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">buses</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">BUS_FREQUENCY_HZ</span><span class="p">)</span>
+        <span class="k">if</span> <span class="n">freq</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">1</span><span class="p">]</span> <span class="o">==</span> <span class="mi">0</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">system</span> <span class="o">=</span> <span class="n">freq</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">has_prefault</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_any</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">prefault</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="n">nominal</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">where</span><span class="p">(</span><span class="n">has_prefault</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">_baseline</span><span class="p">(</span><span class="n">system</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">settings</span><span class="o">.</span><span class="n">nominal_frequency_hz</span><span class="p">)</span>
+        <span class="n">rocof</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_rate</span><span class="p">(</span><span class="n">system</span><span class="p">))</span>
+        <span class="n">spread</span> <span class="o">=</span> <span class="n">freq</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="n">freq</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_freq_nadir"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_min</span><span class="p">(</span><span class="n">system</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_freq_peak"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">system</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_freq_dev_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">system</span> <span class="o">-</span> <span class="n">nominal</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">]),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_rocof_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">rocof</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_rocof_mean"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_mean</span><span class="p">(</span><span class="n">rocof</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_freq_spread_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">spread</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_freq_spread_mean"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_mean</span><span class="p">(</span><span class="n">spread</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_freq_final_dev"</span><span class="p">]</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="n">system</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span> <span class="o">-</span> <span class="n">nominal</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_power</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">names</span><span class="p">,</span> <span class="n">active</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">ACTIVE_POWER_MW</span><span class="p">)</span>
+        <span class="n">total_p</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">p0</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_baseline</span><span class="p">(</span><span class="n">active</span><span class="p">)</span>
+            <span class="n">swing</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">active</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span> <span class="o">-</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_min</span><span class="p">(</span><span class="n">active</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+            <span class="n">dev</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">active</span> <span class="o">-</span> <span class="n">p0</span><span class="p">[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">]),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
+                <span class="n">p</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_prefix</span><span class="p">(</span><span class="n">name</span><span class="p">)</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_power_swing_amp"</span><span class="p">]</span> <span class="o">=</span> <span class="n">swing</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="n">p</span><span class="si">}</span><span class="s2">_power_dev_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">dev</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="n">total_p</span> <span class="o">+=</span> <span class="n">active</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+        <span class="n">names</span><span class="p">,</span> <span class="n">reactive</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">REACTIVE_POWER_MVAR</span><span class="p">)</span>
+        <span class="n">total_q</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">t</span><span class="o">.</span><span class="n">shape</span><span class="p">[</span><span class="mi">0</span><span class="p">])</span>
+        <span class="k">if</span> <span class="n">names</span><span class="p">:</span>
+            <span class="n">peak</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">reactive</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+            <span class="k">for</span> <span class="n">g</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">enumerate</span><span class="p">(</span><span class="n">names</span><span class="p">):</span>
+                <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="sa">f</span><span class="s2">"</span><span class="si">{</span><span class="bp">self</span><span class="o">.</span><span class="n">_prefix</span><span class="p">(</span><span class="n">name</span><span class="p">)</span><span class="si">}</span><span class="s2">_reactive_peak"</span><span class="p">]</span> <span class="o">=</span> <span class="n">peak</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+                <span class="n">total_q</span> <span class="o">+=</span> <span class="n">reactive</span><span class="p">[:,</span> <span class="n">g</span><span class="p">]</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_total_power_swing"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">total_p</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span> <span class="o">-</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_min</span><span class="p">(</span>
+            <span class="n">total_p</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_total_reactive_peak"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">total_q</span><span class="p">),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+
+    <span class="k">def</span><span class="w"> </span><span class="nf">_coherency</span><span class="p">(</span><span class="bp">self</span><span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
+        <span class="n">names</span><span class="p">,</span> <span class="n">angle</span> <span class="o">=</span> <span class="bp">self</span><span class="o">.</span><span class="n">_matrix</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">generators</span><span class="p">,</span> <span class="n">Variable</span><span class="o">.</span><span class="n">ROTOR_ANGLE_DEG</span><span class="p">)</span>
+        <span class="k">if</span> <span class="nb">len</span><span class="p">(</span><span class="n">names</span><span class="p">)</span> <span class="o">&lt;</span> <span class="mi">2</span><span class="p">:</span>
+            <span class="k">return</span>
+        <span class="n">spread</span> <span class="o">=</span> <span class="n">angle</span><span class="o">.</span><span class="n">max</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span> <span class="o">-</span> <span class="n">angle</span><span class="o">.</span><span class="n">min</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">divergence</span> <span class="o">=</span> <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="bp">self</span><span class="o">.</span><span class="n">_rate</span><span class="p">(</span><span class="n">spread</span><span class="p">))</span>
+        <span class="n">coi</span> <span class="o">=</span> <span class="n">angle</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">std</span> <span class="o">=</span> <span class="n">angle</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">axis</span><span class="o">=</span><span class="mi">1</span><span class="p">)</span>
+        <span class="n">spread_max</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">spread</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_spread_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">spread_max</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_spread_mean"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_mean</span><span class="p">(</span><span class="n">spread</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_spread_final"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="n">spread</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_divergence_rate_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">divergence</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_divergence_rate_mean"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_mean</span><span class="p">(</span><span class="n">divergence</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off_d</span><span class="p">)</span>
+        <span class="c1"># largest pairwise angle difference == largest spread; kept for continuity of results</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_max_relative_angle"</span><span class="p">]</span> <span class="o">=</span> <span class="n">spread_max</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_coi_angle_max_dev"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span>
+            <span class="n">np</span><span class="o">.</span><span class="n">abs</span><span class="p">(</span><span class="n">coi</span> <span class="o">-</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_first</span><span class="p">(</span><span class="n">coi</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)[</span><span class="bp">self</span><span class="o">.</span><span class="n">row_sample</span><span class="p">]),</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span>
+        <span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_std_max"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_max</span><span class="p">(</span><span class="n">std</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+        <span class="bp">self</span><span class="o">.</span><span class="n">out</span><span class="p">[</span><span class="s2">"sys_angle_std_final"</span><span class="p">]</span> <span class="o">=</span> <span class="n">seg</span><span class="o">.</span><span class="n">segment_last</span><span class="p">(</span><span class="n">std</span><span class="p">,</span> <span class="bp">self</span><span class="o">.</span><span class="n">off</span><span class="p">)</span>
+</pre></div>
+
+           </div>
+          </div>
+          <footer>
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>&#169; Copyright 2025-2026, Mahmoud Draz.</p>
+  </div>
+
+  Built with <a href="https://www.sphinx-doc.org/">Sphinx</a> using a
+    <a href="https://github.com/readthedocs/sphinx_rtd_theme">theme</a>
+    provided by <a href="https://readthedocs.org">Read the Docs</a>.
+   
+
+</footer>
+        </div>
+      </div>
+    </section>
+  </div>
+  <script>
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script> 
+
+</body>
+</html>
