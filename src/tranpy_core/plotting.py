@@ -186,15 +186,24 @@ def plot_metric_curves(
 
 
 def _label_line_ends(
-    ax: Any, ends: list[tuple[float, float, str]], min_gap_pt: float = 9.0
+    ax: Any,
+    ends: list[tuple[float, float, str]],
+    min_gap_pt: float = 9.0,
+    max_shift_pt: float = 6.0,
 ) -> None:
-    """Annotate line ends, pushing labels apart so they do not overlap."""
+    """Annotate line ends; skip labels that would have to move far from their line.
+
+    A label is drawn only if it fits within ``max_shift_pt`` of its line end without
+    colliding with another label; otherwise the legend identifies the line.
+    """
     fig = ax.figure
     points_per_pixel = 72.0 / fig.dpi
     placed: list[float] = []
     for x_end, y_end, name in sorted(ends, key=lambda e: e[1]):
         y_pt = ax.transData.transform((x_end, y_end))[1] * points_per_pixel
         target = max([y_pt, *(p + min_gap_pt for p in placed)])
+        if target - y_pt > max_shift_pt:
+            continue
         placed.append(target)
         ax.annotate(
             name,
