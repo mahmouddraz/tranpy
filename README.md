@@ -1,51 +1,110 @@
 # TranPy
 
-Machine learning tool for power system transient stability analysis with a simple, sklearn-style API.
+<!-- intro-start -->
+Machine learning for power-system **transient stability**: datasets of simulated fault
+events, classifiers, evaluation, explanations and simulation engines, with results that
+are reproducible by construction (explicit seeds, checksum-pinned data, a regression
+snapshot).
 
-## Quick Start
+The package has two layers:
+
+* **`tranpy_core`** - a domain-agnostic pipeline for labelled tabular and time-series
+  data: datasets, splits, feature extraction, a model registry of scikit-learn
+  estimators, evaluation, SHAP/LIME/break-down explanations and an experiment runner.
+* **`tranpy`** - the power-system layer on top: the IEEE 9-bus and New England 39-bus
+  datasets, trajectory features (rotor angle, voltage, frequency, power, coherency),
+  early-prediction experiments, a PowerFactory engine and a mock engine.
+<!-- intro-end -->
+
+## Install
 
 ```bash
-pip install tranpy
+pip install tranpy-ai                    # core: numpy, pandas, scipy, scikit-learn
+pip install "tranpy-ai[explain]"         # SHAP, LIME, DALEX
+pip install "tranpy-ai[neural]"          # TensorFlow networks
+pip install "tranpy-ai[boosting]"        # XGBoost, LightGBM
+pip install "tranpy-ai[plot]"            # matplotlib figures
+pip install "tranpy-ai[all]"             # everything
 ```
 
+Python 3.11 to 3.13. The import names are `tranpy` and `tranpy_core`.
+
+## Quick start
+
 ```python
-from tranpy.datasets import load_newengland
-from tranpy.models import SVMClassifier
+import tranpy
+from tranpy_core import evaluate, make_pipeline, train_test_split
 
-X_train, X_test, y_train, y_test = load_newengland(test_size=0.2, random_state=42)
-model = SVMClassifier(kernel='rbf')
-model.fit(X_train, y_train)
-
-accuracy = model.score(X_test, y_test)
-print(f"Accuracy: {accuracy:.4f}")
-
-results = model.evaluate(X_test, y_test, verbose=True)
+data = tranpy.load_new_england()                       # 5000 events, 77 features
+split = train_test_split(data.labels, test_size=0.2, seed=42)
+model = make_pipeline("random_forest", seed=0)         # StandardScaler -> RandomForest
+model.fit(data.features[split.train], data.labels[split.train])
+scores = evaluate(model, data.features[split.test], data.labels[split.test])
+print(scores.accuracy, scores.roc_auc)
 ```
 
-### XAI 
+Event trajectories and early prediction:
 
 ```python
-from tranpy.explainers import SHAPExplainer
+from sklearn.linear_model import LogisticRegression
+from tranpy.early_prediction import run_early_prediction
 
-# Create explainer
-explainer = SHAPExplainer(model, X_train, X_test)
+events = tranpy.load_events("ieee_9bus", source="path/to/results_event_csvs/")
+table = tranpy.TrajectoryFeatures(window_s=0.5, reference="fault_start").transform(events)
+curve = run_early_prediction(events, {"lr": LogisticRegression()}, reference="fault_start")
+```
 
-# Generate global explanations
-shap_values = explainer.explain_global()
+The window `reference` is required: `fault_start` is causal; `fault_clear` reproduces the
+earlier (non-causal) setting - see [docs/validation.md](docs/validation.md#defects-found).
 
-# Visualize
-explainer.plot_summary(save_path='shap_summary.png')
+## Command line
 
-# Important features
-top_features = explainer.get_top_features(n_features=10)
-print(top_features)
-``
+```bash
+tranpy datasets                                    # available data
+tranpy experiment experiment.yaml -o result.json   # run a YAML experiment
+tranpy simulate ieee_9bus events.npz --events 200  # mock-engine dataset
+tranpy convert-events CSV_DIR new_england out.npz  # PowerFactory CSVs -> .npz
+tranpy train-pretrained models/                    # rebuild pretrained pipelines
+```
 
-Check out the [examples/](examples/) directory for Jupyter notebooks:
+An experiment file:
 
-- `01_load_dataset.ipynb`
-- `02_train_models.ipynb`
-- `03_explainability.ipynb`
-- `04_generate_data.ipynb` - > Requires PowerFactory local installation
+```yaml
+dataset: new_england
+experiment:
+  name: baseline
+  seed: 0
+  test_size: 0.2
+  cv_folds: 5
+  models:
+    - name: random_forest
+    - name: svm
+      params: {C: 2.0}
+```
 
+## Data
 
+The snapshot datasets are bundled. Event trajectories are stored losslessly in a compact
+format and, for the full sets (10,000 and 8,000 events), as checksum-verified shards that
+are streamed from the host one at a time, so no large download is needed. Details:
+[docs/data.md](docs/data.md).
+
+## Development
+
+```bash
+uv sync --all-extras --group dev
+uv run pytest                      # 266 tests, branch coverage >= 90 %
+uv run pytest -m "not slow"        # skips the Gaussian-process snapshot entries
+uv run ruff check . && uv run ruff format --check .
+uv run mypy                        # strict
+```
+
+**Pinned results.** `tests/snapshots/metrics.json` holds the seeded metrics of every
+model on every bundled dataset. If a change is intended, run
+`uv run python -m tests.update_snapshot` and give the reason in the commit message.
+
+Documentation: [architecture](docs/architecture.md), [data](docs/data.md), [validation](docs/validation.md).
+
+## License
+
+MIT
