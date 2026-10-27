@@ -216,11 +216,16 @@ def evaluate_window_tables(
     n_repeats: int = 1,
     seed: Seed = 42,
     min_events: int = 10,
+    checkpoint: str | Path | None = None,
 ) -> pd.DataFrame:
     """Cross-validate feature models and sequence models on the same folds per window.
 
     With ``n_repeats > 1`` the k-fold split is repeated with different shuffles, which
     makes the reported 95 % confidence intervals (``<metric>_ci95``) meaningful.
+
+    With ``checkpoint`` (a CSV path) every finished (window, model) row is appended to the
+    file immediately, and rows already in it are not recomputed, so an interrupted run
+    resumes where it stopped. Folds are seeded, so resumed results equal uninterrupted ones.
     """
     models = dict(models or {})
     sequence_models = dict(sequence_models or {})
@@ -229,7 +234,26 @@ def evaluate_window_tables(
     clash = set(models) & set(sequence_models)
     if clash:
         raise ConfigurationError(f"model names used twice: {sorted(clash)}")
+    columns = [
+        "window_s",
+        "model",
+        "input",
+        "n_events",
+        "n_features",
+        "n_splits",
+        *(f"{m}_{s}" for m in METRICS for s in ("mean", "std", "ci95")),
+        "fit_time_s",
+    ]
+    checkpoint_path = Path(checkpoint) if checkpoint is not None else None
     rows: list[dict[str, Any]] = []
+    done: set[tuple[float, str]] = set()
+    if checkpoint_path is not None and checkpoint_path.exists():
+        previous = pd.read_csv(checkpoint_path)
+        rows = [{str(k): v for k, v in r.items()} for r in previous.to_dict("records")]
+        done = {
+            (float(w), str(m)) for w, m in zip(previous["window_s"], previous["model"], strict=True)
+        }
+        logger.info("checkpoint %s: %d results already done", checkpoint_path, len(done))
     for window in sorted({w for w, _ in tables}):
         base = tables.get((window, "features")) or tables[(window, "sequence")]
         if base.n_samples < min_events:
@@ -255,32 +279,34 @@ def evaluate_window_tables(
                 for name, m in sequence_models.items()
             ]
         for name, kind, pipeline, table in jobs:
+            if (float(window), name) in done:
+                continue
             data = _finite(table.features, window, kind)
             t0 = time.perf_counter()
             result = cross_validate(pipeline, data, table.labels, splits=folds)
-            rows.append(
-                {
-                    "window_s": float(window),
-                    "model": name,
-                    "input": kind,
-                    "n_events": table.n_samples,
-                    "n_features": data.shape[1],
-                    "n_splits": splits,
-                    **result.summary(),
-                    "fit_time_s": float(np.mean(result.fit_times_s)),
-                }
+            row = {
+                "window_s": float(window),
+                "model": name,
+                "input": kind,
+                "n_events": table.n_samples,
+                "n_features": data.shape[1],
+                "n_splits": splits,
+                **result.summary(),
+                "fit_time_s": float(np.mean(result.fit_times_s)),
+            }
+            rows.append(row)
+            if checkpoint_path is not None:
+                checkpoint_path.parent.mkdir(parents=True, exist_ok=True)
+                pd.DataFrame([row], columns=columns).to_csv(
+                    checkpoint_path, mode="a", header=not checkpoint_path.exists(), index=False
+                )
+            logger.info(
+                "window %.3f s, %s: accuracy %.4f in %.0f s",
+                window,
+                name,
+                row["accuracy_mean"],
+                time.perf_counter() - t0,
             )
-            logger.info("window %.3f s, %s: %.1f s", window, name, time.perf_counter() - t0)
-    columns = [
-        "window_s",
-        "model",
-        "input",
-        "n_events",
-        "n_features",
-        "n_splits",
-        *(f"{m}_{s}" for m in METRICS for s in ("mean", "std", "ci95")),
-        "fit_time_s",
-    ]
     return pd.DataFrame(rows, columns=columns)
 
 

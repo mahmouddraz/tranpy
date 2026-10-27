@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pandas as pd
 import pytest
 from sklearn.linear_model import LogisticRegression
 from tests.conftest import write_powerfactory_csvs
@@ -132,3 +133,24 @@ def test_cli_build_shards(
         == 0
     )
     assert "2 shards, 6 events" in capsys.readouterr().out
+
+
+def test_evaluation_checkpoint_resumes(mock_events: SignalDataset, tmp_path: Path) -> None:
+    tables = extract_window_tables(mock_events, reference="fault_start", windows_s=(0.1, 0.2))
+    models = {
+        "lr": LogisticRegression(max_iter=500),
+        "lr2": LogisticRegression(C=0.5, max_iter=500),
+    }
+    full = evaluate_window_tables(tables, models, n_splits=2)
+    checkpoint = tmp_path / "progress.csv"
+    partial = evaluate_window_tables(
+        {k: v for k, v in tables.items() if k[0] == 0.1}, models, n_splits=2, checkpoint=checkpoint
+    )
+    assert len(pd.read_csv(checkpoint)) == len(partial) == 2
+    resumed = evaluate_window_tables(tables, models, n_splits=2, checkpoint=checkpoint)
+    assert len(pd.read_csv(checkpoint)) == 4
+    cols = ["window_s", "model", "accuracy_mean", "roc_auc_mean"]
+    pd.testing.assert_frame_equal(
+        resumed[cols].sort_values(cols[:2]).reset_index(drop=True),
+        full[cols].sort_values(cols[:2]).reset_index(drop=True),
+    )
