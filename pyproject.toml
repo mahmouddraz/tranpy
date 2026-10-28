@@ -37,7 +37,7 @@ Repository = "https://github.com/mahmouddraz/tranpy"
 Issues = "https://github.com/mahmouddraz/tranpy/issues"
 
 [project.optional-dependencies]
-explain = ["shap>=0.45", "lime>=0.2.0.1", "dalex>=1.7", "setuptools<81"]
+explain = ["shap>=0.45", "lime>=0.2.0.1", "dalex>=1.7", "setuptools<85"]
 neural = ["tensorflow>=2.16"]
 boosting = ["xgboost>=2.0", "lightgbm>=4.0"]
 plot = ["matplotlib>=3.8"]
