@@ -53,7 +53,7 @@ from collections.abc import Sequence
 from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -113,6 +113,8 @@ class AndesEngine:
         step_s: output and integration step.
         name_width: zero padding of bus and generator numbers in channel names.
         n_jobs: parallel worker processes.
+        record_buses: ``"all"`` or ``"generators"`` (only buses with a generator; for
+            large grids, where recording every bus would not fit in memory).
     """
 
     system_name: str = "new_england"
@@ -121,6 +123,7 @@ class AndesEngine:
     step_s: float = 0.01
     name_width: int = 2
     n_jobs: int = 1
+    record_buses: Literal["all", "generators"] = "all"
     _lines: list[Any] = field(default_factory=list, init=False, repr=False)
     _loads: list[Any] = field(default_factory=list, init=False, repr=False)
     _frequency_hz: float = field(default=50.0, init=False, repr=False)
@@ -133,6 +136,8 @@ class AndesEngine:
     def __post_init__(self) -> None:
         if self.step_s <= 0 or self.simulation_time_s <= self.step_s:
             raise ConfigurationError("need 0 < step_s < simulation_time_s")
+        if self.record_buses not in ("all", "generators"):
+            raise ConfigurationError(f"unknown record_buses {self.record_buses!r}")
         if self.case is None and self.system.key not in DEFAULT_CASES:
             raise ConfigurationError(f"no built-in ANDES case for {self.system.key!r}; pass case=")
         ss = self._load(setup=True)
@@ -204,6 +209,9 @@ class AndesEngine:
         for b in self._bus_ids:
             groups.setdefault(root(b), []).append(b)
         return list(groups.values())
+
+    def _recorded(self, bus: Any) -> bool:
+        return self.record_buses == "all" or bus in self._gen_buses
 
     def islands(self, scenario: FaultScenario) -> bool:
         """Whether opening the scenario's lines splits the network into separate parts."""
@@ -313,7 +321,7 @@ class AndesEngine:
                 ss.add("Toggle", {"model": "Bus", "dev": bus, "t": t_split})
         monitored = set(ss.BusFreq.bus.v)
         for b in ss.Bus.idx.v:
-            if b not in monitored:
+            if b not in monitored and self._recorded(b):
                 ss.add("BusFreq", {"bus": b})
         ss.setup()
         for k in range(
@@ -368,6 +376,8 @@ class AndesEngine:
         v = y[:, np.asarray(ss.Bus.v.a)][:, bus_order]
         a = np.degrees(y[:, np.asarray(ss.Bus.a.a)][:, bus_order])
         f_all = y[:, np.asarray(ss.BusFreq.f.a)]
+        recorded = [k for k, i in enumerate(bus_order) if self._recorded(ss.Bus.idx.v[i])]
+        bus_order, v, a = bus_order[recorded], v[:, recorded], a[:, recorded]
         bus_ids = [ss.Bus.idx.v[i] for i in bus_order]
         f = f_all[:, [freq_by_bus[b] for b in bus_ids]] * f0
         machines = [getattr(ss, name) for name in _MACHINES if getattr(ss, name).n]

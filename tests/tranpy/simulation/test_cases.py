@@ -82,3 +82,35 @@ def test_bundled_germany_case() -> None:
     assert events.n_samples == 1
     assert events.n_channels == 553 * 3 + 86 * 6
     assert events.channel_names[0].startswith("Bus ")
+    small = AndesEngine("germany", simulation_time_s=2.0, record_buses="generators")
+    events = generate_events(small, [scenario])
+    assert events.n_channels == len(small._gen_buses) * 3 + 86 * 6
+
+
+@pytest.mark.requires_plot
+def test_grid_map(tmp_path: Path) -> None:
+    pytest.importorskip("matplotlib")
+    from tranpy.maps import grid_geometry, per_line, plot_grid_map
+    from tranpy.simulation.andes import AndesEngine
+    from tranpy.simulation.cases import build_germany_case
+
+    case = build_germany_case(tmp_path / "de.xlsx", source=_archive(tmp_path / "src.zip"))
+    engine = AndesEngine("germany", case=case, simulation_time_s=1.0)
+    geometry = grid_geometry(engine)
+    assert geometry.lines.shape == (engine.n_lines, 2, 2)
+    np.testing.assert_allclose(geometry.generators, [[10, 54], [10, 48]])
+    values = np.linspace(0, 1, engine.n_lines)
+    fig = plot_grid_map(geometry, line_values=values, generator_values=[0.2, 0.8], borders=False)
+    assert fig.axes
+    with pytest.raises(DataError, match="one value per line"):
+        plot_grid_map(geometry, line_values=[1.0] * 9, borders=False)
+
+    scenarios = [
+        FaultScenario(scenario_id=i, fault_line=0, fault_start_s=0.2, clearing_duration_s=0.05)
+        for i in range(2)
+    ]
+    events = generate_events(engine, scenarios)
+    shares = per_line(events, [0.0, 1.0], engine.n_lines)
+    assert shares[0] == 0.5
+    assert np.isnan(shares[1:]).all()
+    assert np.isnan(per_line(events, [0.0, 1.0], engine.n_lines, min_events=3)).all()

@@ -8,7 +8,8 @@
 
 How the German case is derived (see ``docs/germany_model.md``):
 
-* buses with country ``DE``; lines to neighbouring countries removed, so Germany is
+* buses with country ``DE``, with their coordinates (``xcoord`` longitude, ``ycoord``
+  latitude); lines to neighbouring countries removed, so Germany is
   simulated as an island; the largest connected part is kept;
 * line resistance and reactance as given (per unit on 100 MVA; no line charging);
   lines between 220 and 380 kV buses are marked as transformers;
@@ -129,10 +130,21 @@ def build_germany_case(
     voltage = dict(zip(bus_ids, de["Voltage [KV]"].astype(float), strict=True))
     names = dict(zip(bus_ids, de["Name"].astype(str), strict=True))
     demand_mw = dict(zip(bus_ids, de["Demand [MW]"].astype(float), strict=True))
+    longitude = dict(zip(bus_ids, de["Longitude"].astype(float), strict=True))
+    latitude = dict(zip(bus_ids, de["Latitude"].astype(float), strict=True))
     ss = andes.System()
     ss.config.freq = frequency_hz
     for bus_id in bus_ids:
-        ss.add("Bus", {"idx": bus_id, "name": names[bus_id], "Vn": voltage[bus_id]})
+        ss.add(
+            "Bus",
+            {
+                "idx": bus_id,
+                "name": names[bus_id],
+                "Vn": voltage[bus_id],
+                "xcoord": longitude[bus_id],
+                "ycoord": latitude[bus_id],
+            },
+        )
     for bus_id in bus_ids:
         if demand_mw[bus_id] <= 0:
             continue
