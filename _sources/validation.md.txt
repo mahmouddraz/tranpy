@@ -164,3 +164,31 @@ data:
 
 The values, labels and order of the data are unchanged; the regression snapshot is
 unaffected.
+
+## Early prediction on the full event sets (notebook 08)
+
+10,000 IEEE 9-bus and 7,999 New England events (PowerFactory RMS simulations, migrated from
+the original CSVs), windows from fault inception, 5-fold cross-validation repeated 3 times
+(seed 42). Mean accuracy; 95 % corrected intervals are at most ±0.005 (9-bus) and ±0.009
+(39-bus).
+
+| Model (input) | 9-bus 0.05 s | 0.2 s | 0.8 s | 39-bus 0.05 s | 0.2 s | 0.8 s |
+|---|---:|---:|---:|---:|---:|---:|
+| LightGBM (features) | 0.9958 | 0.9964 | 0.9990 | 0.9868 | 0.9886 | 0.9926 |
+| XGBoost (features) | 0.9960 | 0.9959 | 0.9989 | 0.9868 | 0.9886 | 0.9920 |
+| random forest (features) | 0.9947 | 0.9958 | 0.9991 | 0.9841 | 0.9875 | 0.9921 |
+| logistic regression (features) | 0.9831 | 0.9875 | 0.9970 | 0.9065 | 0.9628 | 0.9897 |
+| LSTM (sequence) | 0.9911 | 0.9909 | 0.9978 | 0.9823 | 0.9837 | 0.9884 |
+| TCN (sequence) | 0.9913 | 0.9894 | 0.9973 | 0.9828 | 0.9843 | 0.9872 |
+| Transformer (sequence) | 0.9901 | 0.9895 | 0.9975 | 0.9809 | 0.9816 | 0.9877 |
+| dense network (sequence) | 0.9895 | 0.9879 | 0.9964 | 0.9806 | 0.9825 | 0.9874 |
+
+With 16 to 20 times more events than the 500-event subsets, all models gain, and the gap
+between models narrows. Gradient-boosted trees on trajectory features remain the most
+accurate at every window; the sequence networks (untuned, default sizes) trail by about
+0.5 percentage points. Even 0.05 s after inception the outcome is predicted with about
+99.6 % (9-bus) and 98.7 % (39-bus) accuracy.
+
+**D9 at full scale.** Windows from the detected clearing instead of inception raise the
+random forest's accuracy at 0.05 s from 0.9947 to 0.9997 (9-bus) and from 0.9841 to 0.9874
+(39-bus); clearing-based windows remain optimistic.

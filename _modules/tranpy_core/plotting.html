@@ -271,15 +271,24 @@
 
 
 <span class="k">def</span><span class="w"> </span><span class="nf">_label_line_ends</span><span class="p">(</span>
-    <span class="n">ax</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span> <span class="n">ends</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span> <span class="n">min_gap_pt</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">9.0</span>
+    <span class="n">ax</span><span class="p">:</span> <span class="n">Any</span><span class="p">,</span>
+    <span class="n">ends</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">tuple</span><span class="p">[</span><span class="nb">float</span><span class="p">,</span> <span class="nb">float</span><span class="p">,</span> <span class="nb">str</span><span class="p">]],</span>
+    <span class="n">min_gap_pt</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">9.0</span><span class="p">,</span>
+    <span class="n">max_shift_pt</span><span class="p">:</span> <span class="nb">float</span> <span class="o">=</span> <span class="mf">6.0</span><span class="p">,</span>
 <span class="p">)</span> <span class="o">-&gt;</span> <span class="kc">None</span><span class="p">:</span>
-<span class="w">    </span><span class="sd">"""Annotate line ends, pushing labels apart so they do not overlap."""</span>
+<span class="w">    </span><span class="sd">"""Annotate line ends; skip labels that would have to move far from their line.</span>
+
+<span class="sd">    A label is drawn only if it fits within ``max_shift_pt`` of its line end without</span>
+<span class="sd">    colliding with another label; otherwise the legend identifies the line.</span>
+<span class="sd">    """</span>
     <span class="n">fig</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">figure</span>
     <span class="n">points_per_pixel</span> <span class="o">=</span> <span class="mf">72.0</span> <span class="o">/</span> <span class="n">fig</span><span class="o">.</span><span class="n">dpi</span>
     <span class="n">placed</span><span class="p">:</span> <span class="nb">list</span><span class="p">[</span><span class="nb">float</span><span class="p">]</span> <span class="o">=</span> <span class="p">[]</span>
     <span class="k">for</span> <span class="n">x_end</span><span class="p">,</span> <span class="n">y_end</span><span class="p">,</span> <span class="n">name</span> <span class="ow">in</span> <span class="nb">sorted</span><span class="p">(</span><span class="n">ends</span><span class="p">,</span> <span class="n">key</span><span class="o">=</span><span class="k">lambda</span> <span class="n">e</span><span class="p">:</span> <span class="n">e</span><span class="p">[</span><span class="mi">1</span><span class="p">]):</span>
         <span class="n">y_pt</span> <span class="o">=</span> <span class="n">ax</span><span class="o">.</span><span class="n">transData</span><span class="o">.</span><span class="n">transform</span><span class="p">((</span><span class="n">x_end</span><span class="p">,</span> <span class="n">y_end</span><span class="p">))[</span><span class="mi">1</span><span class="p">]</span> <span class="o">*</span> <span class="n">points_per_pixel</span>
         <span class="n">target</span> <span class="o">=</span> <span class="nb">max</span><span class="p">([</span><span class="n">y_pt</span><span class="p">,</span> <span class="o">*</span><span class="p">(</span><span class="n">p</span> <span class="o">+</span> <span class="n">min_gap_pt</span> <span class="k">for</span> <span class="n">p</span> <span class="ow">in</span> <span class="n">placed</span><span class="p">)])</span>
+        <span class="k">if</span> <span class="n">target</span> <span class="o">-</span> <span class="n">y_pt</span> <span class="o">&gt;</span> <span class="n">max_shift_pt</span><span class="p">:</span>
+            <span class="k">continue</span>
         <span class="n">placed</span><span class="o">.</span><span class="n">append</span><span class="p">(</span><span class="n">target</span><span class="p">)</span>
         <span class="n">ax</span><span class="o">.</span><span class="n">annotate</span><span class="p">(</span>
             <span class="n">name</span><span class="p">,</span>
