@@ -42,7 +42,8 @@ neural = ["tensorflow>=2.16"]
 boosting = ["xgboost>=2.0", "lightgbm>=4.0"]
 plot = ["matplotlib>=3.8"]
 persistence = ["skops>=0.10"]
-all = ["tranpy-ai[explain,neural,boosting,plot,persistence]"]
+andes = ["andes>=2.0"]
+all = ["tranpy-ai[explain,neural,boosting,plot,persistence,andes]"]
 
 [project.scripts]
 tranpy = "tranpy.cli:main"
@@ -90,7 +91,7 @@ files = ["src"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["shap.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "powerfactory", "matplotlib.*"]
+module = ["shap.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "andes.*", "powerfactory", "matplotlib.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -110,6 +111,7 @@ markers = [
     "requires_boosting: needs the [boosting] extra",
     "requires_plot: needs the [plot] extra",
     "requires_persistence: needs the [persistence] extra",
+    "requires_andes: needs the [andes] extra",
 ]
 
 [tool.coverage.run]

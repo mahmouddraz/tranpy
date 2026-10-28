@@ -309,3 +309,48 @@ def test_operating_point_validation_and_powerfactory_support() -> None:
     )
     with pytest.raises(ConfigurationError, match="not supported"):
         engine.simulate([scenario])
+
+
+def test_failed_simulations_are_left_out() -> None:
+    class HalfFailing(MockEngine):
+        def simulate(self, scenarios):  # type: ignore[no-untyped-def,override]
+            results = super().simulate(scenarios)
+            return [
+                replace(r, completed=False) if r.scenario.scenario_id % 2 else r for r in results
+            ]
+
+    from dataclasses import replace
+
+    scenarios = [
+        FaultScenario(scenario_id=i, fault_line=0, fault_start_s=0.1, clearing_duration_s=0.1)
+        for i in range(4)
+    ]
+    events = generate_events(HalfFailing(simulation_time_s=1.0), scenarios)
+    assert events.sample_ids.tolist() == [0, 2]  # type: ignore[union-attr]
+    assert events.metadata["failed_scenarios"] == [1, 3]
+    assert len(events.annotations["simulation_end_s"]) == 2
+
+    class AllFailing(MockEngine):
+        def simulate(self, scenarios):  # type: ignore[no-untyped-def,override]
+            return [replace(r, completed=False) for r in super().simulate(scenarios)]
+
+    with pytest.raises(SimulationError, match="all simulations failed"):
+        generate_events(AllFailing(simulation_time_s=1.0), scenarios)
+
+
+def test_sampler_line_neighbours() -> None:
+    neighbours = ((1,), (0, 2), (1,), ())
+    sampler = ScenarioSampler(
+        n_lines=4, n_loads=1, trip_adjacent_line=True, line_neighbours=neighbours
+    )
+    for s in sampler.sample(60, seed=0):
+        if s.fault_line == 3:
+            assert s.trip_line is None
+        else:
+            assert s.trip_line in neighbours[s.fault_line]
+    legacy = ScenarioSampler(n_lines=4, n_loads=1, trip_adjacent_line=True)
+    assert legacy.sample(10, seed=0) == ScenarioSampler(
+        n_lines=4, n_loads=1, trip_adjacent_line=True
+    ).sample(10, seed=0)
+    with pytest.raises(ConfigurationError, match="one entry per line"):
+        ScenarioSampler(n_lines=4, n_loads=1, line_neighbours=((1,),))

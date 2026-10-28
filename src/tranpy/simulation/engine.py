@@ -9,6 +9,7 @@ datasets carry the *true* fault start and clearing times as annotations.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
@@ -22,6 +23,8 @@ from tranpy.vocabulary import LABEL_NAMES
 from tranpy_core.data import SignalDataset
 from tranpy_core.errors import ConfigurationError, SimulationError
 from tranpy_core.random import Seed, make_rng
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "FaultScenario",
@@ -98,10 +101,14 @@ class ScenarioSampler:
         nominal_frequency_hz: converts cycles to seconds.
         max_load_change_pct: load changes are integers in [-max, +max] percent.
         fault_start_fraction: interval of the fault start as a fraction of the duration.
-        trip_adjacent_line: also trip the next line in the list after clearing.
+        trip_adjacent_line: also trip a second line after clearing: a random line sharing a
+            bus with the faulted one if ``line_neighbours`` is given, otherwise the next
+            line in the list (the behaviour of the legacy PowerFactory campaigns).
         fault_resistance_ohm: (low, high) uniform range.
         fault_reactance_ohm: (low, high) uniform range.
         operating_point: (low, high) uniform range of the system loading.
+        line_neighbours: for each line, the indices of lines sharing a bus with it
+            (e.g. ``engine.line_neighbours``).
     """
 
     n_lines: int
@@ -115,9 +122,12 @@ class ScenarioSampler:
     fault_resistance_ohm: tuple[float, float] = (0.01, 0.01)
     fault_reactance_ohm: tuple[float, float] = (0.01, 0.01)
     operating_point: tuple[float, float] = (1.0, 1.0)
+    line_neighbours: tuple[tuple[int, ...], ...] | None = None
 
     def __post_init__(self) -> None:
         problems = []
+        if self.line_neighbours is not None and len(self.line_neighbours) != self.n_lines:
+            problems.append(f"line_neighbours needs one entry per line ({self.n_lines})")
         if self.n_lines < 1 + int(self.trip_adjacent_line):
             problems.append("not enough lines")
         if self.n_loads < 1:
@@ -162,11 +172,16 @@ class ScenarioSampler:
         r_f = rng.uniform(*self.fault_resistance_ohm, size=n)
         x_f = rng.uniform(*self.fault_reactance_ohm, size=n)
         loading = rng.uniform(*self.operating_point, size=n)
+        # drawn last, so existing scenario sets are unchanged when neighbours are not used
+        picks = rng.random(n) if self.line_neighbours is not None else np.zeros(n)
         duration = self.clearing_cycles / self.nominal_frequency_hz
         out = []
         for i in range(n):
             trip = None
-            if self.trip_adjacent_line:
+            if self.trip_adjacent_line and self.line_neighbours is not None:
+                neighbours = self.line_neighbours[int(lines[i])]
+                trip = int(neighbours[int(picks[i] * len(neighbours))]) if neighbours else None
+            elif self.trip_adjacent_line:
                 trip = int(lines[i] + 1) if lines[i] + 1 < self.n_lines else int(lines[i] - 1)
             out.append(
                 FaultScenario(
@@ -193,6 +208,8 @@ class SimulationResult:
     time: npt.NDArray[np.float64]
     values: npt.NDArray[np.float64]
     channel_names: tuple[str, ...]
+    completed: bool = True
+    """False if the simulator stopped early without a decided outcome (e.g. solver failure)."""
 
     def __post_init__(self) -> None:
         if self.values.shape != (self.time.shape[0], len(self.channel_names)):
@@ -240,6 +257,18 @@ def generate_events(
         raise SimulationError(
             f"engine returned {len(results)} results for {len(scenarios)} scenarios"
         )
+    failed = [r.scenario.scenario_id for r in results if not r.completed]
+    if failed:
+        logger.warning(
+            "%d of %d simulations failed and are left out: %s",
+            len(failed),
+            len(results),
+            failed[:20],
+        )
+        results = [r for r in results if r.completed]
+        scenarios = [r.scenario for r in results]
+        if not results:
+            raise SimulationError("all simulations failed")
     channels = results[0].channel_names
     if any(r.channel_names != channels for r in results):
         raise SimulationError("results have inconsistent channels")
@@ -253,7 +282,7 @@ def generate_events(
         name=name or f"{spec.key}_simulated",
         sample_ids=np.array([s.scenario_id for s in scenarios], dtype=np.int64),
         description=f"{spec.name}: events simulated with {type(engine).__name__}",
-        metadata={"system": spec.key, "engine": type(engine).__name__},
+        metadata={"system": spec.key, "engine": type(engine).__name__, "failed_scenarios": failed},
     )
     return dataset.replace(labels=stability_labels(dataset)).with_annotations(
         **{
@@ -266,5 +295,6 @@ def generate_events(
             "fault_reactance_ohm": [s.fault_reactance_ohm for s in scenarios],
             "trip_line": [np.nan if s.trip_line is None else s.trip_line for s in scenarios],
             "operating_point": [s.operating_point for s in scenarios],
+            "simulation_end_s": [float(r.time[-1]) for r in results],
         }
     )

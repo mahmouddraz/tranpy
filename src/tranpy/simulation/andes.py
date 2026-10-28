@@ -1,0 +1,322 @@
+"""ANDES engine: open-source RMS simulation (optional ``[andes]`` extra).
+
+`ANDES <https://github.com/CURENT/andes>`_ simulates power-system dynamics in Python with
+detailed generator, exciter, governor and stabiliser models and reads PSS/E ``.raw/.dyr``
+and its own ``.xlsx`` cases, so grids other than the bundled benchmarks can be studied
+without a PowerFactory licence.
+
+How a :class:`~tranpy.simulation.engine.FaultScenario` is applied:
+
+* **lines**: only transmission lines are fault candidates; transformers (which ANDES also
+  stores as lines) are excluded, as in the PowerFactory campaigns.
+* **fault**: ANDES faults buses, not lines. The fault is applied at the *from* bus of the
+  scenario's line (impedance converted from ohm to per unit on the bus base, reactance at
+  least :data:`MIN_FAULT_REACTANCE_PU`) and cleared
+  at ``fault_clear_s``, when the line is opened (as in a protection trip).
+* **additional trip**: ``trip_line`` is opened ``trip_delay_s`` after clearing.
+  :attr:`AndesEngine.line_neighbours` lets the sampler pick a line that shares a bus with
+  the faulted one.
+* **islanding**: scenarios whose line openings split the network are not simulated (ANDES
+  cannot solve a part of the network without a generator); they are returned as not
+  completed and left out.
+* **load change**: the selected load's demand is scaled by ``1 + load_change_pct/100``
+  before the power flow, i.e. as a change of operating point, not as a step at t = 0.
+* **operating point**: all load demands and generator dispatches are scaled before the
+  power flow.
+
+Recorded channels use the same names as the PowerFactory exports (``Bus 01|m:u in p.u.``,
+``G 01|c:firot in deg`` ...). Rotor angles are relative to the centre of inertia. A
+generator is out of step once its angle relative to the centre of inertia exceeds
+180 degrees (latched), the criterion ANDES itself uses.
+
+After loss of synchronism the ANDES solver may stop converging before the end time; the
+recording then ends early and the true end time is stored per event
+(annotation ``simulation_end_s``). A run that stops early *without* an out-of-step
+generator has no decided outcome; it is marked as not completed and left out by
+:func:`~tranpy.simulation.engine.generate_events` instead of being labelled stable.
+
+Scenarios run in parallel processes with ``n_jobs > 1``.
+"""
+
+from __future__ import annotations
+
+import logging
+import warnings
+from collections.abc import Sequence
+from concurrent.futures import ProcessPoolExecutor
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import numpy.typing as npt
+
+from tranpy.simulation.engine import FaultScenario, SimulationResult
+from tranpy.systems import PowerSystem, get_system
+from tranpy.vocabulary import Variable
+from tranpy_core._optional import require
+from tranpy_core.errors import ConfigurationError, SimulationError
+
+__all__ = ["DEFAULT_CASES", "MIN_FAULT_REACTANCE_PU", "AndesEngine"]
+
+logger = logging.getLogger(__name__)
+
+DEFAULT_CASES: dict[str, str] = {"new_england": "ieee39/ieee39_full.xlsx"}
+
+MIN_FAULT_REACTANCE_PU = 1e-4
+"""Smallest fault reactance used (the ANDES default). Bolted faults given in ohm (e.g.
+0.01 ohm at 345 kV, about 1e-6 pu) make the ANDES solution numerically unstable: rotor
+angles diverge even after a 50 ms fault that is stable with 1e-4 pu."""
+"""ANDES built-in cases used when no case file is given."""
+
+_FaultArgs = dict[str, Any]
+
+
+@dataclass
+class AndesEngine:
+    """Run fault scenarios with ANDES.
+
+    Attributes:
+        system_name: system key (only used for naming and metadata if ``case`` is given).
+        case: ANDES case file; defaults to the built-in case of ``system_name``.
+        simulation_time_s: simulated duration.
+        step_s: output and integration step.
+        name_width: zero padding of bus and generator numbers in channel names.
+        n_jobs: parallel worker processes.
+    """
+
+    system_name: str = "new_england"
+    case: str | Path | None = None
+    simulation_time_s: float = 10.0
+    step_s: float = 0.01
+    name_width: int = 2
+    n_jobs: int = 1
+    _lines: list[Any] = field(default_factory=list, init=False, repr=False)
+    _loads: list[Any] = field(default_factory=list, init=False, repr=False)
+    _frequency_hz: float = field(default=50.0, init=False, repr=False)
+    _branches: list[tuple[Any, Any, Any, bool]] = field(
+        default_factory=list, init=False, repr=False
+    )
+    _bus_ids: list[Any] = field(default_factory=list, init=False, repr=False)
+
+    def __post_init__(self) -> None:
+        if self.step_s <= 0 or self.simulation_time_s <= self.step_s:
+            raise ConfigurationError("need 0 < step_s < simulation_time_s")
+        if self.case is None and self.system.key not in DEFAULT_CASES:
+            raise ConfigurationError(f"no built-in ANDES case for {self.system.key!r}; pass case=")
+        ss = self._load(setup=True)
+        self._lines = [
+            i for i, trans in zip(ss.Line.idx.v, ss.Line.trans.v, strict=True) if not trans
+        ]
+        self._loads = list(ss.PQ.idx.v)
+        self._frequency_hz = float(ss.config.freq)
+        self._bus_ids = list(ss.Bus.idx.v)
+        self._branches = [
+            (idx, b1, b2, bool(u))
+            for idx, b1, b2, u in zip(
+                ss.Line.idx.v, ss.Line.bus1.v, ss.Line.bus2.v, ss.Line.u.v, strict=True
+            )
+        ]
+
+    @property
+    def system(self) -> PowerSystem:
+        return get_system(self.system_name)
+
+    @property
+    def case_path(self) -> str:
+        andes = require("andes", "andes")
+        return (
+            str(self.case)
+            if self.case is not None
+            else str(andes.get_case(DEFAULT_CASES[self.system.key]))
+        )
+
+    @property
+    def n_lines(self) -> int:
+        return len(self._lines)
+
+    @property
+    def n_loads(self) -> int:
+        return len(self._loads)
+
+    @property
+    def nominal_frequency_hz(self) -> float:
+        return self._frequency_hz
+
+    @property
+    def line_neighbours(self) -> tuple[tuple[int, ...], ...]:
+        """For each fault-candidate line, the candidate lines sharing a bus with it."""
+        ends = {idx: {b1, b2} for idx, b1, b2, _ in self._branches}
+        return tuple(
+            tuple(j for j, other in enumerate(self._lines) if j != i and ends[line] & ends[other])
+            for i, line in enumerate(self._lines)
+        )
+
+    def islands(self, scenario: FaultScenario) -> bool:
+        """Whether opening the scenario's lines splits the network into separate parts."""
+        removed = {self._lines[scenario.fault_line]}
+        if scenario.trip_line is not None:
+            removed.add(self._lines[scenario.trip_line])
+        parent = {b: b for b in self._bus_ids}
+
+        def root(b: Any) -> Any:
+            while parent[b] != b:
+                parent[b] = parent[parent[b]]
+                b = parent[b]
+            return b
+
+        for idx, b1, b2, in_service in self._branches:
+            if in_service and idx not in removed:
+                parent[root(b1)] = root(b2)
+        return len({root(b) for b in self._bus_ids}) > 1
+
+    def _load(self, *, setup: bool) -> Any:
+        andes = require("andes", "andes")
+        andes.config_logger(stream_level=logging.ERROR)
+        with warnings.catch_warnings():
+            # ANDES itself still uses pandas and NumPy APIs that are deprecated upstream
+            warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"andes(\.|$)")
+            warnings.filterwarnings("ignore", category=FutureWarning, module=r"andes(\.|$)")
+            return andes.load(self.case_path, setup=setup, no_output=True, default_config=True)
+
+    def simulate(self, scenarios: Sequence[FaultScenario]) -> list[SimulationResult]:
+        """Simulate the scenarios (several seconds each), in parallel if ``n_jobs > 1``."""
+        if self.n_jobs <= 1 or len(scenarios) < 2:
+            return [self._simulate_one(s) for s in scenarios]
+        with ProcessPoolExecutor(self.n_jobs) as pool:
+            return list(pool.map(self._simulate_one, scenarios, chunksize=1))
+
+    def _simulate_one(self, scenario: FaultScenario) -> SimulationResult:
+        lines = self._lines
+        for index in (scenario.fault_line, scenario.trip_line):
+            if index is not None and not 0 <= index < len(lines):
+                raise ConfigurationError(
+                    f"scenario {scenario.scenario_id}: line {index} outside the network"
+                )
+        if not 0 <= scenario.load_index < len(self._loads):
+            raise ConfigurationError(f"scenario {scenario.scenario_id}: load outside the network")
+        if self.islands(scenario):
+            logger.info(
+                "scenario %d: opening the lines islands the network; not simulated",
+                scenario.scenario_id,
+            )
+            return SimulationResult(
+                scenario=scenario,
+                time=np.array([0.0, self.step_s]),
+                values=np.zeros((2, 1)),
+                channel_names=("not simulated|islanding",),
+                completed=False,
+            )
+        ss = self._load(setup=False)
+        line = lines[scenario.fault_line]
+        bus = ss.Line.bus1.v[ss.Line.idx.v.index(line)]
+        vn_kv = ss.Bus.Vn.v[ss.Bus.idx.v.index(bus)]
+        z_base = vn_kv**2 / ss.config.mva
+        ss.add(
+            "Fault",
+            {
+                "bus": bus,
+                "tf": scenario.fault_start_s,
+                "tc": scenario.fault_clear_s,
+                "rf": scenario.fault_resistance_ohm / z_base,
+                "xf": max(scenario.fault_reactance_ohm / z_base, MIN_FAULT_REACTANCE_PU),
+            },
+        )
+        ss.add("Toggle", {"model": "Line", "dev": line, "t": scenario.fault_clear_s})
+        if scenario.trip_line is not None:
+            ss.add(
+                "Toggle",
+                {
+                    "model": "Line",
+                    "dev": lines[scenario.trip_line],
+                    "t": scenario.fault_clear_s + scenario.trip_delay_s,
+                },
+            )
+        monitored = set(ss.BusFreq.bus.v)
+        for b in ss.Bus.idx.v:
+            if b not in monitored:
+                ss.add("BusFreq", {"bus": b})
+        ss.setup()
+        n_own_toggles = ss.Toggle.n - (2 if scenario.trip_line is not None else 1)
+        for k in range(
+            n_own_toggles
+        ):  # events stored in the case file are not part of the scenario
+            ss.Toggle.u.v[k] = 0
+        load_pos = ss.PQ.idx.v.index(self._loads[scenario.load_index])
+        ss.PQ.p0.v[:] *= scenario.operating_point
+        ss.PQ.q0.v[:] *= scenario.operating_point
+        ss.PV.p0.v[:] *= scenario.operating_point
+        ss.PQ.p0.v[load_pos] *= 1.0 + scenario.load_change_pct / 100.0
+        ss.PQ.q0.v[load_pos] *= 1.0 + scenario.load_change_pct / 100.0
+        if not ss.PFlow.run():
+            raise SimulationError(f"scenario {scenario.scenario_id}: power flow did not converge")
+        ss.TDS.config.tf = self.simulation_time_s
+        ss.TDS.config.tstep = self.step_s
+        ss.TDS.config.no_tqdm = 1
+        ss.TDS.config.criteria = 0
+        ss.TDS.run()
+        return self._result(ss, scenario)
+
+    def _result(self, ss: Any, scenario: FaultScenario) -> SimulationResult:
+        ts = ss.dae.ts
+        time = np.asarray(ts.t, dtype=np.float64)
+        keep = np.isfinite(ts.y).all(axis=1) & np.isfinite(ts.x).all(axis=1)
+        if keep.sum() < 2:
+            raise SimulationError(f"scenario {scenario.scenario_id}: no valid simulation output")
+        x, y, time = ts.x[keep], ts.y[keep], time[keep]
+        f0, sb = self._frequency_hz, float(ss.config.mva)
+        bus_order = np.argsort(np.asarray(ss.Bus.idx.v, dtype=float))
+        freq_by_bus = {b: i for i, b in enumerate(ss.BusFreq.bus.v)}
+        v = y[:, np.asarray(ss.Bus.v.a)][:, bus_order]
+        a = np.degrees(y[:, np.asarray(ss.Bus.a.a)][:, bus_order])
+        f_all = y[:, np.asarray(ss.BusFreq.f.a)]
+        bus_ids = [ss.Bus.idx.v[i] for i in bus_order]
+        f = f_all[:, [freq_by_bus[b] for b in bus_ids]] * f0
+        delta = x[:, np.asarray(ss.GENROU.delta.a)]
+        omega = x[:, np.asarray(ss.GENROU.omega.a)]
+        inertia = np.asarray(ss.GENROU.M.v, dtype=np.float64)
+        relative = delta - (delta * inertia).sum(axis=1, keepdims=True) / inertia.sum()
+        out_of_step = np.maximum.accumulate(np.abs(relative) > np.pi, axis=0).astype(np.float64)
+        pe = y[:, np.asarray(ss.GENROU.Pe.a)] * sb
+        qe = y[:, np.asarray(ss.GENROU.Qe.a)] * sb
+        w = self.name_width
+        names: list[str] = []
+        columns: list[npt.NDArray[np.float64]] = []
+        for k, b in enumerate(bus_ids):
+            bus = f"Bus {int(b):0{w}d}" if str(b).isdigit() else f"Bus {k + 1:0{w}d}"
+            for var, data in (
+                (Variable.BUS_VOLTAGE_PU, v[:, k]),
+                (Variable.BUS_ANGLE_DEG, a[:, k]),
+                (Variable.BUS_FREQUENCY_HZ, f[:, k]),
+            ):
+                names.append(f"{bus}|{var.value}")
+                columns.append(data)
+        for g in range(delta.shape[1]):
+            gen = f"G {g + 1:0{w}d}"
+            for var, data in (
+                (Variable.ROTOR_SPEED_PU, omega[:, g]),
+                (Variable.ACTIVE_POWER_MW, pe[:, g]),
+                (Variable.REACTIVE_POWER_MVAR, qe[:, g]),
+                (Variable.OUT_OF_STEP, out_of_step[:, g]),
+                (Variable.ROTOR_ANGLE_DEG, np.degrees(relative[:, g])),
+                (Variable.ROTOR_FREQUENCY_DEVIATION_HZ, (omega[:, g] - 1.0) * f0),
+            ):
+                names.append(f"{gen}|{var.value}")
+                columns.append(data)
+        values = np.column_stack(columns)
+        finished = time[-1] >= self.simulation_time_s - 1.5 * self.step_s
+        decided = finished or bool(out_of_step.any())
+        if not finished:
+            logger.info(
+                "scenario %d: solver stopped at %.2f s (outcome decided: %s)",
+                scenario.scenario_id,
+                time[-1],
+                decided,
+            )
+        return SimulationResult(
+            scenario=scenario,
+            time=time,
+            values=values,
+            channel_names=tuple(names),
+            completed=decided,
+        )
