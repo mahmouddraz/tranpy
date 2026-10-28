@@ -16,9 +16,10 @@ How a :class:`~tranpy.simulation.engine.FaultScenario` is applied:
 * **additional trip**: ``trip_line`` is opened ``trip_delay_s`` after clearing.
   :attr:`AndesEngine.line_neighbours` lets the sampler pick a line that shares a bus with
   the faulted one.
-* **islanding**: scenarios whose line openings split the network are not simulated (ANDES
-  cannot solve a part of the network without a generator); they are returned as not
-  completed and left out.
+* **islanding**: if the line openings cut off part of the network, that part is switched
+  off (its buses, loads and shunts) at the moment of separation, as protection would; its
+  bus voltages are zero from then on. A cut-off part that contains a generator is not
+  simulated and returned as not completed.
 * **load change**: the selected load's demand is scaled by ``1 + load_change_pct/100``
   before the power flow, i.e. as a change of operating point, not as a step at t = 0.
 * **operating point**: all load demands and generator dispatches are scaled before the
@@ -98,6 +99,7 @@ class AndesEngine:
         default_factory=list, init=False, repr=False
     )
     _bus_ids: list[Any] = field(default_factory=list, init=False, repr=False)
+    _gen_buses: set[Any] = field(default_factory=set, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.step_s <= 0 or self.simulation_time_s <= self.step_s:
@@ -111,6 +113,7 @@ class AndesEngine:
         self._loads = list(ss.PQ.idx.v)
         self._frequency_hz = float(ss.config.freq)
         self._bus_ids = list(ss.Bus.idx.v)
+        self._gen_buses = set(ss.GENROU.bus.v) | set(ss.PV.bus.v) | set(ss.Slack.bus.v)
         self._branches = [
             (idx, b1, b2, bool(u))
             for idx, b1, b2, u in zip(
@@ -152,11 +155,7 @@ class AndesEngine:
             for i, line in enumerate(self._lines)
         )
 
-    def islands(self, scenario: FaultScenario) -> bool:
-        """Whether opening the scenario's lines splits the network into separate parts."""
-        removed = {self._lines[scenario.fault_line]}
-        if scenario.trip_line is not None:
-            removed.add(self._lines[scenario.trip_line])
+    def _components(self, removed: set[Any]) -> list[list[Any]]:
         parent = {b: b for b in self._bus_ids}
 
         def root(b: Any) -> Any:
@@ -168,7 +167,29 @@ class AndesEngine:
         for idx, b1, b2, in_service in self._branches:
             if in_service and idx not in removed:
                 parent[root(b1)] = root(b2)
-        return len({root(b) for b in self._bus_ids}) > 1
+        groups: dict[Any, list[Any]] = {}
+        for b in self._bus_ids:
+            groups.setdefault(root(b), []).append(b)
+        return list(groups.values())
+
+    def islands(self, scenario: FaultScenario) -> bool:
+        """Whether opening the scenario's lines splits the network into separate parts."""
+        return self._separation(scenario) is not None
+
+    def _separation(self, scenario: FaultScenario) -> tuple[float, list[Any], bool] | None:
+        """Split time, cut-off buses and whether a cut-off part has a generator (None: no split)."""
+        removed = {self._lines[scenario.fault_line]}
+        t_split = scenario.fault_clear_s
+        parts = self._components(removed)
+        if len(parts) == 1 and scenario.trip_line is not None:
+            removed.add(self._lines[scenario.trip_line])
+            t_split = scenario.fault_clear_s + scenario.trip_delay_s
+            parts = self._components(removed)
+        if len(parts) == 1:
+            return None
+        main = max(parts, key=lambda part: (len(self._gen_buses & set(part)), len(part)))
+        cut = [b for part in parts if part is not main for b in part]
+        return t_split, cut, bool(self._gen_buses & set(cut))
 
     def _load(self, *, setup: bool) -> Any:
         andes = require("andes", "andes")
@@ -195,19 +216,21 @@ class AndesEngine:
                 )
         if not 0 <= scenario.load_index < len(self._loads):
             raise ConfigurationError(f"scenario {scenario.scenario_id}: load outside the network")
-        if self.islands(scenario):
+        separation = self._separation(scenario)
+        if separation is not None and separation[2]:
             logger.info(
-                "scenario %d: opening the lines islands the network; not simulated",
+                "scenario %d: a part with a generator is cut off; not simulated",
                 scenario.scenario_id,
             )
             return SimulationResult(
                 scenario=scenario,
                 time=np.array([0.0, self.step_s]),
                 values=np.zeros((2, 1)),
-                channel_names=("not simulated|islanding",),
+                channel_names=("not simulated|generator island",),
                 completed=False,
             )
         ss = self._load(setup=False)
+        n_case_toggles = ss.Toggle.n
         line = lines[scenario.fault_line]
         bus = ss.Line.bus1.v[ss.Line.idx.v.index(line)]
         vn_kv = ss.Bus.Vn.v[ss.Bus.idx.v.index(bus)]
@@ -232,14 +255,22 @@ class AndesEngine:
                     "t": scenario.fault_clear_s + scenario.trip_delay_s,
                 },
             )
+        if separation is not None:
+            t_split, cut, _ = separation
+            for model in ("PQ", "Shunt"):
+                devices = ss.models[model]
+                for idx, bus in zip(devices.idx.v, devices.bus.v, strict=True):
+                    if bus in cut:
+                        ss.add("Toggle", {"model": model, "dev": idx, "t": t_split})
+            for bus in cut:
+                ss.add("Toggle", {"model": "Bus", "dev": bus, "t": t_split})
         monitored = set(ss.BusFreq.bus.v)
         for b in ss.Bus.idx.v:
             if b not in monitored:
                 ss.add("BusFreq", {"bus": b})
         ss.setup()
-        n_own_toggles = ss.Toggle.n - (2 if scenario.trip_line is not None else 1)
         for k in range(
-            n_own_toggles
+            n_case_toggles
         ):  # events stored in the case file are not part of the scenario
             ss.Toggle.u.v[k] = 0
         load_pos = ss.PQ.idx.v.index(self._loads[scenario.load_index])
