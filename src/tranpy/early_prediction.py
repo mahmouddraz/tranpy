@@ -337,6 +337,7 @@ def run_early_prediction(
     feature_settings: Mapping[str, Any] | None = None,
     sequence_settings: Mapping[str, Any] | None = None,
     cache_directory: str | Path | None = None,
+    groups: Mapping[int, int] | None = None,
     **shard_options: Any,
 ) -> pd.DataFrame:
     """Cross-validated scores for every (window, model) pair.
@@ -357,6 +358,8 @@ def run_early_prediction(
         feature_settings: extra keyword arguments for :class:`TrajectoryFeatures`.
         sequence_settings: extra keyword arguments for :class:`TrajectorySequence`.
         cache_directory: cache the extracted tables there (see :func:`extract_window_tables`).
+        groups: sample id -> group; no group is split across training and test (see
+            :func:`scenario_groups`).
 
     Returns one row per (window, model) with ``input`` (features / sequence),
     ``<metric>_mean`` / ``<metric>_std`` and the mean fit time.
@@ -382,6 +385,7 @@ def run_early_prediction(
         n_repeats=n_repeats,
         seed=seed,
         min_events=min_events,
+        groups=groups,
     )
 
 

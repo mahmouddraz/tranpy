@@ -73,6 +73,15 @@ def test_grouped_folds_hold_out_whole_groups(mock_events: SignalDataset) -> None
         groups=by_line,
     )
     assert result["accuracy_mean"].between(0, 1).all()
+    one_group = dict.fromkeys(by_line, 0)
+    with pytest.raises(ConfigurationError, match="n_splits"):  # one group cannot be split
+        run_early_prediction(
+            mock_events,
+            {"lr": LogisticRegression()},
+            reference="fault_start",
+            windows_s=(0.2,),
+            groups=one_group,
+        )
 
 
 @pytest.mark.requires_neural
