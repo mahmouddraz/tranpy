@@ -31,16 +31,15 @@ def test_network_description(engine) -> None:  # type: ignore[no-untyped-def]
         assert all(i in neighbours[j] for j in adjacent)  # symmetric
 
 
-def test_islanding_scenarios_are_not_simulated(engine) -> None:  # type: ignore[no-untyped-def]
+def test_generator_islands_are_not_simulated(engine) -> None:  # type: ignore[no-untyped-def]
     pairs = [(i, j) for i in range(engine.n_lines) for j in range(engine.n_lines) if i != j]
     base = FaultScenario(scenario_id=0, fault_line=0, fault_start_s=0.5, clearing_duration_s=0.1)
-    island = next(
-        replace(base, fault_line=i, trip_line=j)
-        for i, j in pairs
-        if engine.islands(replace(base, fault_line=i, trip_line=j))
-    )
-    result = engine.simulate([island])[0]
-    assert not result.completed
+    splits = [replace(base, fault_line=i, trip_line=j) for i, j in pairs]
+    splits = [s for s in splits if engine.islands(s)]
+    with_generator = next(s for s in splits if engine._separation(s)[2])
+    loads_only = next(s for s in splits if not engine._separation(s)[2])
+    assert not engine.simulate([with_generator])[0].completed
+    assert engine.simulate([loads_only])[0].completed  # cut-off loads are switched off
 
 
 def test_fault_duration_decides_stability(engine) -> None:  # type: ignore[no-untyped-def]

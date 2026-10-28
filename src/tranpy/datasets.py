@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from functools import cache
 from importlib import resources
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import numpy as np
 import numpy.typing as npt
@@ -40,10 +40,12 @@ from tranpy_core.data import (
     load_tabular,
     verify_sha256,
 )
-from tranpy_core.errors import DataError
+from tranpy_core.errors import ConfigurationError, DataError
 from tranpy_core.features import segments as seg
 
 __all__ = [
+    "LabelCriterion",
+    "coi_angle_deviation",
     "data_registry",
     "detect_fault_timing",
     "event_csv_ids",
@@ -55,7 +57,10 @@ __all__ = [
     "load_snapshots",
     "open_event_shards",
     "read_event_csvs",
+    "rotor_angle_separation",
     "stability_labels",
+    "transient_stability_index",
+    "unwrapped_rotor_angles",
     "write_event_shards",
 ]
 
@@ -330,26 +335,96 @@ def _columns_of(
     )
 
 
-def stability_labels(
-    dataset: SignalDataset, *, angle_spread_limit_deg: float = 180.0
-) -> npt.NDArray[np.int64]:
-    """Label each event: unstable if any generator's out-of-step flag is ever set.
+LabelCriterion = Literal["out_of_step", "angle_360", "coi_180"]
 
-    Without out-of-step channels, an event is unstable if the spread of rotor angles over
-    all generators and the whole trajectory exceeds ``angle_spread_limit_deg``.
+
+def unwrapped_rotor_angles(dataset: SignalDataset) -> npt.NDArray[np.float64]:
+    """Generator rotor angles in degrees, unwrapped within each event.
+
+    PowerFactory exports angles wrapped to [-180, 180]; a generator slipping poles then
+    jumps by 360 degrees between two steps. Steps larger than 180 degrees are undone here,
+    separately for every event and generator, so angle separations can exceed 360 degrees.
+    Returns ``(n_rows, n_generators)`` in the order of the rotor-angle channels.
     """
-    flags = _columns_of(dataset, ElementKind.GENERATOR, Variable.OUT_OF_STEP)
-    if flags.size:
-        unstable = seg.segment_any((dataset.values[:, flags] > 0).any(axis=1), dataset.offsets)
+    cols = _columns_of(dataset, ElementKind.GENERATOR, Variable.ROTOR_ANGLE_DEG)
+    if cols.size == 0:
+        raise DataError("no rotor-angle channels")
+    angles = dataset.values[:, cols]
+    steps = np.diff(angles, axis=0, prepend=angles[:1])
+    steps[dataset.offsets[:-1]] = 0.0  # never carry a jump from one event into the next
+    correction = -360.0 * np.round(steps / 360.0)
+    cumulative = np.cumsum(correction, axis=0)
+    start_of_event = np.repeat(cumulative[dataset.offsets[:-1]], dataset.lengths, axis=0)
+    return np.asarray(angles + cumulative - start_of_event, dtype=np.float64)
+
+
+def rotor_angle_separation(dataset: SignalDataset) -> npt.NDArray[np.float64]:
+    """Largest angle difference between any two generators after fault inception (degrees).
+
+    Uses unwrapped angles and, if the ``fault_start_s`` annotation exists, only the time
+    from the fault onwards.
+    """
+    angles = unwrapped_rotor_angles(dataset)
+    spread = angles.max(axis=1) - angles.min(axis=1)
+    if FAULT_START in dataset.annotations:
+        start = np.nan_to_num(np.asarray(dataset.annotations[FAULT_START]), nan=-np.inf)
+        spread = np.where(dataset.time >= start[dataset.sample_index], spread, 0.0)
+    return seg.segment_max(spread, dataset.offsets)
+
+
+def coi_angle_deviation(dataset: SignalDataset) -> npt.NDArray[np.float64]:
+    """Largest deviation of any generator from the (equally weighted) centre of angles."""
+    angles = unwrapped_rotor_angles(dataset)
+    deviation = np.abs(angles - angles.mean(axis=1, keepdims=True)).max(axis=1)
+    if FAULT_START in dataset.annotations:
+        start = np.nan_to_num(np.asarray(dataset.annotations[FAULT_START]), nan=-np.inf)
+        deviation = np.where(dataset.time >= start[dataset.sample_index], deviation, 0.0)
+    return seg.segment_max(deviation, dataset.offsets)
+
+
+def transient_stability_index(separation_deg: npt.ArrayLike) -> npt.NDArray[np.float64]:
+    """TSI = 100 (360 - d) / (360 + d) for maximum angle separation d; > 0 means stable."""
+    d = np.asarray(separation_deg, dtype=np.float64)
+    return np.asarray(100.0 * (360.0 - d) / (360.0 + d), dtype=np.float64)
+
+
+def stability_labels(
+    dataset: SignalDataset,
+    *,
+    criterion: LabelCriterion = "out_of_step",
+    angle_spread_limit_deg: float = 180.0,
+) -> npt.NDArray[np.int64]:
+    """Label each event 0 (stable) or 1 (unstable).
+
+    Criteria:
+
+    * ``"out_of_step"`` (baseline protocol): any generator's out-of-step flag is ever set.
+      Without such channels, the spread of rotor angles over all generators and the whole
+      trajectory must stay below ``angle_spread_limit_deg``.
+    * ``"angle_360"``: maximum angle separation between any two generators after the fault
+      exceeds 360 degrees (TSI <= 0), the most common criterion in the literature.
+    * ``"coi_180"``: some generator deviates more than 180 degrees from the centre of
+      angles (more conservative).
+    """
+    if criterion == "angle_360":
+        unstable = rotor_angle_separation(dataset) > 360.0
+    elif criterion == "coi_180":
+        unstable = coi_angle_deviation(dataset) > 180.0
+    elif criterion == "out_of_step":
+        flags = _columns_of(dataset, ElementKind.GENERATOR, Variable.OUT_OF_STEP)
+        if flags.size:
+            unstable = seg.segment_any((dataset.values[:, flags] > 0).any(axis=1), dataset.offsets)
+        else:
+            angles = _columns_of(dataset, ElementKind.GENERATOR, Variable.ROTOR_ANGLE_DEG)
+            if angles.size == 0:
+                raise DataError("cannot label events: no out-of-step flags and no rotor angles")
+            a = dataset.values[:, angles]
+            spread = seg.segment_max(a.max(axis=1), dataset.offsets) - seg.segment_min(
+                a.min(axis=1), dataset.offsets
+            )
+            unstable = spread > angle_spread_limit_deg
     else:
-        angles = _columns_of(dataset, ElementKind.GENERATOR, Variable.ROTOR_ANGLE_DEG)
-        if angles.size == 0:
-            raise DataError("cannot label events: no out-of-step flags and no rotor angles")
-        a = dataset.values[:, angles]
-        spread = seg.segment_max(a.max(axis=1), dataset.offsets) - seg.segment_min(
-            a.min(axis=1), dataset.offsets
-        )
-        unstable = spread > angle_spread_limit_deg
+        raise ConfigurationError(f"unknown label criterion {criterion!r}")
     return np.where(unstable, Stability.UNSTABLE, Stability.STABLE).astype(np.int64)
 
 

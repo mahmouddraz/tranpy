@@ -1,7 +1,8 @@
 # Scenario design for transient-stability datasets
 
-How simulated events should be generated, labelled and evaluated, compared with how the
-existing PowerFactory campaigns did it. Status: **proposal for review**; nothing here is
+How simulated events are generated, labelled and evaluated. Three protocols are available:
+`baseline` (the setup of the bundled PowerFactory datasets, unchanged), `stress_test` and
+`normal_operation` (both described below), so results can be compared across them. Status: **proposal for review**; nothing here is
 implemented as a default yet.
 
 ## What the literature does
@@ -17,9 +18,9 @@ implemented as a default yet.
 | Measurements | PMU-like signals (bus voltage magnitude and angle), short windows after clearing (e.g. 0.6 s at 10 ms) | Mendeley dataset |
 | Evaluation | Accuracy alone is insufficient; generalisation to unseen operating conditions, contingencies and topologies is the open problem; class imbalance must be handled | ANN review (Shahzad); domain-adaptation and topology-change studies |
 
-## Where our previous campaigns deviate
+## How the baseline protocol differs from common practice
 
-| # | Previous PowerFactory campaign | Problem | Proposal |
+| # | Baseline protocol | Limitation | Stress-test / normal-operation protocols |
 |---|---|---|---|
 | S1 | Operating point varied only by **one random load step of up to ±60 % at t = 0**; generation not re-dispatched | Covers few operating conditions; the load step itself excites dynamics | Scale all loads by λ ~ U(0.8, 1.2) with per-load noise, re-dispatch generators proportionally, solve the power flow, reject non-convergent and V < 0.9 p.u. cases |
 | S2 | Fault start uniform in **[0, 5] s after the load step** | The system is not in steady state when the fault occurs; pre-fault oscillations carry operating-point information and vary with the random start time | Fault at a fixed time on a settled system (e.g. t = 1.0 s) |
@@ -30,7 +31,7 @@ implemented as a default yet.
 | S7 | Snapshot datasets contain duplicated rows (25 / 22) | Duplicates can sit on both sides of a split | Group duplicates (`group_duplicates=True`) |
 | S8 | Signals at the simulator step | Real PMUs report 25-60 frames/s with noise | Optional down-sampling to PMU rates and measurement noise for robustness tests |
 
-## Proposed protocol (v2)
+## Stress-test protocol (and normal operation)
 
 1. **Operating point**: λ ~ U(0.8, 1.2); each load × λ × (1 + ε), ε ~ N(0, 0.05);
    generators re-dispatched in proportion to their base dispatch; AC power flow; reject if
@@ -52,8 +53,8 @@ implemented as a default yet.
    stored with the dataset.
 
 The same protocol runs on the mock, ANDES, Dynawo and PowerFactory engines, so results
-are comparable across simulators. The existing PowerFactory datasets stay available and
-documented as "legacy protocol".
+are comparable across simulators. The baseline protocol stays available unchanged for
+comparison and for reproducing the bundled datasets.
 
 ## Sources
 

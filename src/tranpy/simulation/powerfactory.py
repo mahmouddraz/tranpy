@@ -140,10 +140,20 @@ class PowerFactoryEngine:
         return [self._simulate_one(s) for s in scenarios]
 
     def _simulate_one(self, scenario: FaultScenario) -> SimulationResult:
-        if scenario.operating_point != 1.0:
+        unsupported = [
+            name
+            for name, given in (
+                ("operating_point", scenario.operating_point != 1.0),
+                ("load_factors", scenario.load_factors is not None),
+                ("fault_type", scenario.fault_type != "three_phase"),
+                ("fault_position", scenario.fault_position != 0.0),
+            )
+            if given
+        ]
+        if unsupported:
             raise ConfigurationError(
-                f"scenario {scenario.scenario_id}: operating_point != 1 is not supported by the "
-                "PowerFactory engine yet; set the loading in the study case instead"
+                f"scenario {scenario.scenario_id}: {', '.join(unsupported)} not supported by the "
+                "PowerFactory engine yet (baseline protocol only)"
             )
         app = self.app
         lines, loads = self._elements["*.ElmLne"], self._elements["*.ElmLod"]

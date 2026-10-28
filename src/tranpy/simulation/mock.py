@@ -239,6 +239,10 @@ class MockEngine:
             [sc.fault_reactance_ohm for sc in scenarios],
         )
         depth = 1.0 / (1.0 + z_fault / _FAULT_IMPEDANCE_REF_OHM)
+        # a single-phase fault depresses the network much less than a three-phase one
+        depth = depth * np.array(
+            [0.3 if sc.fault_type == "single_phase" else 1.0 for sc in scenarios]
+        )
 
         b_pre = net.coupling_pu
         b_post = np.repeat(b_pre[None], s, axis=0)
@@ -255,7 +259,12 @@ class MockEngine:
             near_gen[k] = 0.3 * (b_pre[a] + b_pre[b]) / np.max(b_pre)
             near_gen[k, [a, b]] = 1.0
             near_bus[k] = net.bus_weights[:, a] + net.bus_weights[:, b]
-        loading = np.array([sc.operating_point for sc in scenarios])
+        loading = np.array(
+            [
+                float(np.mean(sc.load_factors)) if sc.load_factors else sc.operating_point
+                for sc in scenarios
+            ]
+        )
         delta0 = net.initial_angle_rad[None, :] * loading[:, None]
         diff0 = delta0[:, :, None] - delta0[:, None, :]
         pm = net.emf_pu * (b_pre * net.emf_pu[None, :] * np.sin(diff0)).sum(axis=2)

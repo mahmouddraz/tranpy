@@ -22,8 +22,12 @@ How a :class:`~tranpy.simulation.engine.FaultScenario` is applied:
   simulated and returned as not completed.
 * **load change**: the selected load's demand is scaled by ``1 + load_change_pct/100``
   before the power flow, i.e. as a change of operating point, not as a step at t = 0.
-* **operating point**: all load demands and generator dispatches are scaled before the
-  power flow.
+* **operating point**: ``load_factors`` scale each load (generation re-dispatched in
+  proportion to the total demand), otherwise ``operating_point`` scales all loads and
+  generators; applied before the power flow. Operating points whose power flow does not
+  converge or with a bus voltage below :data:`MIN_PREFAULT_VOLTAGE_PU` are rejected.
+* **fault type and position**: three-phase faults only; the fault is applied at the line
+  terminal nearer to ``fault_position``.
 
 Recorded channels use the same names as the PowerFactory exports (``Bus 01|m:u in p.u.``,
 ``G 01|c:firot in deg`` ...). Rotor angles are relative to the centre of inertia. A
@@ -63,6 +67,9 @@ __all__ = ["DEFAULT_CASES", "MIN_FAULT_REACTANCE_PU", "AndesEngine"]
 logger = logging.getLogger(__name__)
 
 DEFAULT_CASES: dict[str, str] = {"new_england": "ieee39/ieee39_full.xlsx"}
+
+MIN_PREFAULT_VOLTAGE_PU = 0.9
+"""Operating points with a lower pre-fault bus voltage are rejected (not simulated)."""
 
 MIN_FAULT_REACTANCE_PU = 1e-4
 """Smallest fault reactance used (the ANDES default). Bolted faults given in ohm (e.g.
@@ -231,8 +238,13 @@ class AndesEngine:
             )
         ss = self._load(setup=False)
         n_case_toggles = ss.Toggle.n
+        if scenario.fault_type != "three_phase":
+            raise ConfigurationError(
+                f"scenario {scenario.scenario_id}: ANDES models three-phase faults only"
+            )
         line = lines[scenario.fault_line]
-        bus = ss.Line.bus1.v[ss.Line.idx.v.index(line)]
+        terminals = ss.Line.bus2 if scenario.fault_position >= 0.5 else ss.Line.bus1
+        bus = terminals.v[ss.Line.idx.v.index(line)]
         vn_kv = ss.Bus.Vn.v[ss.Bus.idx.v.index(bus)]
         z_base = vn_kv**2 / ss.config.mva
         ss.add(
@@ -274,13 +286,33 @@ class AndesEngine:
         ):  # events stored in the case file are not part of the scenario
             ss.Toggle.u.v[k] = 0
         load_pos = ss.PQ.idx.v.index(self._loads[scenario.load_index])
-        ss.PQ.p0.v[:] *= scenario.operating_point
-        ss.PQ.q0.v[:] *= scenario.operating_point
-        ss.PV.p0.v[:] *= scenario.operating_point
+        if scenario.load_factors is not None:
+            if len(scenario.load_factors) != len(self._loads):
+                raise ConfigurationError(
+                    f"scenario {scenario.scenario_id}: {len(scenario.load_factors)} load factors "
+                    f"for {len(self._loads)} loads"
+                )
+            base_demand = float(np.sum(ss.PQ.p0.v))
+            for idx, factor in zip(self._loads, scenario.load_factors, strict=True):
+                k = ss.PQ.idx.v.index(idx)
+                ss.PQ.p0.v[k] *= factor
+                ss.PQ.q0.v[k] *= factor
+            ss.PV.p0.v[:] *= float(np.sum(ss.PQ.p0.v)) / base_demand  # proportional re-dispatch
+        else:
+            ss.PQ.p0.v[:] *= scenario.operating_point
+            ss.PQ.q0.v[:] *= scenario.operating_point
+            ss.PV.p0.v[:] *= scenario.operating_point
         ss.PQ.p0.v[load_pos] *= 1.0 + scenario.load_change_pct / 100.0
         ss.PQ.q0.v[load_pos] *= 1.0 + scenario.load_change_pct / 100.0
-        if not ss.PFlow.run():
-            raise SimulationError(f"scenario {scenario.scenario_id}: power flow did not converge")
+        if not ss.PFlow.run() or float(np.min(ss.Bus.v.v)) < MIN_PREFAULT_VOLTAGE_PU:
+            logger.info("scenario %d: infeasible pre-fault operating point", scenario.scenario_id)
+            return SimulationResult(
+                scenario=scenario,
+                time=np.array([0.0, self.step_s]),
+                values=np.zeros((2, 1)),
+                channel_names=("not simulated|infeasible operating point",),
+                completed=False,
+            )
         ss.TDS.config.tf = self.simulation_time_s
         ss.TDS.config.tstep = self.step_s
         ss.TDS.config.no_tqdm = 1

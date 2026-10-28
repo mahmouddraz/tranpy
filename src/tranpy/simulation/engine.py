@@ -12,14 +12,21 @@ from __future__ import annotations
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 import numpy as np
 import numpy.typing as npt
 
-from tranpy.datasets import FAULT_CLEAR, FAULT_START, stability_labels
+from tranpy.datasets import (
+    FAULT_CLEAR,
+    FAULT_START,
+    LabelCriterion,
+    rotor_angle_separation,
+    stability_labels,
+    transient_stability_index,
+)
 from tranpy.systems import PowerSystem
-from tranpy.vocabulary import LABEL_NAMES
+from tranpy.vocabulary import LABEL_NAMES, Variable
 from tranpy_core.data import SignalDataset
 from tranpy_core.errors import ConfigurationError, SimulationError
 from tranpy_core.random import Seed, make_rng
@@ -52,6 +59,12 @@ class FaultScenario:
         trip_delay_s: delay of the additional line trip.
         operating_point: system loading relative to the base case. Supported by the mock
             engine; the PowerFactory engine currently requires 1.0.
+        load_factors: demand multiplier per load for the pre-fault operating point (applied
+            before the power flow; generation is re-dispatched in proportion to the total
+            change). None keeps the base demands.
+        fault_type: ``"three_phase"`` or ``"single_phase"`` (to ground).
+        fault_position: location of the fault along the line, 0 = from-bus terminal,
+            1 = to-bus terminal. Engines that only fault buses use the nearer terminal.
     """
 
     scenario_id: int
@@ -65,9 +78,18 @@ class FaultScenario:
     trip_line: int | None = None
     trip_delay_s: float = 0.08
     operating_point: float = 1.0
+    load_factors: tuple[float, ...] | None = None
+    fault_type: Literal["three_phase", "single_phase"] = "three_phase"
+    fault_position: float = 0.0
 
     def __post_init__(self) -> None:
         problems = []
+        if self.load_factors is not None and any(f <= 0 for f in self.load_factors):
+            problems.append("load_factors must be > 0")
+        if self.fault_type not in ("three_phase", "single_phase"):
+            problems.append(f"unknown fault_type {self.fault_type!r}")
+        if not 0.0 <= self.fault_position <= 1.0:
+            problems.append(f"fault_position must lie in [0, 1], got {self.fault_position}")
         if self.operating_point <= 0:
             problems.append(f"operating_point must be > 0, got {self.operating_point}")
         if self.fault_line < 0:
@@ -243,12 +265,17 @@ def generate_events(
     scenarios: Sequence[FaultScenario],
     *,
     name: str | None = None,
+    criterion: LabelCriterion = "out_of_step",
+    protocol: str = "baseline",
 ) -> SignalDataset:
     """Simulate ``scenarios`` and collect them as a labelled event dataset.
 
-    Labels follow :func:`tranpy.datasets.stability_labels`. The out-of-step channels stay
-    in the result (drop them before feature extraction, as :func:`tranpy.load_events`
-    does by default). Annotations hold the true event times and scenario parameters.
+    Labels follow :func:`tranpy.datasets.stability_labels` with ``criterion``. Annotations
+    hold the true event times, the scenario parameters and, where rotor angles are
+    recorded, the maximum angle separation, the TSI and the 0/1 outcome of every criterion,
+    so a dataset can be relabelled without simulating again. The out-of-step channels stay
+    in the result (drop them before feature extraction, as :func:`tranpy.load_events` does
+    by default). ``protocol`` is recorded in the metadata.
     """
     if not scenarios:
         raise ConfigurationError("no scenarios to simulate")
@@ -284,7 +311,7 @@ def generate_events(
         description=f"{spec.name}: events simulated with {type(engine).__name__}",
         metadata={"system": spec.key, "engine": type(engine).__name__, "failed_scenarios": failed},
     )
-    return dataset.replace(labels=stability_labels(dataset)).with_annotations(
+    annotated = dataset.with_annotations(
         **{
             FAULT_START: [s.fault_start_s for s in scenarios],
             FAULT_CLEAR: [s.fault_clear_s for s in scenarios],
@@ -296,5 +323,27 @@ def generate_events(
             "trip_line": [np.nan if s.trip_line is None else s.trip_line for s in scenarios],
             "operating_point": [s.operating_point for s in scenarios],
             "simulation_end_s": [float(r.time[-1]) for r in results],
+            "fault_position": [s.fault_position for s in scenarios],
+            "single_phase_fault": [float(s.fault_type == "single_phase") for s in scenarios],
+            "mean_load_factor": [
+                float(np.mean(s.load_factors)) if s.load_factors else s.operating_point
+                for s in scenarios
+            ],
         }
     )
+    extra: dict[str, npt.NDArray[np.float64]] = {}
+    if annotated.channel_index("G*|" + Variable.ROTOR_ANGLE_DEG.value).size:
+        separation = rotor_angle_separation(annotated)
+        extra = {
+            "angle_separation_deg": separation,
+            "tsi": transient_stability_index(separation),
+            "unstable_angle_360": stability_labels(annotated, criterion="angle_360").astype(float),
+            "unstable_coi_180": stability_labels(annotated, criterion="coi_180").astype(float),
+        }
+    if annotated.channel_index("G*|" + Variable.OUT_OF_STEP.value).size:
+        extra["unstable_out_of_step"] = stability_labels(annotated).astype(float)
+    labelled = annotated.replace(
+        labels=stability_labels(annotated, criterion=criterion),
+        metadata={**annotated.metadata, "protocol": protocol, "label_criterion": criterion},
+    )
+    return labelled.with_annotations(**extra)
