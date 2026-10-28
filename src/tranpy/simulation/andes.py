@@ -45,6 +45,8 @@ Scenarios run in parallel processes with ``n_jobs > 1``.
 
 from __future__ import annotations
 
+import importlib
+import importlib.util
 import logging
 import warnings
 from collections.abc import Sequence
@@ -66,7 +68,15 @@ __all__ = ["DEFAULT_CASES", "MIN_FAULT_REACTANCE_PU", "AndesEngine"]
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_CASES: dict[str, str] = {"new_england": "ieee39/ieee39_full.xlsx"}
+DEFAULT_CASES: dict[str, str] = {"new_england": "ieee39/ieee39_full.xlsx", "germany": "germany"}
+"""Cases used when no case file is given: ANDES built-in cases, and ``germany`` (bundled,
+see :func:`tranpy.simulation.cases.build_germany_case`)."""
+
+_CASE_FREQUENCY_HZ: dict[str, float] = {"germany": 50.0}
+"""Nominal frequency of bundled cases (ANDES cases do not store it; its default is 60 Hz)."""
+
+_MACHINES = ("GENROU", "GENCLS")
+"""Synchronous-machine models whose states are recorded."""
 
 MIN_PREFAULT_VOLTAGE_PU = 0.9
 """Operating points with a lower pre-fault bus voltage are rejected (not simulated)."""
@@ -75,9 +85,21 @@ MIN_FAULT_REACTANCE_PU = 1e-4
 """Smallest fault reactance used (the ANDES default). Bolted faults given in ohm (e.g.
 0.01 ohm at 345 kV, about 1e-6 pu) make the ANDES solution numerically unstable: rotor
 angles diverge even after a 50 ms fault that is stable with 1e-4 pu."""
-"""ANDES built-in cases used when no case file is given."""
 
 _FaultArgs = dict[str, Any]
+
+
+def _load_openmp_libraries_first() -> None:
+    """Import installed boosting libraries before ANDES.
+
+    ANDES's sparse solver (kvxopt) bundles its own OpenMP runtime. On macOS, XGBoost
+    crashes (segmentation fault) when it is first imported after that runtime is loaded,
+    e.g. when models are trained in the process that ran the simulations; importing it
+    first avoids that.
+    """
+    for name in ("xgboost", "lightgbm"):
+        if importlib.util.find_spec(name) is not None:
+            importlib.import_module(name)
 
 
 @dataclass
@@ -120,7 +142,9 @@ class AndesEngine:
         self._loads = list(ss.PQ.idx.v)
         self._frequency_hz = float(ss.config.freq)
         self._bus_ids = list(ss.Bus.idx.v)
-        self._gen_buses = set(ss.GENROU.bus.v) | set(ss.PV.bus.v) | set(ss.Slack.bus.v)
+        self._gen_buses = set(ss.PV.bus.v) | set(ss.Slack.bus.v)
+        for name in _MACHINES:
+            self._gen_buses |= set(getattr(ss, name).bus.v)
         self._branches = [
             (idx, b1, b2, bool(u))
             for idx, b1, b2, u in zip(
@@ -135,11 +159,13 @@ class AndesEngine:
     @property
     def case_path(self) -> str:
         andes = require("andes", "andes")
-        return (
-            str(self.case)
-            if self.case is not None
-            else str(andes.get_case(DEFAULT_CASES[self.system.key]))
-        )
+        if self.case is not None:
+            return str(self.case)
+        if self.system.key == "germany":
+            from tranpy.simulation.cases import germany_case_path
+
+            return str(germany_case_path())
+        return str(andes.get_case(DEFAULT_CASES[self.system.key]))
 
     @property
     def n_lines(self) -> int:
@@ -199,13 +225,22 @@ class AndesEngine:
         return t_split, cut, bool(self._gen_buses & set(cut))
 
     def _load(self, *, setup: bool) -> Any:
+        _load_openmp_libraries_first()
         andes = require("andes", "andes")
         andes.config_logger(stream_level=logging.ERROR)
         with warnings.catch_warnings():
             # ANDES itself still uses pandas and NumPy APIs that are deprecated upstream
             warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"andes(\.|$)")
             warnings.filterwarnings("ignore", category=FutureWarning, module=r"andes(\.|$)")
-            return andes.load(self.case_path, setup=setup, no_output=True, default_config=True)
+            frequency = _CASE_FREQUENCY_HZ.get(self.system.key) if self.case is None else None
+            options = [f"System.freq={frequency}"] if frequency else None
+            return andes.load(
+                self.case_path,
+                setup=setup,
+                no_output=True,
+                default_config=True,
+                config_option=options,
+            )
 
     def simulate(self, scenarios: Sequence[FaultScenario]) -> list[SimulationResult]:
         """Simulate the scenarios (several seconds each), in parallel if ``n_jobs > 1``."""
@@ -335,13 +370,14 @@ class AndesEngine:
         f_all = y[:, np.asarray(ss.BusFreq.f.a)]
         bus_ids = [ss.Bus.idx.v[i] for i in bus_order]
         f = f_all[:, [freq_by_bus[b] for b in bus_ids]] * f0
-        delta = x[:, np.asarray(ss.GENROU.delta.a)]
-        omega = x[:, np.asarray(ss.GENROU.omega.a)]
-        inertia = np.asarray(ss.GENROU.M.v, dtype=np.float64)
+        machines = [getattr(ss, name) for name in _MACHINES if getattr(ss, name).n]
+        delta = np.hstack([x[:, np.asarray(m.delta.a)] for m in machines])
+        omega = np.hstack([x[:, np.asarray(m.omega.a)] for m in machines])
+        inertia = np.concatenate([np.asarray(m.M.v, dtype=np.float64) for m in machines])
         relative = delta - (delta * inertia).sum(axis=1, keepdims=True) / inertia.sum()
         out_of_step = np.maximum.accumulate(np.abs(relative) > np.pi, axis=0).astype(np.float64)
-        pe = y[:, np.asarray(ss.GENROU.Pe.a)] * sb
-        qe = y[:, np.asarray(ss.GENROU.Qe.a)] * sb
+        pe = np.hstack([y[:, np.asarray(m.Pe.a)] for m in machines]) * sb
+        qe = np.hstack([y[:, np.asarray(m.Qe.a)] for m in machines]) * sb
         w = self.name_width
         names: list[str] = []
         columns: list[npt.NDArray[np.float64]] = []

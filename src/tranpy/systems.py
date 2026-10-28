@@ -6,7 +6,7 @@ from dataclasses import dataclass
 
 from tranpy_core.errors import ConfigurationError
 
-__all__ = ["IEEE_9BUS", "NEW_ENGLAND", "SYSTEMS", "PowerSystem", "get_system"]
+__all__ = ["GERMANY", "IEEE_9BUS", "NEW_ENGLAND", "SYSTEMS", "PowerSystem", "get_system"]
 
 
 @dataclass(frozen=True)
@@ -46,7 +46,15 @@ IEEE_9BUS = PowerSystem(
     nominal_frequency_hz=50.0,
     legacy_name="NineBusSystem",
 )
-SYSTEMS: dict[str, PowerSystem] = {s.key: s for s in (NEW_ENGLAND, IEEE_9BUS)}
+GERMANY = PowerSystem(
+    key="germany",
+    name="German transmission grid (PanTaGruEl, 220/380 kV)",
+    n_buses=553,
+    n_generators=86,
+    nominal_frequency_hz=50.0,
+    legacy_name="Germany",
+)
+SYSTEMS: dict[str, PowerSystem] = {s.key: s for s in (NEW_ENGLAND, IEEE_9BUS, GERMANY)}
 
 
 def get_system(system: str | PowerSystem) -> PowerSystem:

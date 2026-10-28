@@ -13,6 +13,7 @@ Machine learning for power-system transient stability.
 architecture
 data
 scenario_design
+germany_model
 validation
 api
 ```

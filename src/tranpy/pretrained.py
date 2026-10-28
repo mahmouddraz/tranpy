@@ -16,7 +16,7 @@ from typing import Any
 import pandas as pd
 
 from tranpy.datasets import data_registry, load_snapshots
-from tranpy.systems import SYSTEMS, get_system
+from tranpy.systems import get_system
 from tranpy_core.data import RemoteFile, fetch, sha256_file, train_test_split
 from tranpy_core.errors import DataError
 from tranpy_core.evaluation import evaluate
@@ -61,7 +61,7 @@ def load_pretrained(name: str, *, cache_directory: Path | None = None) -> Any:
 def train_pretrained(
     out_dir: str | Path,
     *,
-    systems: Sequence[str] = tuple(SYSTEMS),
+    systems: Sequence[str] = ("new_england", "ieee_9bus"),
     models: Sequence[str] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Train, evaluate and save pipelines; return registry entries (url left empty).
