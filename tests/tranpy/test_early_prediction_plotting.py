@@ -8,7 +8,7 @@ import pytest
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 
-from tranpy.early_prediction import find_knee_point, run_early_prediction
+from tranpy.early_prediction import find_knee_point, run_early_prediction, scenario_groups
 from tranpy_core.data import SignalDataset
 from tranpy_core.errors import ConfigurationError
 from tranpy_core.models import make_pipeline
@@ -51,6 +51,28 @@ def test_run_early_prediction(mock_events: SignalDataset, caplog: pytest.LogCapt
         n_splits=2,
     )
     assert absolute["n_events"].iloc[0] == mock_events.n_samples
+
+
+def test_grouped_folds_hold_out_whole_groups(mock_events: SignalDataset) -> None:
+    by_line = scenario_groups(mock_events)
+    assert mock_events.sample_ids is not None
+    assert set(by_line) == {int(i) for i in mock_events.sample_ids}
+    lines = mock_events.annotations["fault_line"]
+    assert len(set(by_line.values())) == len(np.unique(lines))
+    bands = scenario_groups(mock_events, "loading_band", n_bands=4)
+    assert set(bands.values()) <= {0, 1, 2, 3}
+    with pytest.raises(ConfigurationError, match="no 'missing'"):
+        scenario_groups(mock_events, "missing")
+    result = run_early_prediction(
+        mock_events,
+        {"lr": LogisticRegression(max_iter=500)},
+        reference="fault_start",
+        windows_s=(0.2,),
+        n_splits=3,
+        seed=0,
+        groups=by_line,
+    )
+    assert result["accuracy_mean"].between(0, 1).all()
 
 
 @pytest.mark.requires_neural

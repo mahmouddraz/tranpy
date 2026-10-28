@@ -40,6 +40,7 @@ from tranpy_core.data import (
     ShardManifest,
     SignalDataset,
     TabularDataset,
+    iter_shards,
     load_tabular,
     map_shards,
     repeated_kfold_splits,
@@ -56,6 +57,7 @@ __all__ = [
     "extract_window_tables",
     "find_knee_point",
     "run_early_prediction",
+    "scenario_groups",
 ]
 
 logger = logging.getLogger(__name__)
@@ -217,6 +219,7 @@ def evaluate_window_tables(
     seed: Seed = 42,
     min_events: int = 10,
     checkpoint: str | Path | None = None,
+    groups: Mapping[int, int] | None = None,
 ) -> pd.DataFrame:
     """Cross-validate feature models and sequence models on the same folds per window.
 
@@ -226,6 +229,9 @@ def evaluate_window_tables(
     With ``checkpoint`` (a CSV path) every finished (window, model) row is appended to the
     file immediately, and rows already in it are not recomputed, so an interrupted run
     resumes where it stopped. Folds are seeded, so resumed results equal uninterrupted ones.
+
+    With ``groups`` (sample id -> group, see :func:`scenario_groups`) no group appears in
+    both the training and the test part of a fold, e.g. to test on unseen faulted lines.
     """
     models = dict(models or {})
     sequence_models = dict(sequence_models or {})
@@ -264,7 +270,14 @@ def evaluate_window_tables(
         if splits < 2:
             logger.info("window %.3f s: fewer than 2 events in a class, skipped", window)
             continue
-        folds = repeated_kfold_splits(base.labels, n_splits=splits, n_repeats=n_repeats, seed=seed)
+        group_ids = None
+        if groups is not None:
+            assert base.sample_ids is not None
+            group_ids = np.array([groups[int(i)] for i in base.sample_ids])
+            splits = min(splits, len(np.unique(group_ids)))
+        folds = repeated_kfold_splits(
+            base.labels, n_splits=splits, n_repeats=n_repeats, seed=seed, groups=group_ids
+        )
         jobs: list[tuple[str, str, Pipeline, TabularDataset]] = []
         if models:
             table = tables[(window, "features")]
@@ -370,6 +383,34 @@ def run_early_prediction(
         seed=seed,
         min_events=min_events,
     )
+
+
+def scenario_groups(
+    events: SignalDataset | ShardManifest, by: str = "fault_line", *, n_bands: int = 5
+) -> dict[int, int]:
+    """Group id per event for grouped evaluation splits.
+
+    ``by="fault_line"`` groups events by faulted line (test on unseen lines);
+    ``by="loading_band"`` groups by quantile band of the mean load factor (test on unseen
+    loading levels). Any other annotation name groups by its distinct values.
+    """
+    datasets = [events] if isinstance(events, SignalDataset) else list(iter_shards(events))
+    ids: list[int] = []
+    values: list[float] = []
+    key = "mean_load_factor" if by == "loading_band" else by
+    for ds in datasets:
+        if key not in ds.annotations:
+            raise ConfigurationError(f"events have no {key!r} annotation")
+        assert ds.sample_ids is not None
+        ids.extend(int(i) for i in ds.sample_ids)
+        values.extend(float(v) for v in ds.annotations[key])
+    arr = np.asarray(values)
+    if by == "loading_band":
+        edges = np.quantile(arr, np.linspace(0, 1, n_bands + 1)[1:-1])
+        codes = np.searchsorted(edges, arr, side="right")
+    else:
+        _, codes = np.unique(arr, return_inverse=True)
+    return {i: int(c) for i, c in zip(ids, codes, strict=True)}
 
 
 def find_knee_point(results: pd.DataFrame, model: str, metric: str = "accuracy") -> float:
