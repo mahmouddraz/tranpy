@@ -12,6 +12,7 @@ the rated voltage ratio.
 
 from __future__ import annotations
 
+import shutil
 import tempfile
 import zipfile
 from dataclasses import dataclass
@@ -227,7 +228,10 @@ def export_cgmes(network: Any, path: str | Path) -> Path:
         base = Path(tmp) / out.stem
         network.save(str(base), format="CGMES")
         profiles = sorted(Path(tmp).glob(f"{out.stem}_*.xml"))
-        with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as archive:
+        # built locally and copied: Unity Catalog volumes accept only sequential writes
+        local = Path(tmp) / out.name
+        with zipfile.ZipFile(local, "w", zipfile.ZIP_DEFLATED) as archive:
             for profile in profiles:
                 archive.write(profile, profile.name)
+        shutil.copyfile(local, out)
     return out

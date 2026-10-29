@@ -4,6 +4,7 @@ resources:
       name: tranpy-grid-pipeline
       description: German transmission grid model - downloads the sources, builds the cleaned network and the CIM-aligned model, verifies it with an AC power flow.
 
+      # Serverless; the tranpy wheel is built by the bundle (see databricks.yml).
       environments:
         - environment_key: tranpy
           spec:
@@ -13,61 +14,92 @@ resources:
               - pypowsybl>=1.10
               - matplotlib>=3.8
               - pyarrow>=15
+              - openpyxl>=3.1
 
-      # Job environment variables (serverless, environment version 5+; Beta: a workspace
-      # admin enables "Environment variables in Lakeflow Jobs" under Previews).
-      environment_variables:
-        - environment_variables_key: grid
-          spec:
-            variables:
-              TRANPY_CATALOG: ${var.catalog}
-              TRANPY_BRONZE_SCHEMA: ${resources.schemas.grid_bronze.name}
-              TRANPY_SILVER_SCHEMA: ${resources.schemas.grid_silver.name}
-              TRANPY_GOLD_SCHEMA: ${resources.schemas.grid_gold.name}
-              TRANPY_FILES: /Volumes/${var.catalog}/${resources.schemas.grid_bronze.name}/${resources.volumes.grid_files.name}
-              TRANPY_PLANTS_TABLE: ${var.plants_table}
-              TRANPY_POPULATION_TABLE: ${var.population_table}
-              TRANPY_CACHE_DIR: /Volumes/${var.catalog}/${resources.schemas.grid_bronze.name}/${resources.volumes.grid_files.name}/cache
+      # Settings of a run: visible and overridable per run in the job UI.
+      parameters:
+        - name: catalog
+          default: ${var.catalog}
+        - name: bronze_schema
+          default: ${resources.schemas.grid_bronze.name}
+        - name: silver_schema
+          default: ${resources.schemas.grid_silver.name}
+        - name: gold_schema
+          default: ${resources.schemas.grid_gold.name}
+        - name: files
+          default: /Volumes/${var.catalog}/${resources.schemas.grid_bronze.name}/${resources.volumes.grid_files.name}
+        - name: plants_table
+          default: ${var.plants_table}
+        - name: population_table
+          default: ${var.population_table}
 
       tasks:
         - task_key: bronze
           environment_key: tranpy
-          environment_variables_key: grid
           python_wheel_task:
             package_name: tranpy_ai
             entry_point: tranpy-grid
-            parameters: ["bronze"]
+            parameters:
+              - bronze
+              - "--catalog={{job.parameters.catalog}}"
+              - "--bronze-schema={{job.parameters.bronze_schema}}"
+              - "--silver-schema={{job.parameters.silver_schema}}"
+              - "--gold-schema={{job.parameters.gold_schema}}"
+              - "--files={{job.parameters.files}}"
+              - "--plants-table={{job.parameters.plants_table}}"
+              - "--population-table={{job.parameters.population_table}}"
           timeout_seconds: 3600
           max_retries: 1
 
         - task_key: silver
           depends_on: [{task_key: bronze}]
           environment_key: tranpy
-          environment_variables_key: grid
           python_wheel_task:
             package_name: tranpy_ai
             entry_point: tranpy-grid
-            parameters: ["silver"]
+            parameters:
+              - silver
+              - "--catalog={{job.parameters.catalog}}"
+              - "--bronze-schema={{job.parameters.bronze_schema}}"
+              - "--silver-schema={{job.parameters.silver_schema}}"
+              - "--gold-schema={{job.parameters.gold_schema}}"
+              - "--files={{job.parameters.files}}"
+              - "--plants-table={{job.parameters.plants_table}}"
+              - "--population-table={{job.parameters.population_table}}"
           timeout_seconds: 3600
 
         - task_key: gold
           depends_on: [{task_key: silver}]
           environment_key: tranpy
-          environment_variables_key: grid
           python_wheel_task:
             package_name: tranpy_ai
             entry_point: tranpy-grid
-            parameters: ["gold"]
+            parameters:
+              - gold
+              - "--catalog={{job.parameters.catalog}}"
+              - "--bronze-schema={{job.parameters.bronze_schema}}"
+              - "--silver-schema={{job.parameters.silver_schema}}"
+              - "--gold-schema={{job.parameters.gold_schema}}"
+              - "--files={{job.parameters.files}}"
+              - "--plants-table={{job.parameters.plants_table}}"
+              - "--population-table={{job.parameters.population_table}}"
           timeout_seconds: 3600
 
         - task_key: verify
           depends_on: [{task_key: gold}]
           environment_key: tranpy
-          environment_variables_key: grid
           python_wheel_task:
             package_name: tranpy_ai
             entry_point: tranpy-grid
-            parameters: ["verify"]
+            parameters:
+              - verify
+              - "--catalog={{job.parameters.catalog}}"
+              - "--bronze-schema={{job.parameters.bronze_schema}}"
+              - "--silver-schema={{job.parameters.silver_schema}}"
+              - "--gold-schema={{job.parameters.gold_schema}}"
+              - "--files={{job.parameters.files}}"
+              - "--plants-table={{job.parameters.plants_table}}"
+              - "--population-table={{job.parameters.population_table}}"
           timeout_seconds: 1800
 
       max_concurrent_runs: 1
