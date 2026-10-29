@@ -13,7 +13,7 @@ Only cases with coordinates can be drawn (the bundled German case has them).
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -28,9 +28,17 @@ from tranpy_core.errors import DataError
 from tranpy_core.plotting import CATEGORICAL, INK, MUTED, SECONDARY
 
 if TYPE_CHECKING:
+    from tranpy.grid_data import CoreGridModel
     from tranpy.simulation.andes import AndesEngine
 
-__all__ = ["NATURAL_EARTH_COUNTRIES", "GridGeometry", "grid_geometry", "per_line", "plot_grid_map"]
+__all__ = [
+    "NATURAL_EARTH_COUNTRIES",
+    "GridGeometry",
+    "grid_geometry",
+    "per_line",
+    "plot_grid_map",
+    "plot_operator_map",
+]
 
 NATURAL_EARTH_COUNTRIES = RemoteFile(
     filename="ne_50m_admin_0_countries.geojson",
@@ -231,6 +239,87 @@ def plot_grid_map(
     low, high = np.min(xy, axis=0), np.max(xy, axis=0)
     ax.set_xlim(low[0] - pad, high[0] + pad)
     ax.set_ylim(low[1] - pad, high[1] + pad)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    if title:
+        ax.set_title(title)
+    return ax.figure
+
+
+def plot_operator_map(
+    model: CoreGridModel,
+    *,
+    names: Mapping[str, str] | None = None,
+    borders: bool = True,
+    highlight: Sequence[str] = ("DEU",),
+    title: str | None = None,
+    ax: Any = None,
+) -> Any:
+    """Line routes coloured by operator (380 kV wider than 220 kV; tie-lines dashed).
+
+    The source draws most lines as straight segments between substations, so the map
+    shows the topology rather than the exact geographic routes.
+
+    Args:
+        model: from :func:`tranpy.grid_data.load_core_grid_model`.
+        names: operator code -> legend name (default: the German TSO short names).
+        borders: draw country borders (downloads Natural Earth once).
+        highlight: ISO 3166 alpha-3 codes of the countries filled as the study area.
+        title: axes title.
+        ax: axes to draw on; a new figure if None.
+    """
+    from tranpy.grid_data import GERMAN_TSOS
+
+    plt = require("matplotlib.pyplot", "plot")
+    collections = require("matplotlib.collections", "plot")
+    lines_mod = require("matplotlib.lines", "plot")
+    names = dict(GERMAN_TSOS if names is None else names)
+    if ax is None:
+        _, ax = plt.subplots(figsize=(6.0, 7.2))
+    frame = model.lines[model.lines["eic"].isin(model.routes)]
+    points = np.vstack([model.routes[e] for e in frame["eic"]])
+    lat0 = float(np.mean(points[:, 1]))
+    if borders:
+        _draw_borders(ax, lat0, highlight)
+    handles = []
+    for i, tso in enumerate(sorted(frame["tso"].unique(), key=lambda t: names.get(t, t))):
+        color = CATEGORICAL[i % len(CATEGORICAL)]
+        part = frame[frame["tso"] == tso]
+        for tie, style in ((False, "solid"), (True, (0, (2, 1.5)))):
+            sub = part[part["tie_line"] == tie]
+            if sub.empty:
+                continue
+            widths = np.where(sub["kv"] >= 300, 1.1, 0.6)
+            ax.add_collection(
+                collections.LineCollection(
+                    [_projected(model.routes[e], lat0) for e in sub["eic"]],
+                    colors=color,
+                    linewidths=widths,
+                    linestyles=style,
+                    capstyle="round",
+                    zorder=2,
+                )
+            )
+        handles.append(
+            lines_mod.Line2D(
+                [], [], color=color, lw=1.5, label=f"{names.get(tso, tso)} ({len(part)})"
+            )
+        )
+    stations = model.substations()
+    xy = _projected(stations[["lon", "lat"]].to_numpy(np.float64), lat0)
+    ax.scatter(xy[:, 0], xy[:, 1], s=3, color=INK, lw=0, zorder=3)
+    handles += [
+        lines_mod.Line2D([], [], color=SECONDARY, lw=1.1, label="380 kV"),
+        lines_mod.Line2D([], [], color=SECONDARY, lw=0.6, label="220 kV"),
+        lines_mod.Line2D([], [], color=SECONDARY, lw=0.8, ls=(0, (2, 1.5)), label="tie-line"),
+        lines_mod.Line2D([], [], ls="", marker="o", ms=2, color=INK, label="substation"),
+    ]
+    ax.legend(handles=handles, loc="upper left", borderaxespad=0)
+    domestic = frame[~frame["tie_line"]]["eic"]
+    inside = _projected(np.vstack([model.routes[e] for e in domestic]), lat0)
+    low, high = np.min(inside, axis=0), np.max(inside, axis=0)
+    ax.set_xlim(low[0] - 0.2, high[0] + 0.2)
+    ax.set_ylim(low[1] - 0.2, high[1] + 0.2)
     ax.set_aspect("equal")
     ax.axis("off")
     if title:

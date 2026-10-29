@@ -78,3 +78,35 @@ topology. It is not a validated model of the German system:
 
 Stress-test protocol (fault at 1 s, clearing 0.05-0.40 s), 32 scenarios: all simulations
 completed, 9 % unstable, about 2 s per scenario on 8 processes.
+
+## Operator grid data (Core Static Grid Model)
+
+For current topology and real line parameters, `tranpy.grid_data.load_core_grid_model()`
+reads the [Core Static Grid Model](https://www.jao.eu/static-grid-model) that the Core
+TSOs publish through JAO every six months (release 9, status March 2026; downloaded and
+verified by checksum). The German part:
+
+| Operator | Lines | Tie-lines | Transformers |
+|---|---|---|---|
+| Amprion | 350 | 51 | 41 |
+| TenneT DE | 260 | 51 | 48 |
+| 50Hertz | 142 | 19 | 32 |
+| TransnetBW | 96 | 32 | 12 |
+
+Each line has its operator, substations, voltage, R, X, B (ohm, microsiemens), length,
+current rating and EIC code; each transformer its parameters and phase-shifter data.
+Line routes and transformer locations come from the map published with the model.
+"Tie-lines" include lines between two German operators.
+
+```python
+from tranpy.grid_data import load_core_grid_model
+from tranpy.maps import plot_operator_map
+
+model = load_core_grid_model()
+plot_operator_map(model)
+```
+
+Not in the source: generators, loads, spur and generator connection lines, and dynamic
+data. 389 German lines (Amprion, TenneT, TransnetBW) have no static current rating. The
+map draws most lines as straight segments between substations (topology, not exact
+routes). The data is not in CIM/CGMES format; the operators' CGMES models are not public.
