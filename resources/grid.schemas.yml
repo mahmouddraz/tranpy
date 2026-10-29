@@ -1,0 +1,21 @@
+resources:
+  schemas:
+    grid_bronze:
+      catalog_name: ${var.catalog}
+      name: grid_bronze
+      comment: German transmission grid model - raw sources as published (tranpy).
+    grid_silver:
+      catalog_name: ${var.catalog}
+      name: grid_silver
+      comment: German transmission grid model - cleaned network, plants and loads with evidence (tranpy).
+    grid_gold:
+      catalog_name: ${var.catalog}
+      name: grid_gold
+      comment: German transmission grid model - simulation-ready CIM-aligned model (tranpy).
+
+  volumes:
+    grid_files:
+      catalog_name: ${var.catalog}
+      schema_name: ${resources.schemas.grid_bronze.name}
+      name: files
+      comment: Downloaded sources and exports (CGMES) of the grid pipeline, one folder per run date.

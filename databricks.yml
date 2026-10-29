@@ -1,0 +1,48 @@
+# Databricks Asset Bundle: pipeline of the German transmission grid model
+# (bronze -> silver -> gold -> verify, see src/tranpy/grid_pipeline.py).
+#
+# The workspace comes from your CLI profile, the catalog and input tables from
+# variables, so nothing workspace-specific is committed:
+#
+#   databricks bundle deploy -t dev -p <profile> \
+#     --var catalog=<catalog> \
+#     --var plants_table=<catalog.schema.kraftwerksliste> \
+#     --var population_table=<catalog.schema.population>
+#   databricks bundle run grid_pipeline -t dev -p <profile>
+#
+# Variables can also be set as environment variables (BUNDLE_VAR_catalog=...).
+bundle:
+  name: tranpy-grid
+
+include:
+  - resources/*.yml
+
+variables:
+  catalog:
+    description: Unity Catalog catalog that holds the grid schemas.
+  plants_table:
+    description: Bundesnetzagentur power plant list (Kraftwerksliste) as a table.
+  population_table:
+    description: Population cells with columns lon, lat, population.
+
+# The job runs the wheel built below; only the bundle definition is synced to the
+# workspace (not the repository with its data, results and papers).
+sync:
+  paths:
+    - resources
+
+artifacts:
+  tranpy:
+    type: whl
+    build: uv build --wheel
+    path: .
+
+targets:
+  dev:
+    # Personal deployment: resources (also the schemas) get a dev_<user>_ prefix,
+    # schedules are paused.
+    mode: development
+    default: true
+
+  prod:
+    mode: production

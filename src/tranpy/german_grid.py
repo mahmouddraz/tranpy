@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -54,6 +55,7 @@ __all__ = [
     "OSM_GRID",
     "GermanGrid",
     "build_german_grid",
+    "fetch_osm_hv_lines",
     "fetch_osm_substations",
     "load_osm_grid",
     "site_key",
@@ -220,6 +222,29 @@ def load_osm_grid(directory: str | Path | None = None) -> dict[str, pd.DataFrame
     }
 
 
+def _overpass(query: str, out: Path, *, attempts: int = 5, timeout_s: float = 600.0) -> Path:
+    """Run an Overpass query and write the answer to ``out`` (retried with growing waits:
+    the public server answers 429/5xx when it is busy)."""
+    request = urllib.request.Request(
+        OVERPASS_URL,
+        data=urllib.parse.urlencode({"data": query}).encode(),
+        headers={"User-Agent": "tranpy (https://github.com/mahmouddraz/tranpy)"},
+    )
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(request, timeout=timeout_s) as response:
+                payload = response.read()
+            json.loads(payload)  # an error page is not JSON
+            break
+        except (OSError, ValueError):
+            if attempt == attempts - 1:
+                raise
+            time.sleep(30 * 2**attempt)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_bytes(payload)
+    return out
+
+
 def fetch_osm_substations(path: str | Path | None = None) -> Path:
     """220-400 kV substations (with names, voltages, operators) around Germany.
 
@@ -235,16 +260,21 @@ def fetch_osm_substations(path: str | Path | None = None) -> Path:
         'nwr["power"~"substation|plant"]["voltage"~"220000|225000|380000|400000"]'
         f"({south},{west},{north},{east});out center tags;"
     )
-    request = urllib.request.Request(
-        OVERPASS_URL,
-        data=urllib.parse.urlencode({"data": query}).encode(),
-        headers={"User-Agent": "tranpy"},
+    return _overpass(query, out)
+
+
+def fetch_osm_hv_lines(path: str | Path | None = None) -> Path:
+    """220-400 kV power lines and cables in Germany with node ids (topology), tags and
+    geometry, from the Overpass API (cached like :func:`fetch_osm_substations`)."""
+    out = Path(path) if path is not None else cache_dir() / "osm_hv_lines.json"
+    if out.exists():
+        return out
+    query = (
+        "[out:json][timeout:600][maxsize:536870912];"
+        'way["power"~"^(line|cable)$"]["voltage"~"220000|380000|400000"](47.2,5.8,55.1,15.1);'
+        "out body geom;"
     )
-    with urllib.request.urlopen(request, timeout=400) as response:
-        payload = response.read()
-    out.parent.mkdir(parents=True, exist_ok=True)
-    out.write_bytes(payload)
-    return out
+    return _overpass(query, out)
 
 
 def _read_substations(path: Path) -> tuple[pd.DataFrame, str]:

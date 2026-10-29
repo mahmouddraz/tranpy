@@ -48,6 +48,7 @@ all = ["tranpy-ai[explain,neural,boosting,plot,persistence,andes,powsybl]"]
 
 [project.scripts]
 tranpy = "tranpy.cli:main"
+tranpy-grid = "tranpy.grid_pipeline:main"
 
 [dependency-groups]
 dev = [
@@ -92,7 +93,7 @@ files = ["src"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["shap.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "andes.*", "powerfactory", "matplotlib.*", "pypowsybl.*"]
+module = ["shap.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "andes.*", "powerfactory", "matplotlib.*", "pypowsybl.*", "databricks.*", "pyspark.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
