@@ -4,6 +4,7 @@
 # The workspace comes from your CLI profile, the catalog and input tables from
 # variables, so nothing workspace-specific is committed:
 #
+#   cd databricks
 #   databricks bundle deploy -t dev -p <profile> \
 #     --var catalog=<catalog> \
 #     --var plants_table=<catalog.schema.kraftwerksliste> \
@@ -35,7 +36,7 @@ artifacts:
   tranpy:
     type: whl
     build: uv build --wheel
-    path: .
+    path: ..  # the tranpy package at the repository root
 
 targets:
   dev:

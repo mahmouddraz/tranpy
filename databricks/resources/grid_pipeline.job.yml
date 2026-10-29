@@ -9,7 +9,7 @@ resources:
           spec:
             environment_version: "5"
             dependencies:
-              - ../dist/*.whl
+              - ../../dist/*.whl
               - pypowsybl>=1.10
               - matplotlib>=3.8
               - pyarrow>=15
