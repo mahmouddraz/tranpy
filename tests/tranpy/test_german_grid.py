@@ -63,23 +63,22 @@ def _lines(rows: list[tuple[str, str, str, str, float]]) -> pd.DataFrame:
     )  # fmt: skip
 
 
-def test_double_reports_are_merged() -> None:
+def test_double_reports_keep_both() -> None:
     issues = _Issues()
     lines = _lines(
         [
-            ("E1", "A", "p|380", "q|380", 7.08),
-            ("E1", "B", "q|380", "p|380", 7.09),  # same circuit, agreeing
-            ("E2", "A", "p|380", "q|380", 14.17),  # disagreeing report
-            ("E2", "B", "p|380", "q|380", 7.08),
-            ("E3", "A", "p|380", "r|380", 5.0),  # one operator: kept
+            ("E1", "A", "p|380", "q|380", 3.55),
+            ("E1", "B", "q|380", "p|380", 3.54),
+            ("E3", "A", "p|380", "r|380", 5.0),  # one operator: kept as it is
         ]
     )
-    out = _merge_double_reports(lines, issues)
-    assert sorted(out["eic"]) == ["E1", "E2", "E3"]
-    assert out.set_index("eic").at["E1", "x_ohm"] == pytest.approx(7.085)
-    assert np.isnan(out.set_index("eic").at["E1", "length_km"])
-    assert out.set_index("eic").at["E2", "x_ohm"] == 7.08  # consistent with parallel E1
-    assert list(issues.frame()["check"]) == ["double report", "double report"]
+    out = _merge_double_reports(lines, issues).set_index("eic")
+    assert sorted(out.index) == ["E1", "E3"]
+    assert out.at["E1", "x_ohm"] == 3.55
+    assert out.at["E1", "other_tso"] == "B"
+    assert out.at["E1", "other_x_ohm"] == 3.54
+    assert np.isnan(out.at["E1", "length_km"])
+    assert list(issues.frame()["check"]) == ["double report"]
 
 
 def test_differently_named_tees_are_unified() -> None:

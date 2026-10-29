@@ -507,10 +507,10 @@ def _unify_reported_tees(lines: pd.DataFrame, issues: _Issues) -> pd.DataFrame:
 def _merge_double_reports(lines: pd.DataFrame, issues: _Issues) -> pd.DataFrame:
     """Keep one row per circuit reported by two operators (same EIC and same ends).
 
-    Both reports give the parameters of the whole circuit; their lengths are the
-    operators' own sections and are not used. Agreeing parameters (reactance within
-    ``_AGREEMENT``) are averaged; otherwise the report closer to the parallel circuits of
-    the corridor is kept.
+    The other report is kept in ``other_tso``, ``other_r_ohm``, ``other_x_ohm`` and
+    ``other_b_us``: operators report either the whole circuit or their own section, and
+    :func:`_reconcile_ties` decides between them using the route length. The published
+    lengths are the operators' own sections and are not used.
     """
     lines = _unify_reported_tees(lines, issues)
     lines = lines.assign(
@@ -518,42 +518,142 @@ def _merge_double_reports(lines: pd.DataFrame, issues: _Issues) -> pd.DataFrame:
             [frozenset((a, b)) for a, b in zip(lines["node0"], lines["node1"], strict=True)],
             index=lines.index,
             dtype=object,
-        )
+        ),
+        other_tso=None,
+        other_r_ohm=np.nan,
+        other_x_ohm=np.nan,
+        other_b_us=np.nan,
     )
     keep: list[Any] = []
-    for (_, pair), group in lines.groupby(["eic", "pair"], sort=False):
+    for _, group in lines.groupby(["eic", "pair"], sort=False):
         if group["tso"].nunique() < 2:
             keep.extend(group.index)
             continue
-        first = group.index[0]
-        x = group["x_ohm"].astype(float)
-        name = _text(group.at[first, "name"])
-        if (x.max() - x.min()) <= _AGREEMENT * x.max():
-            for column in ("r_ohm", "x_ohm", "b_us"):
-                lines.at[first, column] = group[column].astype(float).mean()
-            lines.at[first, "length_km"] = np.nan
-            issues.add(
-                "double report",
-                name,
-                f"reported by {', '.join(sorted(group['tso']))}; parameters agree",
-                "merged (mean parameters; length unknown)",
-            )
-        else:
-            parallel = lines[(lines["pair"] == pair) & (lines["eic"] != group.at[first, "eic"])]
-            reference = _num(parallel["x_ohm"].median()) if len(parallel) else _num(x.median())
-            best = (x - reference).abs().idxmin()
-            first = best
-            lines.at[best, "length_km"] = np.nan
-            issues.add(
-                "double report",
-                name,
-                "reported by "
-                + ", ".join(f"{t}: X={v:.3f} ohm" for t, v in zip(group["tso"], x, strict=True))
-                + f"; parallel circuits X={reference:.3f} ohm",
-                f"kept the report of {group.at[best, 'tso']}",
-            )
+        first, other = group.index[0], group.index[-1]
+        lines.loc[first, ["other_tso", "other_r_ohm", "other_x_ohm", "other_b_us"]] = [
+            lines.at[other, "tso"],
+            lines.at[other, "r_ohm"],
+            lines.at[other, "x_ohm"],
+            lines.at[other, "b_us"],
+        ]
+        lines.at[first, "length_km"] = np.nan
+        issues.add(
+            "double report",
+            _text(lines.at[first, "name"]),
+            "reported by "
+            + ", ".join(
+                f"{t}: X={_num(v):.3f} ohm"
+                for t, v in zip(group["tso"], group["x_ohm"], strict=True)
+            ),
+            "merged; parameters decided by the route length",
+        )
         keep.append(first)
     return lines.loc[sorted(keep)].drop(columns="pair").reset_index(drop=True)
+
+
+_TYPICAL_X_OHM_PER_KM = {220: 0.32, 380: 0.27}
+"""Series reactance per circuit and km of typical overhead lines."""
+
+_ROUTE_FACTOR = 1.15
+"""Typical ratio of route length to straight-line distance."""
+
+
+def _reconcile_ties(
+    lines: pd.DataFrame, foreign: pd.DataFrame, nodes: pd.DataFrame, issues: _Issues
+) -> None:
+    """Complete the parameters of cross-border circuits, in place.
+
+    Operators report tie-lines by different conventions: the whole circuit, or only
+    their own section up to the border. Candidates are the German report, the foreign
+    report of the same EIC and the sum of both sections; the one whose reactance per km
+    over the estimated route (straight distance x ``_ROUTE_FACTOR``) is closest to a
+    typical overhead line is kept. A German report covering clearly only a section, with
+    no foreign report, is flagged.
+    """
+    where = nodes.set_index("node")[["lon", "lat", "location_source"]]
+    reports = foreign.groupby("eic")
+    located = ("osm", "verified")
+    for i in lines.index[(lines["tie_line"] | lines["other_tso"].notna()) & ~lines["hvdc"]]:
+        row = lines.loc[i]
+        a, b = where.loc[row["node0"]], where.loc[row["node1"]]
+        if not (
+            _text(a["location_source"]).startswith(located)
+            and _text(b["location_source"]).startswith(located)
+        ):
+            issues.add(
+                "tie-line",
+                _text(row["name"]),
+                "an end is not located; the route length is unknown",
+                "kept as published",
+            )
+            continue
+        straight = _num(
+            np.hypot((a["lon"] - b["lon"]) * np.cos(np.radians(a["lat"])), a["lat"] - b["lat"])
+            * 111.2
+        )
+        if not np.isfinite(straight) or straight < 3.0:
+            continue
+        route_km = straight * _ROUTE_FACTOR
+        typical = _TYPICAL_X_OHM_PER_KM[_voltage_class(_num(row["kv"]))]
+        candidates = {f"{row['tso']} report": (row["r_ohm"], row["x_ohm"], row["b_us"])}
+        second = None
+        if isinstance(row["other_tso"], str):
+            second = (row["other_tso"], row["other_r_ohm"], row["other_x_ohm"], row["other_b_us"])
+        elif row["eic"] in reports.groups:
+            f = reports.get_group(row["eic"]).iloc[0]
+            second = (f["tso"], f["r_ohm"], f["x_ohm"], f["b_us"])
+        if second is not None:
+            candidates[f"{second[0]} report"] = second[1:]
+            candidates["both sections"] = (
+                _num(row["r_ohm"]) + _num(second[1]),
+                _num(row["x_ohm"]) + _num(second[2]),
+                _num(row["b_us"]) + _num(second[3]),
+            )
+        published = [_num(v[1]) / typical for v in candidates.values()]
+        if route_km > 3 * max(published):
+            issues.add(
+                "tie-line",
+                _text(row["name"]),
+                f"ends {route_km:.0f} km apart, far more than any report implies",
+                "kept as published; check the end locations",
+            )
+            continue
+        scored = {
+            name: abs(np.log(_num(v[1]) / route_km / typical))
+            for name, v in candidates.items()
+            if np.isfinite(_num(v[1])) and _num(v[1]) > 0
+        }
+        if not scored:
+            continue
+        best = min(scored, key=lambda k: scored[k])
+        x_per_km = _num(candidates[best][1]) / route_km
+        if best != f"{row['tso']} report":
+            lines.loc[i, ["r_ohm", "x_ohm", "b_us"]] = [_num(v) for v in candidates[best]]
+            issues.add(
+                "tie-line",
+                _text(row["name"]),
+                "candidates "
+                + ", ".join(f"{k}: X={_num(v[1]):.2f} ohm" for k, v in candidates.items())
+                + f"; route about {route_km:.0f} km",
+                f"used {best} ({x_per_km:.3f} ohm/km)",
+            )
+        elif len(candidates) > 1:
+            issues.add(
+                "tie-line",
+                _text(row["name"]),
+                "candidates "
+                + ", ".join(f"{k}: X={_num(v[1]):.2f} ohm" for k, v in candidates.items())
+                + f"; route about {route_km:.0f} km",
+                f"kept {best} ({x_per_km:.3f} ohm/km)",
+            )
+        if best == f"{row['tso']} report" and x_per_km < 0.6 * typical and len(candidates) == 1:
+            issues.add(
+                "tie-line",
+                _text(row["name"]),
+                f"X={_num(row['x_ohm']):.2f} ohm over a route of about {route_km:.0f} km "
+                f"({x_per_km:.3f} ohm/km): only the German section is reported",
+                "kept; neighbouring section missing",
+            )
 
 
 def _transformers(
@@ -686,7 +786,9 @@ def build_german_grid(
     """Build the cleaned network (see module docs).
 
     Args:
-        core: Core Static Grid Model, German TSOs (loaded if None).
+        core: Core Static Grid Model of all Core TSOs (loaded if None); the German
+            TSOs' elements form the network, the neighbours' reports complete the
+            cross-border circuits (see :func:`_reconcile_ties`).
         osm_directory: folder with the OpenStreetMap CSV files (downloaded if None).
         substations: Overpass result with the 220-400 kV OpenStreetMap substations
             (queried and cached if None, see :func:`fetch_osm_substations`).
@@ -699,7 +801,16 @@ def build_german_grid(
         length_tolerance: accepted relative difference between a route through
             OpenStreetMap and the official circuit length.
     """
-    core = core if core is not None else load_core_grid_model()
+    full = core if core is not None else load_core_grid_model(tsos=None)
+    foreign = full.lines[~full.lines["tso"].isin(GERMAN_TSOS)]
+    core = CoreGridModel(
+        lines=full.lines[full.lines["tso"].isin(GERMAN_TSOS)].reset_index(drop=True),
+        transformers=full.transformers[full.transformers["tso"].isin(GERMAN_TSOS)].reset_index(
+            drop=True
+        ),
+        routes=full.routes,
+        release=full.release,
+    )
     issues = _Issues()
     aliases = _aliases()
     lines = _clean_lines(core, aliases, issues)
@@ -786,6 +897,7 @@ def build_german_grid(
         )
     nodes = pd.DataFrame(node_rows)
 
+    _reconcile_ties(lines, foreign, nodes, issues)
     osm_of = {
         n: b for n, b in zip(nodes["node"], nodes["osm_bus"], strict=True) if isinstance(b, str)
     }

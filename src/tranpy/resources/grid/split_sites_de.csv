@@ -8,3 +8,4 @@ Hamburg/N 50H,TENNETGMBH,Hamburg/Nord 50H,"TenneT's name for the 50Hertz substat
 Herbertingen,AMPRION GMBH,Herbertingen Amprion,"Amprion and TransnetBW each name their own switchyard Herbertingen; TransnetBW calls Amprion's Herbertingen Amprion; transfer circuits 41/42 (EIC 11T0-0000-1883-F, -1884-C) connect them"
 Herbertingen Amprion,TRANSNETBW,Herbertingen Amprion,"TransnetBW's name for Amprion's switchyard at Herbertingen (see Herbertingen, AMPRION GMBH)"
 Herbertingen (TransnetBW),AMPRION GMBH,Herbertingen,"Target of the corrections of Amprion's transfer circuits 41HE/42HE: TransnetBW's switchyard"
+St. Peter,TENNETGMBH,St. Peter APG,"Two substations share the name: TenneT's St. Peter is APG's St. Peter am Hart in Austria (cross-border circuits Pirach/Pleinting - St. Peter, EIC 10T-AT-DE-000029/-000037, reported by APG as St.Peter); Amprion's St. Peter is in the Rhineland (circuits to Rommerskirchen, Norf, Opladen, Osterath)"
