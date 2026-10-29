@@ -153,14 +153,19 @@ def _split_sites() -> dict[tuple[str, str], str]:
     }
 
 
-def _verified_locations() -> dict[str, tuple[float, float]]:
-    table = resources.files("tranpy.resources.grid").joinpath("substation_locations_de.csv")
+def _curated_locations(name: str) -> dict[str, tuple[float, float]]:
+    table = resources.files("tranpy.resources.grid").joinpath(name)
     with table.open(encoding="utf-8") as fh:
         frame = pd.read_csv(fh)
     return {
         str(n): (float(x), float(y))
         for n, x, y in zip(frame["node"], frame["lon"], frame["lat"], strict=True)
     }
+
+
+def _verified_locations() -> dict[str, tuple[float, float]]:
+    """German substations located with orthophoto evidence."""
+    return _curated_locations("substation_locations_de.csv")
 
 
 def _corrections() -> pd.DataFrame:
@@ -850,6 +855,7 @@ def build_german_grid(
         - set(lines["node1"])
     )
     verified = _verified_locations()
+    abroad = _curated_locations("substation_locations_foreign.csv")
     node_rows = []
     for node in sorted(names):
         site, kv = node.rsplit("|", 1)
@@ -869,6 +875,10 @@ def build_german_grid(
             lon, lat = verified[node]
             osm_bus = network.nearest(np.array([lon, lat]), int(kv), _SNAP_KM)
             source = "verified"
+        elif node in abroad:
+            lon, lat = abroad[node]
+            osm_bus = network.nearest(np.array([lon, lat]), int(kv), _SNAP_KM)
+            source = "osm (curated name match)"
         elif found is not None:
             lon, lat = network.sub_xy[found[0]]
             osm_bus = network.nearest(network.sub_xy[found[0]], int(kv), _SNAP_KM)

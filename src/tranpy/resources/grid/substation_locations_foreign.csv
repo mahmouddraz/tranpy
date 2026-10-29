@@ -1,0 +1,7 @@
+node,lon,lat,evidence
+blooren|220,6.1796,49.5972,"OpenStreetMap substation Poste blindé d'Itzig/Blooren (220 kV, Luxembourg); name match; abroad, not checked on German orthophotos; schematic position 30 km off"
+heisdorf|220,6.1399,49.6685,"OpenStreetMap substation Heisdorf (220 kV, Luxembourg); name match; abroad, not checked on German orthophotos; schematic position 27 km off"
+lixhe|380,5.6677,50.7530,"OpenStreetMap Convertisseur ALEGrO Lixhe (Belgium), end of the ALEGrO HVDC link; abroad, not checked on German orthophotos; schematic position 57 km off"
+st avold|220,6.7037,49.1385,"OpenStreetMap Poste électrique de Saint-Avold (220/380 kV, France); name match; abroad, not checked on German orthophotos; schematic position 30 km off"
+westtirol|380,10.8739,47.2440,"OpenStreetMap APG Umspannwerk Westtirol (220/380 kV, Austria); name match; abroad, not checked on German orthophotos; schematic position 63 km off"
+endrup|380,8.7067,55.5307,"OpenStreetMap 400 kV Endrup (Denmark); name match; abroad, not checked on German orthophotos; no schematic position"
