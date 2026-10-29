@@ -1,0 +1,10 @@
+name,field,value,evidence
+Y-Herbertingen (-Hoheneck - Metzingen) HERBTG W,to_substation,Y-Herbertingen,"Published with Herbertingen at both ends (61.4 km); the name identifies the segment from Herbertingen to the tee Y-Herbertingen with branches to Hoheneck and Metzingen"
+Oberzier - Lixhe ALEGRO,hvdc,True,"ALEGrO is the 1 GW HVDC interconnector Oberzier (DE) - Lixhe (BE), in operation since 2020 (Amprion, Elia); listed among the AC lines in the source"
+Mehrum - Mehrum/N T421,to_substation,Mehrum/N,"Published with Mehrum at both ends (0.41 km); the circuit name gives Mehrum/N as the second end"
+Mehrum - Mehrum/N T422,to_substation,Mehrum/N,"Published with Mehrum at both ends (0.45 km); the circuit name gives Mehrum/N as the second end"
+Brunsbüttel - Brunsbüttel 949,to_substation,Brunsbuettel,"50Hertz coupling to TenneT's switchyard, published with Brunsbüttel at both ends (see split_sites_de.csv)"
+Krümmel - Krümmel 993,to_substation,Kruemmel,"50Hertz coupling to TenneT's switchyard (TenneT reports the same EIC 11T-D2-D8-00008W as Kruemmel - Kruemmel 50H)"
+Krümmel - Krümmel 994,to_substation,Kruemmel,"50Hertz coupling to TenneT's switchyard (TenneT reports the same EIC 11T-D2-D8-00009U as Kruemmel - Kruemmel 50H)"
+Herbertingen - Herbertingen UEB 41HE,to_substation,Herbertingen (TransnetBW),"Amprion transfer circuit to TransnetBW's switchyard (TransnetBW reports the same EIC 11T0-0000-1883-F as Herbertingen - Herbertingen Amprion)"
+Herbertingen - Herbertingen UEB 42HE,to_substation,Herbertingen (TransnetBW),"Amprion transfer circuit to TransnetBW's switchyard (TransnetBW reports the same EIC 11T0-0000-1884-C as Herbertingen - Herbertingen Amprion)"

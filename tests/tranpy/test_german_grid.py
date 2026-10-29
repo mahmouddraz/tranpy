@@ -1,0 +1,120 @@
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+from tranpy.german_grid import (
+    _Issues,
+    _merge_double_reports,
+    _OsmNetwork,
+    _transformer_site,
+    _unify_reported_tees,
+    _words,
+    site_key,
+)
+
+
+@pytest.mark.parametrize(
+    ("a", "b"),
+    [
+        ("Brunsbüttel", "Brunsbuettel"),
+        ("Hamburg/N", "Hamburg/Nord"),
+        ("Doerpen West", "Doerpen/W"),
+        ("Großkrotzenburg", "Grosskrotzenburg"),
+        ("Eisenhüttenstadt (Abzweig)", "Eisenhuettenstadt abzweig"),
+    ],
+)
+def test_site_key_unifies_spellings(a: str, b: str) -> None:
+    assert site_key(a) == site_key(b)
+
+
+def test_site_key_keeps_operator_suffix() -> None:
+    # TenneT's Hamburg/N and 50Hertz's Hamburg/N 50H are different substations
+    assert site_key("Hamburg/N 50H") != site_key("Hamburg/N")
+
+
+@pytest.mark.parametrize(
+    ("name", "site"),
+    [
+        ("TR Eula 220/400 401", "Eula"),
+        ("TR Gronau TR 441 E    ", "Gronau"),
+        ("TR / 380-220kV / Daxlanden / Trafo 401", "Daxlanden"),
+        ("PST Diele T441", "Diele"),
+        ("PST Krempermarsch T441a", "Krempermarsch"),
+        ("TR Hamburg/Nord 220/400 405", "Hamburg/Nord"),
+    ],
+)
+def test_transformer_site(name: str, site: str) -> None:
+    assert _transformer_site(name) == site
+
+
+def test_words_ignore_generic_terms() -> None:
+    assert _words("Umspannwerk Karlsruhe-Daxlanden 380 kV") == {"karlsruhe", "daxlanden"}
+
+
+def _lines(rows: list[tuple[str, str, str, str, float]]) -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"eic": e, "tso": t, "node0": a, "node1": b, "x_ohm": x, "r_ohm": x / 10,
+             "b_us": 100.0, "length_km": 10.0, "name": f"{a}-{b}"}
+            for e, t, a, b, x in rows
+        ]
+    )  # fmt: skip
+
+
+def test_double_reports_are_merged() -> None:
+    issues = _Issues()
+    lines = _lines(
+        [
+            ("E1", "A", "p|380", "q|380", 7.08),
+            ("E1", "B", "q|380", "p|380", 7.09),  # same circuit, agreeing
+            ("E2", "A", "p|380", "q|380", 14.17),  # disagreeing report
+            ("E2", "B", "p|380", "q|380", 7.08),
+            ("E3", "A", "p|380", "r|380", 5.0),  # one operator: kept
+        ]
+    )
+    out = _merge_double_reports(lines, issues)
+    assert sorted(out["eic"]) == ["E1", "E2", "E3"]
+    assert out.set_index("eic").at["E1", "x_ohm"] == pytest.approx(7.085)
+    assert np.isnan(out.set_index("eic").at["E1", "length_km"])
+    assert out.set_index("eic").at["E2", "x_ohm"] == 7.08  # consistent with parallel E1
+    assert list(issues.frame()["check"]) == ["double report", "double report"]
+
+
+def test_differently_named_tees_are_unified() -> None:
+    issues = _Issues()
+    lines = _lines(
+        [
+            ("E1", "A", "y-one|380", "s|380", 6.26),
+            ("E1", "B", "s|380", "y-two|380", 6.40),
+            ("E2", "A", "y-two|380", "t|380", 3.0),
+            ("E3", "A", "u|380", "v|380", 2.0),
+            ("E3", "B", "v|380", "y-w|380", 2.0),  # substation vs tee: only reported
+        ]
+    )
+    out = _unify_reported_tees(lines, issues)
+    assert set(out["node0"]) | set(out["node1"]) >= {"y-one|380"}
+    assert "y-two|380" not in set(out["node0"]) | set(out["node1"])
+    assert list(issues.frame()["check"]) == ["tee name", "review"]
+
+
+def test_parallel_osm_lines_are_not_added() -> None:
+    buses = pd.DataFrame(
+        {"bus_id": ["a", "b", "c"], "x": [10.0, 10.5, 11.0], "y": [50.0, 50.0, 50.0],
+         "voltage": [380, 380, 380]}
+    )  # fmt: skip
+    route = np.array([[10.0, 50.0], [10.5, 50.0]])
+    lines = pd.DataFrame(
+        {"bus0": ["a", "a", "b"], "bus1": ["b", "b", "c"], "length": [36000.0, 36500.0, 36000.0],
+         "route": [route, route, route + np.array([0.5, 0.0])]}
+    )  # fmt: skip
+    substations = pd.DataFrame(
+        {"name": ["Umspannwerk Alpha"], "levels": [{380}], "lon": [10.0], "lat": [50.0]}
+    )
+    net = _OsmNetwork(buses, lines, substations)
+    found = net.route(0, 2, 72.0, 0.15)
+    assert found is not None and len(found) == 4  # 36 + 36 km, not 36 + 36.5 + 36
+    assert net.route(0, 2, 120.0, 0.15) is None
+    assert net.locate("alpha", 380, np.array([10.01, 50.0]), 5.0) == (0, "osm")
+    assert net.locate("y-alpha", 380, np.array([10.01, 50.0]), 5.0) is None

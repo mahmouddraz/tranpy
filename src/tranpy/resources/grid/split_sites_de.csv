@@ -1,0 +1,10 @@
+name,reported_by,node_name,evidence
+Brunsbüttel,50HERTZ,Brunsbuettel 50H,"Two switchyards: 50Hertz names its own Brunsbüttel, TenneT names it Brunsbuettel 50H and its own Brunsbuettel; coupling circuit 949 (EIC 11T-D2-D8-000027) connects them"
+Brunsbuettel 50H,TENNETGMBH,Brunsbuettel 50H,"TenneT's name for the 50Hertz switchyard at Brunsbüttel (see Brunsbüttel, 50HERTZ)"
+Krümmel,50HERTZ,Kruemmel 50H,"Two switchyards: couplings 993/994 (EIC 11T-D2-D8-00008W, -00009U) are reported as Krümmel - Krümmel by 50Hertz and as Kruemmel - Kruemmel 50H by TenneT"
+Kruemmel 50H,TENNETGMBH,Kruemmel 50H,"TenneT's name for the 50Hertz switchyard at Krümmel (see Krümmel, 50HERTZ)"
+Hamburg/Nord,50HERTZ,Hamburg/Nord 50H,"50Hertz's Hamburg/Nord (380 kV, transformers 405/406 to 220 kV) differs from TenneT's 220 kV Hamburg/N; TenneT circuits Hamburg/N - Hamburg/N 50H (2.9 km and 4.0 km) connect them"
+Hamburg/N 50H,TENNETGMBH,Hamburg/Nord 50H,"TenneT's name for the 50Hertz substation Hamburg/Nord (see Hamburg/Nord, 50HERTZ)"
+Herbertingen,AMPRION GMBH,Herbertingen Amprion,"Amprion and TransnetBW each name their own switchyard Herbertingen; TransnetBW calls Amprion's Herbertingen Amprion; transfer circuits 41/42 (EIC 11T0-0000-1883-F, -1884-C) connect them"
+Herbertingen Amprion,TRANSNETBW,Herbertingen Amprion,"TransnetBW's name for Amprion's switchyard at Herbertingen (see Herbertingen, AMPRION GMBH)"
+Herbertingen (TransnetBW),AMPRION GMBH,Herbertingen,"Target of the corrections of Amprion's transfer circuits 41HE/42HE: TransnetBW's switchyard"

@@ -119,6 +119,11 @@ def _read_sheet(raw: bytes, sheet: str, columns: dict[str, str]) -> pd.DataFrame
     missing = sorted(set(wanted) - set(frame.columns))
     if missing:
         raise DataError(f"sheet {sheet!r} lacks columns {missing}")
+    text = {"NE_name", "EIC_Code", "TSO", "Full_name", "Full_name.1", "Full Name"}
+    numeric = [c for c in frame.columns if c in wanted and c not in text]
+    numeric += [c for c in frame.columns if c.startswith("Period ")]
+    # ratings and parameters are sometimes given as text placeholders ("-", "n/a")
+    frame[numeric] = frame[numeric].apply(pd.to_numeric, errors="coerce")
     if sheet in ("Lines", "Tielines"):
         periods = frame[[c for c in frame.columns if c.startswith("Period ")]]
         frame["imax_a"] = frame["Fixed"].fillna(periods.max(axis=1))
