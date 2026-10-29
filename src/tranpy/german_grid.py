@@ -153,6 +153,16 @@ def _split_sites() -> dict[tuple[str, str], str]:
     }
 
 
+def _verified_locations() -> dict[str, tuple[float, float]]:
+    table = resources.files("tranpy.resources.grid").joinpath("substation_locations_de.csv")
+    with table.open(encoding="utf-8") as fh:
+        frame = pd.read_csv(fh)
+    return {
+        str(n): (float(x), float(y))
+        for n, x, y in zip(frame["node"], frame["lon"], frame["lat"], strict=True)
+    }
+
+
 def _corrections() -> pd.DataFrame:
     table = resources.files("tranpy.resources.grid").joinpath("line_corrections_de.csv")
     with table.open(encoding="utf-8") as fh:
@@ -670,7 +680,7 @@ def build_german_grid(
     *,
     substations: str | Path | None = None,
     locate_km: float = 25.0,
-    unnamed_km: float = 2.0,
+    unnamed_km: float = 0.0,
     length_tolerance: float = 0.15,
 ) -> GermanGrid:
     """Build the cleaned network (see module docs).
@@ -683,7 +693,9 @@ def build_german_grid(
         locate_km: largest distance between the schematic position of a substation and
             the OpenStreetMap substation of the same name.
         unnamed_km: largest distance to an unnamed OpenStreetMap substation of the same
-            voltage used when no name matches.
+            voltage used when no name matches. Off by default: checked on orthophotos,
+            the nearest unnamed substation was often a different site; such nodes are
+            located in ``resources/grid/substation_locations_de.csv`` instead.
         length_tolerance: accepted relative difference between a route through
             OpenStreetMap and the official circuit length.
     """
@@ -726,6 +738,7 @@ def build_german_grid(
         - set(lines["node0"])
         - set(lines["node1"])
     )
+    verified = _verified_locations()
     node_rows = []
     for node in sorted(names):
         site, kv = node.rsplit("|", 1)
@@ -741,12 +754,20 @@ def build_german_grid(
             kind = "substation"
         found = network.locate(site, int(kv), guess, locate_km)
         source: str | None
-        if found is not None:
+        if node in verified:
+            lon, lat = verified[node]
+            osm_bus = network.nearest(np.array([lon, lat]), int(kv), _SNAP_KM)
+            source = "verified"
+        elif found is not None:
             lon, lat = network.sub_xy[found[0]]
             osm_bus = network.nearest(network.sub_xy[found[0]], int(kv), _SNAP_KM)
             source = found[1]
         else:
-            osm_bus = network.nearest(guess, int(kv), unnamed_km) if points else None
+            osm_bus = (
+                network.nearest(guess, int(kv), unnamed_km)
+                if points and unnamed_km > 0 and kind != "foreign"
+                else None
+            )
             lon, lat = network.xy[osm_bus] if osm_bus is not None else guess
             source = "osm (nearest unnamed)" if osm_bus is not None else None
         node_rows.append(
