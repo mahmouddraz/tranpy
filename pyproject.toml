@@ -44,7 +44,8 @@ plot = ["matplotlib>=3.8"]
 persistence = ["skops>=0.10"]
 andes = ["andes>=2.0"]
 powsybl = ["pypowsybl>=1.10"]
-all = ["tranpy-ai[explain,neural,boosting,plot,persistence,andes,powsybl]"]
+grid = ["geopandas>=1.0", "pyogrio>=0.9"]
+all = ["tranpy-ai[explain,neural,boosting,plot,persistence,andes,powsybl,grid]"]
 
 [project.scripts]
 tranpy = "tranpy.cli:main"

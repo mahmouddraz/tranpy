@@ -52,3 +52,9 @@ CLAUDE.md
 .agents/
 skills/
 PUBLISHING.md
+
+# Purchased data exports, stored in the Databricks volume
+data/
+
+# Generated results
+examples/results/
