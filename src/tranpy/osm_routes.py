@@ -434,8 +434,9 @@ def check_routes(
         row["end_a"], row["end_b"] = end_a, end_b
         ok_ends = end_a and end_b
         ok_length = 0.7 <= ratio <= 1.6
-        on_map = float(row.get("dlm250", 1.0)) >= 0.7 or bool(r.get("border", False))
         identified = r["identity"] in ("named", "colour")
+        dlm = float(row.get("dlm250", 1.0))
+        on_map = dlm >= 0.7 or (identified and dlm >= 0.5) or bool(r.get("border", False))
         if identified and on_map and ok_ends and ok_length and int(r["joins"]) == 0:
             row["proposal"] = "mapped, consistent"
         elif on_map and ok_ends and ok_length:
@@ -572,12 +573,31 @@ def complete_parameters(lines: pd.DataFrame, routes: pd.DataFrame) -> pd.DataFra
         length = float(pd.to_numeric(lines.at[i, "length_km"], errors="coerce"))
         per_published = x / length if np.isfinite(length) and length > 0 else np.nan
         per_route = x / km
-        if np.isfinite(per_published) and 0.2 <= per_published <= 0.4 and km / length >= 1.3:
+        typical = _TYPICAL_X_OHM_PER_KM[kv]
+        if np.isfinite(per_published) and 0.2 <= per_published <= 0.45 and km / length >= 1.3:
             factor = km / length
             new = {c: current[c] * factor for c in ("r_ohm", "x_ohm", "b_us")}
             reason = (
                 f"section report: {x:.2f} ohm over the published {length:.1f} km "
                 f"({per_published:.3f} ohm/km) scaled to the mapped route of {km:.1f} km"
+            )
+        elif (
+            0.1 <= per_route < 0.65 * typical
+            and np.isfinite(length)
+            and abs(length - km) <= 0.3 * km
+        ):
+            new = {"r_ohm": current["r_ohm"] * 2, "x_ohm": x * 2, "b_us": current["b_us"] / 2}
+            reason = (
+                f"half-share report: {x:.2f} ohm over the mapped route of {km:.1f} km "
+                f"({per_route:.3f} ohm/km) is the parallel equivalent; doubled"
+            )
+        elif 0.1 <= per_route < 0.65 * typical:
+            med = medians[kv]
+            new = {c: med[c] * km for c in ("r_ohm", "x_ohm", "b_us")}
+            reason = (
+                f"section report without the other section: {x:.2f} ohm over "
+                f"{length:.1f} published km of a {km:.1f} km route; model median "
+                f"{med['x_ohm']:.3f} ohm/km x route length"
             )
         elif per_route < 0.1 or per_route > 1.0:
             med = medians[kv]
