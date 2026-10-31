@@ -160,7 +160,49 @@ def test_route_grid_applies_only_checked_routes() -> None:
     )  # fmt: skip
     dlm = [np.array([[8.0, 52.0], [8.3, 52.0], [8.6, 52.0]])]
     out = route_grid(lines, nodes, ways, relations, dlm)
-    assert out.lines["route_source"].tolist() == ["osm_mapped", "schematic"]
+    assert out.lines["route_source"].tolist() == ["osm_mapped", "osm_mapped"]
     assert len(out.lines["route"].iloc[0]) > 2
-    assert out.routes.set_index("eic").loc["E2", "proposal"] == "length vs reactance off"
+    # 3 ohm over 42 km is no overhead line: completed from the model's own per-km values
+    assert out.routes.set_index("eic").loc["E2", "proposal"] == "parameters completed"
+    assert out.lines["data_quality"].tolist() == ["published", "estimated"]
     assert out.changes.iloc[0]["previous"] == "schematic"
+
+
+def test_complete_parameters_scales_sections_and_replaces_implausible_values() -> None:
+    from tranpy.osm_routes import complete_parameters
+
+    lines = pd.DataFrame(
+        [
+            {"eic": "E1", "name": "A", "kv": 380.0, "length_km": 20.0, "r_ohm": 0.5, "x_ohm": 5.4,
+             "b_us": 60.0, "route_source": "schematic"},
+            {"eic": "E2", "name": "B", "kv": 380.0, "length_km": 60.0, "r_ohm": 0.01, "x_ohm": 0.36,
+             "b_us": 4.0, "route_source": "schematic"},
+            {"eic": "E3", "name": "C", "kv": 380.0, "length_km": 50.0, "r_ohm": 1.0, "x_ohm": 13.0,
+             "b_us": 150.0, "route_source": "osm"},
+        ]
+    )  # fmt: skip
+    routes = pd.DataFrame(
+        [
+            {
+                "eic": "E1",
+                "name": "A",
+                "kv": 380,
+                "km": 40.0,
+                "proposal": "length vs reactance off",
+            },
+            {
+                "eic": "E2",
+                "name": "B",
+                "kv": 380,
+                "km": 62.0,
+                "proposal": "length vs reactance off",
+            },
+        ]
+    )
+    out = complete_parameters(lines, routes)
+    assert out["proposal"].tolist() == ["parameters completed"] * 2
+    assert lines.loc[0, "x_ohm"] == pytest.approx(10.8)
+    assert lines.loc[0, "length_km"] == 40.0
+    assert lines.loc[1, "x_ohm"] == pytest.approx(0.26 * 62.0)
+    assert lines.loc[1, "data_quality"] == "estimated"
+    assert lines.loc[2, "x_ohm"] == 13.0

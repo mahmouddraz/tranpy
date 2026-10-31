@@ -303,7 +303,7 @@ def fetch_osm_hv_lines(path: str | Path | None = None) -> Path:
         return out
     query = (
         "[out:json][timeout:600][maxsize:536870912];"
-        'way["power"~"^(line|cable)$"]["voltage"~"220000|380000|400000"](47.2,5.8,55.1,15.1);'
+        'way["power"~"^(line|cable)$"]["voltage"~"220000|380000|400000"](46.9,5.6,55.7,15.2);'
         "out body geom;"
     )
     return _overpass(query, out)

@@ -509,8 +509,93 @@ def dlm250_geometries(path: Path) -> list[npt.NDArray[np.float64]]:
     return out
 
 
-ACCEPTED = ("mapped, consistent", "mapped, identity open", "mapped, small gaps")
+ACCEPTED = (
+    "mapped, consistent",
+    "mapped, identity open",
+    "mapped, small gaps",
+    "parameters completed",
+)
 """Proposals that let a mapped route replace a schematic one (never a verified one)."""
+
+
+def _median_per_km(lines: pd.DataFrame, kv: int) -> dict[str, float]:
+    """Median R, X, B per km of the exactly routed lines of one voltage class."""
+    volt = 380 if kv >= 300 else 220
+    sel = lines[
+        (lines["route_source"] == "osm")
+        & (lines["kv"].astype(float).map(lambda v: 380 if v >= 300 else 220) == volt)
+        & (pd.to_numeric(lines["length_km"], errors="coerce") > 5)
+    ]
+    length = pd.to_numeric(sel["length_km"], errors="coerce")
+    return {
+        c: float((pd.to_numeric(sel[c], errors="coerce") / length).median())
+        for c in ("r_ohm", "x_ohm", "b_us")
+    }
+
+
+def complete_parameters(lines: pd.DataFrame, routes: pd.DataFrame) -> pd.DataFrame:
+    """Complete circuits whose mapped route does not fit their published parameters.
+
+    Two patterns, both applied in place with ``data_quality`` = ``estimated`` and the
+    reason in ``route_evidence``; the published values stay in the change log:
+
+    * section report: the published reactance per published km is that of an overhead
+      line (0.2-0.4 ohm/km) but the mapped route is at least 1.3 times the published
+      length, so the operator reported its own section. R, X and B are scaled to the
+      route length.
+    * implausible values: the published reactance per route km is below 0.1 or above
+      1.0 ohm/km (typing errors, stubs). R, X and B become the model's own median
+      per-km values of that voltage class times the route length.
+    """
+    if not len(routes) or "proposal" not in routes:
+        return routes
+    routes = routes.copy()
+    if "parameter_change" not in routes:
+        routes["parameter_change"] = None
+    if "data_quality" not in lines:
+        lines["data_quality"] = "published"
+    medians = {kv: _median_per_km(lines, kv) for kv in (220, 380)}
+    for k, r in routes.iterrows():
+        if r.get("proposal") != "length vs reactance off" or not np.isfinite(r.get("km", np.nan)):
+            continue
+        hit = lines.index[(lines["eic"] == r["eic"]) & (lines["name"] == r["name"])]
+        if not len(hit):
+            continue
+        i = int(hit[0])
+        km = float(r["km"])
+        kv = int(r["kv"])
+        current = {
+            c: float(np.asarray(lines.at[i, c], dtype=float).item())
+            for c in ("r_ohm", "x_ohm", "b_us")
+        }
+        x = current["x_ohm"]
+        length = float(pd.to_numeric(lines.at[i, "length_km"], errors="coerce"))
+        per_published = x / length if np.isfinite(length) and length > 0 else np.nan
+        per_route = x / km
+        if np.isfinite(per_published) and 0.2 <= per_published <= 0.4 and km / length >= 1.3:
+            factor = km / length
+            new = {c: current[c] * factor for c in ("r_ohm", "x_ohm", "b_us")}
+            reason = (
+                f"section report: {x:.2f} ohm over the published {length:.1f} km "
+                f"({per_published:.3f} ohm/km) scaled to the mapped route of {km:.1f} km"
+            )
+        elif per_route < 0.1 or per_route > 1.0:
+            med = medians[kv]
+            new = {c: med[c] * km for c in ("r_ohm", "x_ohm", "b_us")}
+            reason = (
+                f"published X={x:.2f} ohm over a mapped route of {km:.1f} km "
+                f"({per_route:.3f} ohm/km) is implausible; model median "
+                f"{med['x_ohm']:.3f} ohm/km x route length"
+            )
+        else:
+            continue
+        for c, v in new.items():
+            lines.at[i, c] = v
+        lines.at[i, "length_km"] = km
+        lines.at[i, "data_quality"] = "estimated"
+        routes.at[k, "proposal"] = "parameters completed"
+        routes.at[k, "parameter_change"] = reason
+    return routes
 
 
 @dataclass
@@ -547,6 +632,8 @@ def route_grid(
         if "construction" in w.get("tags", {}) or "disused:power" in w.get("tags", {})
     }  # fmt: skip
     networks = {kv: WayNetwork.build(ways.values(), kv, excluded) for kv in (220, 380)}
+    disused = {i for i, w in ways.items() if "disused:power" in w.get("tags", {})}
+    with_construction = {kv: WayNetwork.build(ways.values(), kv, disused) for kv in (220, 380)}
     prepared = prepare_relations(relations, ways, excluded)
     positions: dict[str, list[float]] = {
         str(n): [float(x), float(y)]
@@ -585,6 +672,18 @@ def route_grid(
         found = route_circuit(
             str(c["name"]), row["kv"], np.array(a), np.array(b), prepared, networks[row["kv"]]
         )
+        if found is None and c.get("review") in ("rebuild", "voltage"):
+            # the circuit is operated on a line that OpenStreetMap still tags as construction
+            found = route_circuit(
+                str(c["name"]),
+                row["kv"],
+                np.array(a),
+                np.array(b),
+                [],
+                with_construction[row["kv"]],
+            )
+            if found is not None:
+                row["on_construction_ways"] = True
         if found is None:
             rows.append(row)
             continue
@@ -613,6 +712,9 @@ def route_grid(
     lines = lines.copy()
     if "route_evidence" not in lines:
         lines["route_evidence"] = None
+    if "data_quality" not in lines:
+        lines["data_quality"] = "published"
+    routes = complete_parameters(lines, routes)
     route_column: list[Any] = lines["route"].tolist()
     changes = []
     for r in routes.to_dict("records") if len(routes) else []:
@@ -636,6 +738,18 @@ def route_grid(
             f"{r['method']} ({r['identity']}{relation_text}), {r['km']:.1f} km, {r['joins']} joins"
             f"{dlm}, route/reactance length {r['x_ratio']:.2f}; {r['proposal']}"
         )
+        if isinstance(r.get("parameter_change"), str):
+            changes.append(
+                {
+                    "eic": r["eic"],
+                    "name": r["name"],
+                    "field": "r_ohm, x_ohm, b_us, length_km",
+                    "previous": "published (see bronze)",
+                    "new": "estimated",
+                    "reason": r["parameter_change"],
+                }
+            )
+            evidence = evidence + "; " + r["parameter_change"]
         changes.append(
             {
                 "eic": r["eic"],

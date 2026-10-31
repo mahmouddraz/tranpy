@@ -457,7 +457,7 @@ def cim_tables(
             "status_date": lines.get("status_date"),
             "status_evidence": lines.get("status_evidence"),
             "review": lines.get("review"),
-            "data_quality": "published",
+            "data_quality": lines.get("data_quality", "published"),
         }
     )
     tr = grid.transformers
