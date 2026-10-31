@@ -1,0 +1,17 @@
+resources:
+  jobs:
+    cgmes_create_tables:
+      name: tranpy-cgmes-create-tables
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../../dist/*.whl
+      tasks:
+        - task_key: create_tables
+          environment_key: default
+          python_wheel_task:
+            package_name: tranpy_ai
+            entry_point: tranpy-cgmes
+            parameters: ["--schema=${var.catalog}.cgmes_v3_0"]
