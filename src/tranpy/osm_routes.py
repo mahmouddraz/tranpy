@@ -677,6 +677,8 @@ def route_grid(
     for c in active.to_dict("records"):
         if c["route_source"] not in ("schematic", "none"):
             continue
+        if c.get("status") not in (None, "in_operation"):
+            continue  # a dismantled circuit has no current route to find
         key = f"{c['eic']}~{c['node0']}~{c['node1']}"
         row: dict[str, Any] = {
             "key": key, "eic": c["eic"], "name": c["name"], "kv": (380 if c["kv"] >= 300 else 220),

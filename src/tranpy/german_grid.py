@@ -1074,6 +1074,15 @@ def build_german_grid(
             "substation locations": f"OpenStreetMap via Overpass API, {stamp}",
         },
     )
+    degree = pd.concat([grid.lines["node0"], grid.lines["node1"]]).value_counts()
+    for tee in nodes.loc[nodes["kind"] == "tee", "node"]:
+        if degree.get(tee, 0) < 2:
+            issues.add(
+                "dangling tee",
+                str(tee),
+                "only one section of the circuit is published",
+                "kept; the other sections are missing from the source",
+            )
     component = grid.components()
     for comp, members in component.groupby(component).groups.items():
         if comp != 0:
