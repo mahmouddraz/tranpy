@@ -485,22 +485,29 @@ def _clean_lines(core: CoreGridModel, aliases: dict[str, str], issues: _Issues) 
     merged: set[str] = set()
     split = _split_sites()
 
-    def node(name: str, kv: float, reporter: str) -> str:
+    def node(name: str, kv: float, reporter: str, circuit: str) -> str:
         key = site_key(split.get((str(name).strip(), reporter), name))
         if key in aliases:
             if name not in merged:
                 merged.add(name)
                 issues.add("alias", str(name), f"same substation as {aliases[key]}", "merged")
             key = aliases[key]
+        if _is_tee(f"{key}|"):
+            # operators reuse tee names across circuits; a tee belongs to one circuit
+            key = f"{key}#{_circuit_group(circuit)}"
         return f"{key}|{_voltage_class(kv)}"
 
     lines["node0"] = [
-        node(a, v, r)
-        for a, v, r in zip(lines["from_substation"], lines["kv"], lines["tso"], strict=True)
+        node(a, v, r, n)
+        for a, v, r, n in zip(
+            lines["from_substation"], lines["kv"], lines["tso"], lines["name"], strict=True
+        )
     ]
     lines["node1"] = [
-        node(b, v, r)
-        for b, v, r in zip(lines["to_substation"], lines["kv"], lines["tso"], strict=True)
+        node(b, v, r, n)
+        for b, v, r, n in zip(
+            lines["to_substation"], lines["kv"], lines["tso"], lines["name"], strict=True
+        )
     ]
     lines = _merge_double_reports(lines, issues)
     for row in _rows(lines[lines["node0"] == lines["node1"]]):
@@ -527,8 +534,28 @@ _AGREEMENT = 0.10
 
 
 def _is_tee(node: str) -> bool:
-    site = node.split("|")[0]
+    site = node.split("|")[0].split("#")[0]
     return site.startswith("y-") or site.endswith("abzweig")
+
+
+def _circuit_group(line_name: str) -> str:
+    """The circuit a teed section belongs to, from the code at the end of its name.
+
+    ``Y-Hanekenfaehr (-Gronau - Kusenhorst) GRAFSH W`` -> ``grafsh w``;
+    ``Y-Simbach (-St. Peter - Altheim) 233/230`` -> ``233/230``;
+    ``Eisenhüttenstadt (Abzweig) - Preilack 547-2`` -> ``547`` (50Hertz numbers its
+    sections). Sections of one circuit share the group; parallel circuits do not.
+    """
+    text = re.sub(r"\(.*?\)", "", str(line_name)).strip()
+    tokens = text.split()
+    if not tokens:
+        return ""
+    if len(tokens) >= 2 and re.fullmatch(r"[A-ZÄÖÜ]{4,}", tokens[-2]) and len(tokens[-1]) <= 3:
+        group = f"{tokens[-2]} {tokens[-1]}"
+    else:
+        group = tokens[-1]
+    group = re.sub(r"^(\d{3,4})-\d$", r"\1", group)
+    return group.lower()
 
 
 def _unify_reported_tees(lines: pd.DataFrame, issues: _Issues) -> pd.DataFrame:

@@ -175,3 +175,42 @@ def test_curated_status_is_applied_with_evidence() -> None:
     frame = issues.frame()
     assert (frame["check"] == "status").sum() >= 1
     assert (frame["check"] == "review").sum() >= 2
+
+
+@pytest.mark.parametrize(
+    ("name", "group"),
+    [
+        ("Y-Hanekenfaehr (-Gronau - Kusenhorst) GRAFSH W", "grafsh w"),
+        ("Y-Amelsbueren (-Hanekenfaehr - Westerkappeln) AMELSB", "amelsb"),
+        ("Y-Simbach (-St. Peter - Altheim) 233/230", "233/230"),
+        ("Eisenhüttenstadt (Abzweig) - Preilack 547-2", "547"),
+        ("Y-Wechold (-Landesbergen - Sottrum) gelb/2", "gelb/2"),
+    ],
+)
+def test_circuit_group(name: str, group: str) -> None:
+    from tranpy.german_grid import _circuit_group
+
+    assert _circuit_group(name) == group
+
+
+def test_tees_are_split_per_circuit() -> None:
+    columns = ["name", "eic", "tso", "from_substation", "to_substation", "kv", "r_ohm", "x_ohm",
+               "b_us", "length_km", "imax_a", "tie_line"]  # fmt: skip
+
+    def section(name: str, eic: str, end: str) -> list:
+        return [name, eic, "AMPRION GMBH", "Y-Tee", end, 220.0, 0.1, 1.0, 10.0, 5.0, 1000.0, False]
+
+    rows = [
+        section("Y-Tee (-A - B) ALPHA W", "E1", "A"),
+        section("Y-Tee (-A - B) ALPHA W", "E2", "B"),
+        section("Y-Tee (-A - C) BETA O", "E3", "A"),
+    ]  # fmt: skip
+    core = CoreGridModel(
+        lines=pd.DataFrame(rows, columns=columns),
+        transformers=pd.DataFrame(),
+        routes={},
+        release="t",
+    )
+    out = _clean_lines(core, {}, _Issues())
+    tees = sorted(set(out["node0"]))
+    assert tees == ["y-tee#alpha w|220", "y-tee#beta o|220"]
