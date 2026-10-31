@@ -683,13 +683,30 @@ def _reconcile_ties(
                 f"kept {best} ({x_per_km:.3f} ohm/km)",
             )
         if best == f"{row['tso']} report" and x_per_km < 0.6 * typical and len(candidates) == 1:
-            issues.add(
-                "tie-line",
-                _text(row["name"]),
-                f"X={_num(row['x_ohm']):.2f} ohm over a route of about {route_km:.0f} km "
-                f"({x_per_km:.3f} ohm/km): only the German section is reported",
-                "kept; neighbouring section missing",
-            )
+            published_km = _num(row["length_km"])
+            if np.isfinite(published_km) and abs(published_km - route_km) <= 0.3 * route_km:
+                # the published length covers the whole route, so the operator reports its
+                # ownership share: the parallel equivalent of the circuit, not a section
+                lines.loc[i, ["r_ohm", "x_ohm", "b_us"]] = [
+                    2 * _num(row["r_ohm"]),
+                    2 * _num(row["x_ohm"]),
+                    _num(row["b_us"]) / 2,
+                ]
+                issues.add(
+                    "tie-line",
+                    _text(row["name"]),
+                    f"X={_num(row['x_ohm']):.2f} ohm over the published {published_km:.0f} km "
+                    f"({x_per_km:.3f} ohm/km) is below any overhead line: a half-share report",
+                    f"doubled to {2 * _num(row['x_ohm']):.2f} ohm (estimated)",
+                )
+            else:
+                issues.add(
+                    "tie-line",
+                    _text(row["name"]),
+                    f"X={_num(row['x_ohm']):.2f} ohm over a route of about {route_km:.0f} km "
+                    f"({x_per_km:.3f} ohm/km): only the German section is reported",
+                    "kept; neighbouring section missing",
+                )
     for i in lines.index[lines["length_km"].isna() & ~lines["hvdc"]]:
         row = lines.loc[i]
         length = _num(row["x_ohm"]) / _TYPICAL_X_OHM_PER_KM[_voltage_class(_num(row["kv"]))]

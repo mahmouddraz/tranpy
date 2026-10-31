@@ -142,3 +142,23 @@ def test_reports_of_two_operators_reach_the_merge() -> None:
     assert len(out) == 1
     assert out.iloc[0]["other_x_ohm"] == 7.1
     assert list(issues.frame()["check"]).count("duplicate") == 1
+
+
+def test_half_share_report_is_doubled() -> None:
+    from tranpy.german_grid import _reconcile_ties
+
+    lines = pd.DataFrame(
+        [{"name": "A - B", "eic": "E1", "tso": "TENNETGMBH", "node0": "a|380", "node1": "b|380",
+          "kv": 380.0, "r_ohm": 0.4, "x_ohm": 6.5, "b_us": 105.0, "length_km": 47.0,
+          "tie_line": True, "hvdc": False, "other_tso": None, "other_r_ohm": np.nan,
+          "other_x_ohm": np.nan, "other_b_us": np.nan}]
+    )  # fmt: skip
+    nodes = pd.DataFrame(
+        {"node": ["a|380", "b|380"], "lon": [11.0, 11.64], "lat": [52.2, 52.27],
+         "location_source": ["osm", "osm"]}
+    )  # fmt: skip
+    issues = _Issues()
+    _reconcile_ties(lines, lines.iloc[0:0], nodes, issues)
+    assert lines.at[0, "x_ohm"] == pytest.approx(13.0)
+    assert lines.at[0, "b_us"] == pytest.approx(52.5)
+    assert "half-share" in issues.frame()["detail"].iloc[-1]
