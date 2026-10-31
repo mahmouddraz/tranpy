@@ -977,7 +977,7 @@ def build_german_grid(
         site, kv = node.rsplit("|", 1)
         points = schematic.get(node)
         guess = np.median(np.array(points), axis=0) if points else np.array([np.nan, np.nan])
-        if site.startswith("y-") or site.endswith("abzweig"):
+        if _is_tee(node):
             kind = "tee"
         elif node in busbars:
             kind = "busbar"
@@ -987,12 +987,14 @@ def build_german_grid(
             kind = "substation"
         found = network.locate(site, int(kv), guess, locate_km)
         source: str | None
-        if node in verified:
-            lon, lat = verified[node]
+        # curated locations name the tee without its circuit suffix
+        base = node.split("#")[0] + "|" + node.split("|")[1] if "#" in node else node
+        if base in verified:
+            lon, lat = verified[base]
             osm_bus = network.nearest(np.array([lon, lat]), int(kv), _SNAP_KM)
             source = "verified"
-        elif node in abroad:
-            lon, lat = abroad[node]
+        elif base in abroad:
+            lon, lat = abroad[base]
             osm_bus = network.nearest(np.array([lon, lat]), int(kv), _SNAP_KM)
             source = "osm (curated name match)"
         elif found is not None:
