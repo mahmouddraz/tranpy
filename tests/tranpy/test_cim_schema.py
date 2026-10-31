@@ -54,3 +54,11 @@ def test_create_statement_keeps_exact_names() -> None:
     assert "c.cgmes_v3_0.aclinesegment" in sql
     assert "`r` DOUBLE COMMENT 'ACLineSegment.r'" in sql
     assert "CGMES 3.0 class ACLineSegment" in sql
+
+
+def test_coverage_only_names_classes_of_the_schema() -> None:
+    from tranpy.cim.coverage import SOURCES, report
+
+    known = set(_by_name())
+    assert set(SOURCES) <= known, set(SOURCES) - known
+    assert len(report()) == len(known)
