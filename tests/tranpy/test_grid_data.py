@@ -123,3 +123,12 @@ def test_operator_map(tmp_path: Path) -> None:
     fig = plot_operator_map(model, borders=False, title="test")
     labels = [t.get_text() for t in fig.axes[0].get_legend().get_texts()]
     assert labels[:2] == ["50Hertz (1)", "Amprion (2)"]
+
+
+def test_numeric_column_is_missing_for_older_releases() -> None:
+    from tranpy.grid_data import _numeric_column
+
+    frame = pd.DataFrame({"DLRmin(A)": ["1000", "-"]})
+    assert _numeric_column(frame, "DLRmin(A)").iloc[0] == 1000.0
+    assert _numeric_column(frame, "DLRmin(A)").isna().iloc[1]
+    assert _numeric_column(frame, "DLRmax(A)").isna().all()

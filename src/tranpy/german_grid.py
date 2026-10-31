@@ -1057,6 +1057,7 @@ def build_german_grid(
     columns = [
         "eic", "name", "tso", "node0", "node1", "kv", "length_km", "r_ohm", "x_ohm",
         "b_us", "imax_a", "tie_line", "hvdc",
+        *[c for c in ("rating_basis", "dlr_min_a", "dlr_max_a") if c in lines],
     ]  # fmt: skip
     lines = lines[columns].assign(
         route=pd.Series(routes, index=lines.index, dtype=object), route_source=route_sources

@@ -113,6 +113,13 @@ def _normalised(frame: pd.DataFrame) -> pd.DataFrame:
     return frame.rename(columns=lambda c: unicodedata.normalize("NFKC", str(c)).strip())
 
 
+def _numeric_column(frame: pd.DataFrame, name: str) -> pd.Series:
+    """A numeric column, all missing when an older release lacks it."""
+    if name not in frame:
+        return pd.Series(np.nan, index=frame.index, dtype=float)
+    return pd.to_numeric(frame[name], errors="coerce")
+
+
 def _read_sheet(raw: bytes, sheet: str, columns: dict[str, str]) -> pd.DataFrame:
     frame = _normalised(pd.read_excel(io.BytesIO(raw), sheet_name=sheet, header=1))
     wanted = {unicodedata.normalize("NFKC", k): v for k, v in columns.items()}
@@ -126,11 +133,23 @@ def _read_sheet(raw: bytes, sheet: str, columns: dict[str, str]) -> pd.DataFrame
     frame[numeric] = frame[numeric].apply(pd.to_numeric, errors="coerce")
     if sheet in ("Lines", "Tielines"):
         periods = frame[[c for c in frame.columns if c.startswith("Period ")]]
-        frame["imax_a"] = frame["Fixed"].fillna(periods.max(axis=1))
+        # lines on dynamic rating publish a band instead of a fixed value; the lower band
+        # holds in the worst ambient conditions, so it is preferred over the upper one
+        dlr_min = _numeric_column(frame, "DLRmin(A)")
+        dlr_max = _numeric_column(frame, "DLRmax(A)")
+        seasonal = periods.max(axis=1)
+        frame["imax_a"] = frame["Fixed"].fillna(seasonal).fillna(dlr_min).fillna(dlr_max)
+        frame["rating_basis"] = np.select(
+            [frame["Fixed"].notna(), seasonal.notna(), dlr_min.notna(), dlr_max.notna()],
+            ["fixed", "seasonal", "dlr_min", "dlr_max"],
+            None,
+        )
+        frame["dlr_min_a"], frame["dlr_max_a"] = dlr_min, dlr_max
     out = frame.rename(columns=wanted)
     keep = [
         *wanted.values(),
         *(["imax_a"] if "imax_a" in out and "imax_a" not in wanted.values() else []),
+        *[c for c in ("rating_basis", "dlr_min_a", "dlr_max_a") if c in out],
     ]
     return out[keep].dropna(subset=["eic"]).reset_index(drop=True)
 
