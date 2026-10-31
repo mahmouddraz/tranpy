@@ -452,6 +452,10 @@ def cim_tables(
             "tie_line": lines["tie_line"],
             "route": [_route(r) for r in lines["route"]],
             "route_source": lines["route_source"],
+            "status": lines.get("status", "in_operation"),
+            "status_date": lines.get("status_date"),
+            "status_evidence": lines.get("status_evidence"),
+            "review": lines.get("review"),
             "data_quality": "published",
         }
     )

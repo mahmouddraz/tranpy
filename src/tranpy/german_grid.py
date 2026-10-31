@@ -171,6 +171,37 @@ def _verified_locations() -> dict[str, tuple[float, float]]:
     return _curated_locations("substation_locations_de.csv")
 
 
+def _curated(name: str) -> pd.DataFrame:
+    table = resources.files("tranpy.resources.grid").joinpath(name)
+    with table.open(encoding="utf-8") as fh:
+        return pd.read_csv(fh, dtype=str)
+
+
+def _apply_status(lines: pd.DataFrame, issues: _Issues) -> pd.DataFrame:
+    """Lifecycle status of every circuit: in operation unless the curated table says
+    otherwise (``resources/grid/circuit_status_de.csv``, each row with its evidence)."""
+    status = _curated("circuit_status_de.csv").set_index("name")
+    lines = lines.assign(status="in_operation", status_date=None, status_evidence=None, review=None)
+    for name, row in status.iterrows():
+        hit = lines.index[lines["name"].str.strip() == str(name).strip()]
+        if not len(hit):
+            issues.add("status", str(name), "not found in this release", "skipped")
+            continue
+        lines.loc[hit, "status"] = row["status"]
+        lines.loc[hit, "status_date"] = row.get("status_date") or None
+        lines.loc[hit, "status_evidence"] = row["evidence"]
+        lines.loc[hit, "review"] = row.get("review") or None
+        issues.add(
+            "status",
+            str(name),
+            str(row["evidence"])[:160],
+            f"{row['status']}" + (f"; review: {row['review']}" if row.get("review") else ""),
+        )
+    for row in _rows(_curated("node_review_de.csv")):
+        issues.add("review", _text(row.node), _text(row.question), _text(row.evidence)[:200])
+    return lines
+
+
 def _corrections() -> pd.DataFrame:
     table = resources.files("tranpy.resources.grid").joinpath("line_corrections_de.csv")
     with table.open(encoding="utf-8") as fh:
@@ -1001,6 +1032,7 @@ def build_german_grid(
     lines = lines[columns].assign(
         route=pd.Series(routes, index=lines.index, dtype=object), route_source=route_sources
     )
+    lines = _apply_status(lines, issues)
 
     grid = GermanGrid(
         nodes=nodes,

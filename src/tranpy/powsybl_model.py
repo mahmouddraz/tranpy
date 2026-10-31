@@ -73,7 +73,7 @@ def network_from_cim_tables(tables: CimTables, name: str = "germany_hv") -> Any:
         id=[bus_id[m] for m in bus["mrid"]], voltage_level_id=[bus_vl[m] for m in bus["mrid"]]
     )
 
-    line = tables.ac_line_segment
+    line = operating_lines(tables)
     line = line[line["bus1_mrid"] != line["bus2_mrid"]]
     half_b = line["bch_s"].astype(float) / 2
     network.create_lines(
@@ -159,6 +159,19 @@ class LoadFlowSummary:
 
     def as_dict(self) -> dict[str, Any]:
         return dict(self.__dict__)
+
+
+def operating_lines(
+    tables: CimTables, statuses: tuple[str, ...] = ("in_operation",)
+) -> pd.DataFrame:
+    """Lines with one of ``statuses`` (all lines when the table has no status column).
+
+    Planning studies pass more statuses, for example ``("in_operation", "under_construction")``.
+    """
+    lines = tables.ac_line_segment
+    if "status" not in lines:
+        return lines
+    return lines[lines["status"].fillna("in_operation").isin(statuses)]
 
 
 def line_ids(tables: CimTables) -> dict[str, str]:

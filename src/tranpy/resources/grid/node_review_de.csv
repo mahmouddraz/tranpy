@@ -1,0 +1,3 @@
+node,question,evidence
+diele|220,"Does a 220 kV level exist at Diele?","OpenStreetMap way 177829920 and Wikidata Q52842361 list Diele as 380/300/150/110 kV; all AC lines at Diele are 380 kV (304 Conneforde, 305 Doerpen/West, 306 Meeden) and the HVDC links BorWin1/2 and DolWin1/2/3; no 220 kV line within 40 km; the 220 kV Emden-Conneforde line was dismantled after May 2022"
+gutersloh|220,"Does a 220 kV level still exist at Guetersloh?","Its only 220 kV line (Hesseln) was replaced in Q4 2021 (EnLAG 16); no 220 kV line enters Guetersloh in OpenStreetMap within 40 km; no document on the dismantling of the 220 kV yard found"

@@ -162,3 +162,16 @@ def test_half_share_report_is_doubled() -> None:
     assert lines.at[0, "x_ohm"] == pytest.approx(13.0)
     assert lines.at[0, "b_us"] == pytest.approx(52.5)
     assert "half-share" in issues.frame()["detail"].iloc[-1]
+
+
+def test_curated_status_is_applied_with_evidence() -> None:
+    from tranpy.german_grid import _apply_status
+
+    lines = pd.DataFrame({"name": ["Guetersloh - Hesseln HALLE W", "Other"], "kv": [220.0, 380.0]})
+    issues = _Issues()
+    out = _apply_status(lines, issues)
+    assert out["status"].tolist() == ["out_of_service", "in_operation"]
+    assert "EnLAG 16" in out["status_evidence"].iloc[0]
+    frame = issues.frame()
+    assert (frame["check"] == "status").sum() >= 1
+    assert (frame["check"] == "review").sum() >= 2
