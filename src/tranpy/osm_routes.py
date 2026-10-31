@@ -737,6 +737,11 @@ def route_grid(
         lines["route_evidence"] = None
     if "data_quality" not in lines:
         lines["data_quality"] = "published"
+    # exact routes already agree with the official length; schematic ones are estimates
+    lines["route_quality"] = np.where(
+        lines["route_source"] == "osm", "verified",
+        np.where(lines["route_source"] == "within substation", "station", "estimated"),
+    )  # fmt: skip
     routes = complete_parameters(lines, routes)
     route_column: list[Any] = lines["route"].tolist()
     changes = []
@@ -786,6 +791,12 @@ def route_grid(
         route_column[lines.index.get_loc(i)] = paths[r["key"]]
         lines.at[i, "route_source"] = "osm_mapped"
         lines.at[i, "route_evidence"] = evidence
+        # three independent sources agree: the mapped circuit by name, the official
+        # landscape model and the published electrical length. Identity by position
+        # alone leaves which of the parallel circuits it is open, so only "mapped".
+        lines.at[i, "route_quality"] = (
+            "verified" if r["proposal"] == "mapped, consistent" else "mapped"
+        )
     lines["route"] = pd.Series(route_column, index=lines.index, dtype=object)
     candidates = pd.DataFrame(
         {"key": list(paths), "route": [np.round(p, 5).tolist() for p in paths.values()]}

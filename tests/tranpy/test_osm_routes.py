@@ -165,6 +165,7 @@ def test_route_grid_applies_only_checked_routes() -> None:
     # 3 ohm over 42 km is no overhead line: completed from the model's own per-km values
     assert out.routes.set_index("eic").loc["E2", "proposal"] == "parameters completed"
     assert out.lines["data_quality"].tolist() == ["published", "estimated"]
+    assert out.lines["route_quality"].tolist() == ["verified", "mapped"]
     assert out.changes.iloc[0]["previous"] == "schematic"
 
 
