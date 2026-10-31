@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from tranpy.german_grid import (
+    _clean_lines,
     _Issues,
     _merge_double_reports,
     _OsmNetwork,
@@ -13,6 +14,7 @@ from tranpy.german_grid import (
     _words,
     site_key,
 )
+from tranpy.grid_data import CoreGridModel
 
 
 @pytest.mark.parametrize(
@@ -117,3 +119,26 @@ def test_parallel_osm_lines_are_not_added() -> None:
     assert net.route(0, 2, 120.0, 0.15) is None
     assert net.locate("alpha", 380, np.array([10.01, 50.0]), 5.0) == (0, "osm")
     assert net.locate("y-alpha", 380, np.array([10.01, 50.0]), 5.0) is None
+
+
+def test_reports_of_two_operators_reach_the_merge() -> None:
+    columns = ["name", "eic", "tso", "from_substation", "to_substation", "kv", "r_ohm", "x_ohm",
+               "b_us", "length_km", "imax_a", "tie_line"]  # fmt: skip
+    core = CoreGridModel(
+        lines=pd.DataFrame(
+            [
+                ["A - B", "E1", "50HERTZ", "A", "B", 380.0, 0.4, 7.0, 130.0, 25.0, 3600.0, True],
+                ["B - A", "E1", "TENNETGMBH", "B", "A", 380.0, 0.5, 7.1, 130.0, 30.0, 3600.0, True],
+                ["A - B", "E1", "50HERTZ", "A", "B", 380.0, 0.4, 7.0, 130.0, 25.0, 3600.0, True],
+            ],
+            columns=columns,
+        ),
+        transformers=pd.DataFrame(),
+        routes={},
+        release="test",
+    )
+    issues = _Issues()
+    out = _clean_lines(core, {}, issues)
+    assert len(out) == 1
+    assert out.iloc[0]["other_x_ohm"] == 7.1
+    assert list(issues.frame()["check"]).count("duplicate") == 1

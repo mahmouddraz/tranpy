@@ -14,8 +14,9 @@
 
 Cleaning of the source, each step recorded in :attr:`GermanGrid.issues`:
 
-1. rows repeated in the line and tie-line sheets are removed (same EIC and same ends;
-   segments of a teed circuit share one EIC and are kept);
+1. rows repeated in the line and tie-line sheets are removed (same EIC, same ends and
+   same operator; segments of a teed circuit share one EIC and are kept, and the
+   reports of two operators are merged later);
 2. a missing voltage is taken from the other segments of the circuit;
 3. substation names are unified (umlauts and their transliterations, ``/N`` = ``/Nord``,
    ``/N`` = ``/Nord``) and corrected with the curated tables
@@ -419,9 +420,9 @@ def _clean_lines(core: CoreGridModel, aliases: dict[str, str], issues: _Issues) 
         tuple(sorted((_text(a).strip(), _text(b).strip())))
         for a, b in zip(lines["from_substation"], lines["to_substation"], strict=True)
     ]
-    repeated = lines.duplicated(["eic", "ends"])
+    repeated = lines.duplicated(["eic", "ends", "tso"])
     for name in lines.loc[repeated, "name"]:
-        issues.add("duplicate", str(name), "listed in two sheets or by two TSOs", "removed")
+        issues.add("duplicate", str(name), "listed in two sheets", "removed")
     lines = lines[~repeated].reset_index(drop=True)
     lines["hvdc"] = False
     for fix in _rows(_corrections()):
@@ -689,6 +690,16 @@ def _reconcile_ties(
                 f"({x_per_km:.3f} ohm/km): only the German section is reported",
                 "kept; neighbouring section missing",
             )
+    for i in lines.index[lines["length_km"].isna() & ~lines["hvdc"]]:
+        row = lines.loc[i]
+        length = _num(row["x_ohm"]) / _TYPICAL_X_OHM_PER_KM[_voltage_class(_num(row["kv"]))]
+        lines.at[i, "length_km"] = length
+        issues.add(
+            "length",
+            _text(row["name"]),
+            "operators report different section lengths",
+            f"estimated from the reactance: {length:.1f} km",
+        )
 
 
 def _transformers(
