@@ -51,6 +51,7 @@ all = ["tranpy-ai[explain,neural,boosting,plot,persistence,andes,powsybl,grid]"]
 tranpy = "tranpy.cli:main"
 tranpy-grid = "tranpy.grid_pipeline:main"
 tranpy-cgmes = "tranpy.cim.create:main"
+tranpy-cgmes-fill = "tranpy.cim.fill:main"
 
 [dependency-groups]
 dev = [

@@ -15,3 +15,22 @@ resources:
             package_name: tranpy_ai
             entry_point: tranpy-cgmes
             parameters: ["--schema=${var.catalog}.cgmes_v3_0"]
+
+    cgmes_fill:
+      name: tranpy-cgmes-fill
+      description: Fill the CGMES 3.0 tables from the silver tables of the grid pipeline.
+      environments:
+        - environment_key: default
+          spec:
+            environment_version: "5"
+            dependencies:
+              - ../../dist/*.whl
+      tasks:
+        - task_key: fill
+          environment_key: default
+          python_wheel_task:
+            package_name: tranpy_ai
+            entry_point: tranpy-cgmes-fill
+            parameters:
+              - "--silver=${var.catalog}.${resources.schemas.grid_silver.name}"
+              - "--schema=${var.catalog}.cgmes_v3_0"
