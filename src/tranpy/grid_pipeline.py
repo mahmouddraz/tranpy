@@ -462,12 +462,20 @@ def gold_check(model: Any, out_dir: Path) -> dict[str, Any]:
     network = network_from_cim_tables(model)
     summary = run_load_flow(network, model)
     loading = line_loading(network, model)
+    # pieces inside a station carry nominal ratings (150 A stubs): reported separately
+    inside = set(
+        model.ac_line_segment.loc[
+            model.ac_line_segment["route_source"] == "within substation", "mrid"
+        ]
+    )
+    stub = loading.index.isin(inside)
     archive = export_cgmes(
         network, out_dir / f"germany_hv_{model.model_info['model_version']}_cgmes.zip"
     )
     return {
         **{f"loadflow_{k}": v for k, v in summary.as_dict().items()},
-        "loadflow_lines_over_100pct": int((loading > 1).sum()),
+        "loadflow_lines_over_100pct": int((loading[~stub] > 1).sum()),
+        "loadflow_station_stubs_over_100pct": int((loading[stub] > 1).sum()),
         "loadflow_line_loading_p95": float(loading.quantile(0.95))
         if len(loading)
         else float("nan"),
