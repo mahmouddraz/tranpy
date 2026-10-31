@@ -26,6 +26,7 @@ import numpy.typing as npt
 import pandas as pd
 
 from tranpy.german_grid import GermanGrid
+from tranpy.osm_export import IN_OPERATION, OUT_OF_SERVICE, PLANNED, UNDER_CONSTRUCTION
 from tranpy_core.errors import DataError
 
 __all__ = [
@@ -83,13 +84,29 @@ def _km(lon1: Any, lat1: Any, lon2: Any, lat2: Any) -> Any:
     return np.hypot((lon1 - lon2) * np.cos(np.radians((lat1 + lat2) / 2)), lat1 - lat2) * 111.2
 
 
+def _plant_lifecycle(status: pd.Series) -> pd.Series:
+    """Lifecycle of plant list entries; grid and capacity reserve plants are in operation."""
+    return pd.Series(
+        np.select(
+            [
+                status.str.contains("stillgelegt"),
+                status.str.contains("planung"),
+                status.str.contains("im bau|in bau"),
+            ],
+            [OUT_OF_SERVICE, PLANNED, UNDER_CONSTRUCTION],
+            IN_OPERATION,
+        ),
+        index=status.index,
+    )
+
+
 def plants_from_kraftwerksliste(raw: pd.DataFrame) -> pd.DataFrame:
     """Normalised power plant list (Bundesnetzagentur Kraftwerksliste).
 
     Columns: ``mastr_id``, ``name``, ``operator``, ``state``, ``fuel``, ``capacity_mw`` (net
     nominal), ``status``, ``in_operation`` (in operation), ``reserve`` (grid or capacity
-    reserve, not in the market), ``decommissioned``, ``voltage_level`` (first of the
-    listed levels), ``grid_operator``, ``lon``, ``lat`` (WGS84, from EPSG:3857),
+    reserve, not in the market), ``decommissioned``, ``lifecycle_status``, ``voltage_level``
+    (first of the listed levels), ``grid_operator``, ``lon``, ``lat`` (WGS84, from EPSG:3857),
     ``aggregated`` (one row per state instead of single units).
     """
     status = raw["Kraftwerksstatus_der_Einheit"].fillna("").astype(str)
@@ -113,6 +130,7 @@ def plants_from_kraftwerksliste(raw: pd.DataFrame) -> pd.DataFrame:
             "in_operation": low.str.startswith("in betrieb"),
             "reserve": low.str.startswith(_RESERVE),
             "decommissioned": low.str.contains("endgültig stillgelegt"),
+            "lifecycle_status": _plant_lifecycle(low),
             "voltage_level": level.replace("", None),
             "grid_operator": raw["Anschlussnetzbetreiber"],
             "lon": lon,

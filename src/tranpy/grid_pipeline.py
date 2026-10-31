@@ -39,7 +39,9 @@ import json
 import logging
 import os
 import re
+import shutil
 import sys
+import tempfile
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -69,6 +71,8 @@ from tranpy.grid_layers import (
 )
 from tranpy.grid_register import area_load_shares, attach_register
 from tranpy.maps import NATURAL_EARTH_COUNTRIES
+from tranpy.osm_export import SOURCE as OSM_EXPORT_SOURCE
+from tranpy.osm_export import latest_export, read_hv_layers
 from tranpy_core.data.download import fetch
 from tranpy_core.errors import ConfigurationError, DataError
 
@@ -502,6 +506,41 @@ def _register_inputs(directory: Path) -> dict[str, pd.DataFrame] | None:
     return {name: pd.read_parquet(directory / f"{name}.parquet") for name in names}
 
 
+_EXPORT_TABLES = {
+    "lines": ("grid_oim_lines_raw", "grid_de_osm_ways"),
+    "towers": ("grid_oim_towers_raw", "grid_de_towers_hv"),
+    "substations": ("grid_oim_substations_raw", "grid_de_osm_substations"),
+    "transformers": ("grid_oim_transformers_raw", "grid_de_osm_transformers"),
+    "switches": ("grid_oim_switches_raw", "grid_de_osm_switches"),
+}
+
+
+def export_tables(directory: Path) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame]]:
+    """Bronze and silver tables of the newest OpenStreetMap export (empty without one).
+
+    Nothing is filtered out by status. The GeoPackage is read from a local copy because
+    SQLite files need file locks that Unity Catalog volumes do not offer.
+    """
+    export = latest_export(directory)
+    if export is None:
+        return {}, {}
+    snapshot = export.parent.name
+    meta = {"source": OSM_EXPORT_SOURCE, "source_sha256": _sha256(export), "snapshot": snapshot}
+    with tempfile.TemporaryDirectory() as folder:
+        local = Path(folder) / export.name
+        shutil.copyfile(export, local)
+        layers = read_hv_layers(local)
+    bronze = {_EXPORT_TABLES[k][0]: _safe_columns(v).assign(**meta) for k, v in layers.items()}
+    silver = {
+        _EXPORT_TABLES[k][1]: _safe_columns(v).assign(
+            snapshot=snapshot,
+            **({"status_source": f"OpenStreetMap tags, {snapshot}"} if "status" in v else {}),
+        )
+        for k, v in layers.items()
+    }
+    return bronze, silver
+
+
 # ---------------------------------------------------------------- steps
 
 
@@ -511,7 +550,10 @@ def build_layer(step: str, config: PipelineConfig, spark: Any = None) -> dict[st
     raw = config.run_dir / "raw"
     paths = download_sources(raw)
     if step == "bronze":
-        tables = bronze_tables(paths, config.run_date)
+        tables = {
+            **bronze_tables(paths, config.run_date),
+            **export_tables(config.files / "osm_export")[0],
+        }
         store.write("bronze", tables)
         return {"bronze_tables": {k: len(v) for k, v in tables.items()}}
     plants = _input_table(spark, config.plants_table, "SELECT * FROM {table}")
@@ -524,6 +566,7 @@ def build_layer(step: str, config: PipelineConfig, spark: Any = None) -> dict[st
     register = _register_inputs(config.files / "register")
     silver, gold, model = model_tables(paths, plants, population, config.run_date, register)
     if step == "silver":
+        silver.update(export_tables(config.files / "osm_export")[1])
         store.write("silver", silver)
         return {"silver_tables": {k: len(v) for k, v in silver.items()}}
     if step == "gold":

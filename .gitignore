@@ -55,7 +55,7 @@ PUBLISHING.md
 adrc/
 
 # Purchased data exports, stored in the Databricks volume
-data/
+/data/
 
 # Generated results
 examples/results/

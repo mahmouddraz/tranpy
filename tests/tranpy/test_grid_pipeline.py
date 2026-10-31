@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from tranpy.grid_pipeline import PipelineConfig, _safe_columns, verify_tables
+from tranpy.grid_pipeline import PipelineConfig, _safe_columns, export_tables, verify_tables
 from tranpy_core.errors import ConfigurationError
 
 
@@ -62,3 +62,7 @@ def test_verify_tables() -> None:
     assert len(problems) == 5
     assert any("unknown buses" in p for p in problems)
     assert any("power flow: FAILED" in p for p in problems)
+
+
+def test_no_export_gives_no_tables(tmp_path: Path) -> None:
+    assert export_tables(tmp_path) == ({}, {})
