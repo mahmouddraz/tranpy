@@ -645,6 +645,8 @@ class RouteResult:
     changes: pd.DataFrame
     candidates: pd.DataFrame
     """Every route found, accepted or not: ``key`` and ``route`` as ``[[lon, lat], ...]``."""
+    loose_ends: pd.DataFrame
+    """Drawn routes whose end is more than 1 km from its bus (see :func:`loose_ends`)."""
 
 
 def route_grid(
@@ -690,8 +692,23 @@ def route_grid(
     rows = []
     paths: dict[str, npt.NDArray[np.float64]] = {}
     reached: dict[str, tuple[bool, bool]] = {}
+
+    def loose(c: Mapping[Any, Any]) -> bool:
+        """An existing route whose end lies more than 1 km from a (moved) tee."""
+        route = c["route"]
+        if c["route_source"] != "osm" or len(route) < 2:
+            return False
+        ends = (np.asarray(route[0], dtype=float), np.asarray(route[-1], dtype=float))
+        for node in (c["node0"], c["node1"]):
+            if str(node) not in placed:
+                continue
+            target = np.array(placed[str(node)])
+            if min(np.hypot(*((e - target) * _KM)) for e in ends) > 1.0:
+                return True
+        return False
+
     for c in active.to_dict("records"):
-        if c["route_source"] not in ("schematic", "none"):
+        if c["route_source"] not in ("schematic", "none") and not loose(c):
             continue
         if c.get("status") not in (None, "in_operation"):
             continue  # a dismantled circuit has no current route to find
@@ -817,7 +834,52 @@ def route_grid(
     candidates = pd.DataFrame(
         {"key": list(paths), "route": [np.round(p, 5).tolist() for p in paths.values()]}
     )
-    return RouteResult(lines, nodes, routes, tee_report, pd.DataFrame(changes), candidates)
+    return RouteResult(
+        lines,
+        nodes,
+        routes,
+        tee_report,
+        pd.DataFrame(changes),
+        candidates,
+        loose_ends(lines, nodes),
+    )
+
+
+def loose_ends(lines: pd.DataFrame, nodes: pd.DataFrame, limit_km: float = 1.0) -> pd.DataFrame:
+    """Drawn routes (exact or mapped) whose end lies more than ``limit_km`` from its bus.
+
+    A line stops at the station fence while the node marks the station, so a few hundred
+    metres are normal; more means a wrong node, a wrong tee or a wrong route.
+    """
+    where = {
+        str(n): np.array([x, y])
+        for n, x, y in zip(nodes["node"], nodes["lon"], nodes["lat"], strict=True)
+        if np.isfinite(x) and np.isfinite(y)
+    }
+    rows = []
+    for c in lines.to_dict("records"):
+        route = c["route"]
+        if c["route_source"] not in ("osm", "osm_mapped") or len(route) < 2:
+            continue
+        ends = (np.asarray(route[0], dtype=float), np.asarray(route[-1], dtype=float))
+        gaps = []
+        for node in (c["node0"], c["node1"]):
+            target = where.get(str(node))
+            gaps.append(
+                float(min(np.hypot(*((e - target) * _KM)) for e in ends))
+                if target is not None
+                else np.nan
+            )
+        if max(gaps) > limit_km:
+            rows.append(
+                {"eic": c["eic"], "name": c["name"], "node0": c["node0"], "node1": c["node1"],
+                 "gap_km_node0": round(gaps[0], 2), "gap_km_node1": round(gaps[1], 2),
+                 "route_source": c["route_source"]}
+            )  # fmt: skip
+    return pd.DataFrame(
+        rows,
+        columns=["eic", "name", "node0", "node1", "gap_km_node0", "gap_km_node1", "route_source"],
+    )
 
 
 def load_ways(path: Path) -> dict[int, dict[str, Any]]:

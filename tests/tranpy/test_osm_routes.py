@@ -221,3 +221,25 @@ def test_tee_falls_back_to_the_junction_at_the_short_section() -> None:
     )
     assert np.allclose(placed["y-j|380"], [8.3, 52.0], atol=0.01)
     assert "long sections unusable" in report.iloc[0]["how"]
+
+
+def test_loose_ends_reports_routes_far_from_their_bus() -> None:
+    from tranpy.osm_routes import loose_ends
+
+    lines = pd.DataFrame(
+        [
+            {"eic": "E1", "name": "ok", "node0": "a|380", "node1": "b|380", "route_source": "osm",
+             "route": np.array([[8.0, 52.0], [8.6, 52.0]])},
+            {"eic": "E2", "name": "loose", "node0": "a|380", "node1": "c|380",
+             "route_source": "osm",
+             "route": np.array([[8.0, 52.0], [8.6, 52.0]])},
+            {"eic": "E3", "name": "schematic", "node0": "a|380", "node1": "c|380",
+             "route_source": "schematic", "route": np.array([[8.0, 52.0], [9.0, 52.0]])},
+        ]
+    )  # fmt: skip
+    nodes = pd.DataFrame(
+        {"node": ["a|380", "b|380", "c|380"], "lon": [8.0, 8.6, 8.9], "lat": [52.0, 52.0, 52.0]}
+    )
+    out = loose_ends(lines, nodes)
+    assert out["name"].tolist() == ["loose"]
+    assert out.iloc[0]["gap_km_node1"] == pytest.approx(0.3 * 70.0, rel=0.05)

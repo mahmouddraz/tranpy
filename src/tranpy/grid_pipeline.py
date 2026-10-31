@@ -435,8 +435,17 @@ def model_tables(
         "grid_de_tee_positions": routed.tees,
         "grid_de_field_changes": routed.changes,
         "grid_de_route_candidates": routed.candidates,
+        "grid_de_loose_ends": routed.loose_ends,
         **extra_silver,
     }
+    for row in routed.loose_ends.to_dict("records"):
+        gap = max(float(row["gap_km_node0"]), float(row["gap_km_node1"]))
+        grid.issues.loc[len(grid.issues)] = [
+            "loose end",
+            str(row["name"]),
+            f"route ends {gap:.1f} km from its bus",
+            "kept; check the node, tee or route",
+        ]
     model = cim_tables(
         grid,
         attachments,
@@ -621,7 +630,12 @@ def build_layer(step: str, config: PipelineConfig, spark: Any = None) -> dict[st
         return {"silver_tables": {k: len(v) for k, v in silver.items()}}
     if step == "gold":
         check = gold_check(model, config.run_dir / "gold")
-        info = {**model.model_info, **check, "built_at": datetime.now(UTC).isoformat()}
+        info = {
+            **model.model_info,
+            **check,
+            "routes_with_loose_ends": len(silver["grid_de_loose_ends"]),
+            "built_at": datetime.now(UTC).isoformat(),
+        }
         gold["cim_model_info"] = pd.DataFrame(
             [{"key": k, "value": str(v)} for k, v in info.items()]
         ).assign(model_version=config.run_date)
