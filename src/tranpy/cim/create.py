@@ -22,7 +22,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     catalog, name = args.schema.split(".")
     spark.sql(f"CREATE SCHEMA IF NOT EXISTS {catalog}.{name}")
     wanted = tables()
+    existing = {r.tableName for r in spark.sql(f"SHOW TABLES IN {args.schema}").collect()}
     for table in wanted:
+        target = f"{args.schema}.{table.name.lower()}"
+        # an empty table is rebuilt from the schema; a filled one is never touched
+        if table.name.lower() in existing and spark.table(target).isEmpty():
+            spark.sql(f"DROP TABLE {target}")
         spark.sql(create_statement(table, args.schema))
     found = {r.tableName for r in spark.sql(f"SHOW TABLES IN {args.schema}").collect()}
     missing = {t.name.lower() for t in wanted} - found

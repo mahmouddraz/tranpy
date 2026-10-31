@@ -1,9 +1,10 @@
 """Parse the published CGMES 3.0 RDFS files into tables and columns.
 
 Every concrete class is one table; every attribute or association of the class and its
-ancestors, in any profile, is one column named exactly as published (``ACLineSegment.r``).
-Nothing is added or removed. The only adaptation is forced by the platform: Unity Catalog
-stores table names in lower case, so the exact class name is kept as the table comment.
+ancestors, in any profile, is one column. Nothing is added or removed. A column has the short
+name of the attribute (``r``), since the table already gives the class; the published name
+(``ACLineSegment.r``) is its comment. Unity Catalog stores table names in lower case, so the
+exact class name is the table comment.
 """
 
 from __future__ import annotations
@@ -41,12 +42,18 @@ _PRIMITIVES = {
 class Column:
     """One published attribute or association."""
 
-    name: str
+    cim_name: str
+    """Published name, ``Class.attribute``."""
     sql_type: str
     multiplicity: str
     profiles: tuple[str, ...]
     range: str | None = None
     """Target class of an association, or enumeration of an attribute."""
+
+    @property
+    def name(self) -> str:
+        """Column name: the attribute without its class."""
+        return self.cim_name.rsplit(".", 1)[-1]
 
 
 @dataclass
@@ -162,11 +169,9 @@ def tables() -> list[Table]:
 
 
 def create_statement(table: Table, schema: str) -> str:
-    """``CREATE TABLE`` for one class; column mapping allows the dotted standard names."""
-    columns = ", ".join(f"`{c.name}` {c.sql_type}" for c in table.columns)
+    """``CREATE TABLE`` for one class, with the published names as comments."""
+    columns = ", ".join(f"`{c.name}` {c.sql_type} COMMENT '{c.cim_name}'" for c in table.columns)
     return (
         f"CREATE TABLE IF NOT EXISTS {schema}.{table.name.lower()} ({columns}) USING DELTA "
-        f"COMMENT 'CGMES 3.0 class {table.name}' "
-        "TBLPROPERTIES ('delta.columnMapping.mode' = 'name', 'delta.minReaderVersion' = '2', "
-        "'delta.minWriterVersion' = '5')"
+        f"COMMENT 'CGMES 3.0 class {table.name}'"
     )
