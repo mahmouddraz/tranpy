@@ -455,6 +455,196 @@ def check_routes(
     return pd.DataFrame(rows)
 
 
+DLM250_WFS = "https://sgx.geodatenzentrum.de/wfs_dlm250"
+"""Digital landscape model 1:250 000 of the BKG (Datenlizenz Deutschland Namensnennung 2.0)."""
+
+
+def fetch_dlm250_lines(target: Path, timeout_s: float = 180.0) -> Path:
+    """Download the power lines of DLM250 (object type 51005) as GeoJSON, paged."""
+    if target.exists():
+        return target
+    features: list[dict[str, Any]] = []
+    start = 0
+    while True:
+        query = urllib.parse.urlencode(
+            {"SERVICE": "WFS", "VERSION": "2.0.0", "REQUEST": "GetFeature",
+             "TYPENAMES": "objart_51005_l", "OUTPUTFORMAT": "application/json",
+             "SRSNAME": "EPSG:4326", "COUNT": 5000, "STARTINDEX": start, "SORTBY": "objid"}
+        )  # fmt: skip
+        with urllib.request.urlopen(f"{DLM250_WFS}?{query}", timeout=timeout_s) as response:
+            page = json.loads(response.read())["features"]
+        features += page
+        if len(page) < 5000:
+            break
+        start += 5000
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
+    return target
+
+
+def dlm250_geometries(path: Path) -> list[npt.NDArray[np.float64]]:
+    """Line geometries (lon, lat) of a DLM250 download; the service may answer lat, lon."""
+    out = []
+    for feature in json.loads(path.read_text(encoding="utf-8"))["features"]:
+        geometry = feature["geometry"]
+        parts = geometry["coordinates"]
+        if geometry["type"] == "LineString":
+            parts = [parts]
+        for part in parts:
+            points = np.asarray(part, dtype=float)[:, :2]
+            if points[0, 0] > points[0, 1]:  # latitude first
+                points = points[:, ::-1]
+            out.append(points)
+    return out
+
+
+ACCEPTED = ("mapped, consistent", "mapped, identity open", "mapped, small gaps")
+"""Proposals that let a mapped route replace a schematic one (never a verified one)."""
+
+
+@dataclass
+class RouteResult:
+    """Outcome of :func:`route_grid`."""
+
+    lines: pd.DataFrame
+    nodes: pd.DataFrame
+    routes: pd.DataFrame
+    tees: pd.DataFrame
+    changes: pd.DataFrame
+    candidates: pd.DataFrame
+    """Every route found, accepted or not: ``key`` and ``route`` as ``[[lon, lat], ...]``."""
+
+
+def route_grid(
+    lines: pd.DataFrame,
+    nodes: pd.DataFrame,
+    ways: Mapping[int, dict[str, Any]],
+    relations: Sequence[dict[str, Any]],
+    dlm250: Sequence[npt.NDArray[np.float64]] | None = None,
+    foreign_nodes: Iterable[str] | None = None,
+) -> RouteResult:
+    """Route the circuits without an exact route along the mapped lines.
+
+    ``foreign_nodes`` are ends outside Germany, where DLM250 has no data. Tee points are
+    placed first; then every circuit whose ``route_source`` is ``schematic``
+    or ``none`` is routed and checked. A route is applied (``route_source`` =
+    ``osm_mapped``) only when the checks pass; the previous route is recorded in
+    ``changes``. Existing exact routes are never touched.
+    """
+    excluded = {
+        i for i, w in ways.items()
+        if "construction" in w.get("tags", {}) or "disused:power" in w.get("tags", {})
+    }  # fmt: skip
+    networks = {kv: WayNetwork.build(ways.values(), kv, excluded) for kv in (220, 380)}
+    prepared = prepare_relations(relations, ways, excluded)
+    positions: dict[str, list[float]] = {
+        str(n): [float(x), float(y)]
+        for n, x, y in zip(nodes["node"], nodes["lon"], nodes["lat"], strict=True)
+        if np.isfinite(x) and np.isfinite(y)
+    }
+    foreign: set[str] = set(foreign_nodes or ())
+    active = lines[~lines["hvdc"]]
+    tees = [str(n) for n, k in zip(nodes["node"], nodes["kind"], strict=True) if k == "tee"]
+    placed, tee_report = place_tees(tees, active, positions, networks)
+    positions.update(placed)
+    nodes = nodes.copy()
+    for tee, point in placed.items():
+        hit = nodes.index[nodes["node"] == tee]
+        nodes.loc[hit, ["lon", "lat"]] = point
+        nodes.loc[hit, "location_source"] = "osm (junction of the mapped route)"
+
+    rows = []
+    paths: dict[str, npt.NDArray[np.float64]] = {}
+    reached: dict[str, tuple[bool, bool]] = {}
+    for c in active.to_dict("records"):
+        if c["route_source"] not in ("schematic", "none"):
+            continue
+        key = f"{c['eic']}~{c['node0']}~{c['node1']}"
+        row: dict[str, Any] = {
+            "key": key, "eic": c["eic"], "name": c["name"], "kv": (380 if c["kv"] >= 300 else 220),
+            "x_ohm": c["x_ohm"], "method": "no route", "identity": "", "relation_id": None,
+            "relation_name": None, "km": np.nan, "joins": 0,
+            "border": str(c["node0"]) in foreign or str(c["node1"]) in foreign,
+        }  # fmt: skip
+        a, b = positions.get(str(c["node0"])), positions.get(str(c["node1"]))
+        if a is None or b is None:
+            row["method"] = "end not located"
+            rows.append(row)
+            continue
+        found = route_circuit(
+            str(c["name"]), row["kv"], np.array(a), np.array(b), prepared, networks[row["kv"]]
+        )
+        if found is None:
+            rows.append(row)
+            continue
+        route, method, identity, relation = found
+        paths[key] = route.points
+        reach = 1.0 if str(c["node0"]).startswith("y-") or str(c["node1"]).startswith("y-") else 1.5
+        d0 = np.hypot(*((route.points[0] - np.array(a)) * _KM))
+        d1 = np.hypot(*((route.points[-1] - np.array(b)) * _KM))
+        e0 = np.hypot(*((route.points[0] - np.array(b)) * _KM))
+        e1 = np.hypot(*((route.points[-1] - np.array(a)) * _KM))
+        reached[key] = (
+            (d0 <= reach, d1 <= reach) if d0 + d1 <= e0 + e1 else (e1 <= reach, e0 <= reach)
+        )
+        row.update(
+            method=method, identity=identity, km=route.km, joins=len(route.joins),
+            relation_id=None if relation is None else relation["id"],
+            relation_name=None if relation is None else relation["name"],
+        )  # fmt: skip
+        rows.append(row)
+    routes = pd.DataFrame(rows)
+    if len(routes):
+        checks = check_routes(
+            routes, paths, {"dlm250": dlm250} if dlm250 else {}, reached
+        ).set_index("key")
+        routes = routes.join(checks, on="key")
+    lines = lines.copy()
+    if "route_evidence" not in lines:
+        lines["route_evidence"] = None
+    route_column: list[Any] = lines["route"].tolist()
+    changes = []
+    for r in routes.to_dict("records") if len(routes) else []:
+        if r.get("proposal") not in ACCEPTED:
+            continue
+        hit = lines.index[(lines["eic"] == r["eic"]) & (lines["name"] == r["name"])]
+        if not len(hit):
+            continue
+        i = int(hit[0])
+        relation_text = (
+            f", OpenStreetMap relation {r['relation_id']} '{r['relation_name']}'"
+            if r["relation_id"]
+            else ""
+        )
+        dlm = (
+            f", {100 * r['dlm250']:.0f}% within 250 m of DLM250"
+            if pd.notna(r.get("dlm250"))
+            else ""
+        )
+        evidence = (
+            f"{r['method']} ({r['identity']}{relation_text}), {r['km']:.1f} km, {r['joins']} joins"
+            f"{dlm}, route/reactance length {r['x_ratio']:.2f}; {r['proposal']}"
+        )
+        changes.append(
+            {
+                "eic": r["eic"],
+                "name": r["name"],
+                "field": "route",
+                "previous": lines.at[i, "route_source"],
+                "new": "osm_mapped",
+                "reason": evidence,
+            }
+        )
+        route_column[lines.index.get_loc(i)] = paths[r["key"]]
+        lines.at[i, "route_source"] = "osm_mapped"
+        lines.at[i, "route_evidence"] = evidence
+    lines["route"] = pd.Series(route_column, index=lines.index, dtype=object)
+    candidates = pd.DataFrame(
+        {"key": list(paths), "route": [np.round(p, 5).tolist() for p in paths.values()]}
+    )
+    return RouteResult(lines, nodes, routes, tee_report, pd.DataFrame(changes), candidates)
+
+
 def load_ways(path: Path) -> dict[int, dict[str, Any]]:
     """Overpass line download as ``{way id: way}``."""
     return {w["id"]: w for w in json.loads(path.read_text(encoding="utf-8"))["elements"]}

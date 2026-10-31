@@ -73,6 +73,14 @@ from tranpy.grid_register import area_load_shares, attach_register
 from tranpy.maps import NATURAL_EARTH_COUNTRIES
 from tranpy.osm_export import SOURCE as OSM_EXPORT_SOURCE
 from tranpy.osm_export import latest_export, read_hv_layers
+from tranpy.osm_routes import (
+    dlm250_geometries,
+    fetch_circuit_relations,
+    fetch_dlm250_lines,
+    load_relations,
+    load_ways,
+    route_grid,
+)
 from tranpy_core.data.download import fetch
 from tranpy_core.errors import ConfigurationError, DataError
 
@@ -191,6 +199,8 @@ def download_sources(raw: Path) -> dict[str, Path]:
         "borders": fetch(NATURAL_EARTH_COUNTRIES, directory=raw),
         "substations": fetch_osm_substations(raw / "osm_hv_substations.json"),
         "lines": fetch_osm_hv_lines(raw / "osm_hv_lines.json"),
+        "circuits": fetch_circuit_relations(raw / "osm_circuits.json"),
+        "dlm250": fetch_dlm250_lines(raw / "dlm250_lines.json"),
     }
     for name, remote in OSM_GRID.items():
         target = raw / "pypsa" / name
@@ -303,6 +313,25 @@ def bronze_tables(paths: Mapping[str, Path], retrieved: str) -> dict[str, pd.Dat
         )
     for frame in tables.values():
         frame["retrieved_at"] = retrieved
+    relations = load_relations(paths["circuits"])
+    tables["grid_osm_circuits_raw"] = (
+        pd.DataFrame(
+            [
+                {
+                    "relation_id": r["id"],
+                    **{f"tag_{k}": v for k, v in r.get("tags", {}).items()},
+                    "member_ways": [m["ref"] for m in r.get("members", []) if m["type"] == "way"],
+                }
+                for r in relations
+            ]
+        )
+        .pipe(_safe_columns)
+        .assign(
+            source="OpenStreetMap route=power relations via Overpass API (ODbL)",
+            source_sha256=_sha256(paths["circuits"]),
+            retrieved_at=retrieved,
+        )
+    )
     return tables
 
 
@@ -321,9 +350,18 @@ def model_tables(
     grid = build_german_grid(
         core, paths["pypsa_buses.csv"].parent, substations=paths["substations"]
     )
+    countries = node_countries(grid.nodes, json.loads(paths["borders"].read_text(encoding="utf-8")))
+    routed = route_grid(
+        grid.lines,
+        grid.nodes,
+        load_ways(paths["lines"]),
+        load_relations(paths["circuits"]),
+        dlm250_geometries(paths["dlm250"]),
+        foreign_nodes=[str(n) for n, c in countries.items() if c != "DEU"],
+    )
+    grid.lines, grid.nodes = routed.lines, routed.nodes
     plants = plants_from_kraftwerksliste(plants_raw)
     shares = load_shares(population, grid.nodes)
-    countries = node_countries(grid.nodes, json.loads(paths["borders"].read_text(encoding="utf-8")))
     total_load = TOTAL_LOAD_MW
     load_source = str(LOAD_REFERENCE["source"])
     extra_silver: dict[str, pd.DataFrame] = {}
@@ -393,6 +431,10 @@ def model_tables(
         "grid_de_plants": plants,
         "grid_de_plant_attachments": attachments,
         "grid_de_load_shares": shares,
+        "grid_de_circuit_routes": routed.routes,
+        "grid_de_tee_positions": routed.tees,
+        "grid_de_field_changes": routed.changes,
+        "grid_de_route_candidates": routed.candidates,
         **extra_silver,
     }
     model = cim_tables(

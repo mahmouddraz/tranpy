@@ -102,7 +102,8 @@ def test_route_circuit_prefers_the_named_relation() -> None:
 
 def test_place_tee_at_the_junction() -> None:
     lines = pd.DataFrame(
-        {"node0": ["alpha|380", "y-j|380", "y-j|380"], "node1": ["y-j|380", "beta|380", "gamma|380"],
+        {"node0": ["alpha|380", "y-j|380", "y-j|380"],
+         "node1": ["y-j|380", "beta|380", "gamma|380"],
          "kv": [380.0] * 3, "length_km": [21.0, 21.0, 23.0]}
     )  # fmt: skip
     positions = {"alpha|380": [8.0, 52.0], "beta|380": [8.6, 52.0], "gamma|380": [8.3, 52.3]}
@@ -134,3 +135,32 @@ def test_check_routes_labels() -> None:
         routes.assign(x_ohm=5.0), {"k": path}, {"dlm250": [path]}, {"k": (True, True)}
     )
     assert out.iloc[0]["proposal"] == "length vs reactance off"
+
+
+def test_route_grid_applies_only_checked_routes() -> None:
+    from tranpy.osm_routes import route_grid
+
+    ways = {w["id"]: w for w in WAYS}
+    relations = [_relation(9, "481")]
+    lines = pd.DataFrame(
+        [
+            {"eic": "E1", "name": "Alpha - Beta 481", "tso": "T", "node0": "alpha|380",
+             "node1": "beta|380", "kv": 380.0, "length_km": 42.0, "r_ohm": 1.0, "x_ohm": 11.3,
+             "b_us": 100.0, "imax_a": 2000.0, "tie_line": False, "hvdc": False,
+             "route": np.empty((0, 2)), "route_source": "schematic"},
+            {"eic": "E2", "name": "Alpha - Beta 482", "tso": "T", "node0": "alpha|380",
+             "node1": "beta|380", "kv": 380.0, "length_km": 42.0, "r_ohm": 1.0, "x_ohm": 3.0,
+             "b_us": 100.0, "imax_a": 2000.0, "tie_line": False, "hvdc": False,
+             "route": np.empty((0, 2)), "route_source": "schematic"},
+        ]
+    )  # fmt: skip
+    nodes = pd.DataFrame(
+        {"node": ["alpha|380", "beta|380"], "kind": ["substation"] * 2, "lon": [8.0, 8.6],
+         "lat": [52.0, 52.0], "location_source": ["osm", "osm"]}
+    )  # fmt: skip
+    dlm = [np.array([[8.0, 52.0], [8.3, 52.0], [8.6, 52.0]])]
+    out = route_grid(lines, nodes, ways, relations, dlm)
+    assert out.lines["route_source"].tolist() == ["osm_mapped", "schematic"]
+    assert len(out.lines["route"].iloc[0]) > 2
+    assert out.routes.set_index("eic").loc["E2", "proposal"] == "length vs reactance off"
+    assert out.changes.iloc[0]["previous"] == "schematic"

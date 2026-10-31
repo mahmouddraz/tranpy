@@ -5,3 +5,7 @@ lixhe|380,5.6677,50.7530,"OpenStreetMap Convertisseur ALEGrO Lixhe (Belgium), en
 st avold|220,6.7037,49.1385,"OpenStreetMap Poste électrique de Saint-Avold (220/380 kV, France); name match; abroad, not checked on German orthophotos; schematic position 30 km off"
 westtirol|380,10.8739,47.2440,"OpenStreetMap APG Umspannwerk Westtirol (220/380 kV, Austria); name match; abroad, not checked on German orthophotos; schematic position 63 km off"
 endrup|380,8.7067,55.5307,"OpenStreetMap 400 kV Endrup (Denmark); name match; abroad, not checked on German orthophotos; no schematic position"
+kasso|380,9.2697,55.0369,"Kassø 400 kV station (Energinet), Aabenraa, Denmark: OpenStreetMap substation and Energinet pages; Danish end of the Handewitt and Jardelund lines (OSM ways 907517160, 29082138); schematic position 17 km off"
+mikulowa|380,15.1140,51.0914,"SE Mikułowa 400/220/110 kV (PSE), Sulików, Poland: OpenStreetMap substation and PSE pages; Polish end of lines 567 and 568 (OSM ways 59026013, 237592387); schematic position 8 km off"
+meiningen|220,9.5923,47.3127,"UW Meiningen 380/220 kV (Vorarlberger Energienetze), Austria: OpenStreetMap substation; end of the 220 kV circuit Bürs - Meiningen grün (OSM ways 32306247, 102699331, 119687977, 114712664, 169163593, 169303935); schematic position was that of Bürs"
+walgau|220,9.6701,47.1989,"Umspannwerk Walgauwerk 220 kV (Vorarlberger Energienetze), Nenzing, Austria: OpenStreetMap substation; end of the 220 kV circuit Bürs - Walgauwerk orange (OSM ways 32306247, 102699331, 119687977); schematic position was that of Bürs"

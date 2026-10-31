@@ -1,3 +1,4 @@
 name,same_as,evidence
 Y-Neckarwestheim,Y-Endersbach,"Tee of circuit gn (EIC 11T0-0000-0950-0/0951-Y/0952-V/11T0-D4NOEIC-001): three segments name the tee Y-Endersbach, one Y-Neckarwestheim; all four segment names list the same branches (Endersbach, Grossgartach, Muehlhausen, Neckarwestheim)"
 Hanekenfaher,Hanekenfaehr,"Typo in the transformer sheet (TR Hanekenfaher TR 441 E / 442 E, TenneT); the line sheet and OpenStreetMap name the substation Hanekenfähr (Lingen)"
+Hradec,Hradec vychod,"ČEPS substation Hradec (400/220 kV) at Rokle u Kadaně, 50.3459 N 13.3282 E: OpenStreetMap substation and Wikipedia agree within 30 m; the model's schematic 'Hradec' position (49.63 N 13.12 E) is 80 km away, while circuit 441 (OSM ways 48907286, 48907283) ends at this station like 442"
