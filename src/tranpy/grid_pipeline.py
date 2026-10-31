@@ -60,12 +60,14 @@ from tranpy.german_grid import (
 from tranpy.grid_data import CORE_SGM, load_core_grid_model
 from tranpy.grid_layers import (
     LOAD_REFERENCE,
+    TOTAL_LOAD_MW,
     attach_plants,
     cim_tables,
     load_shares,
     node_countries,
     plants_from_kraftwerksliste,
 )
+from tranpy.grid_register import area_load_shares, attach_register
 from tranpy.maps import NATURAL_EARTH_COUNTRIES
 from tranpy_core.data.download import fetch
 from tranpy_core.errors import ConfigurationError, DataError
@@ -304,7 +306,11 @@ def bronze_tables(paths: Mapping[str, Path], retrieved: str) -> dict[str, pd.Dat
 
 
 def model_tables(
-    paths: Mapping[str, Path], plants_raw: pd.DataFrame, population: pd.DataFrame, run_date: str
+    paths: Mapping[str, Path],
+    plants_raw: pd.DataFrame,
+    population: pd.DataFrame,
+    run_date: str,
+    register: Mapping[str, pd.DataFrame] | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], Any]:
     """Silver and gold tables from the downloaded sources and the two input tables."""
     core = load_core_grid_model(paths["sgm"], tsos=None)
@@ -314,13 +320,36 @@ def model_tables(
     plants = plants_from_kraftwerksliste(plants_raw)
     shares = load_shares(population, grid.nodes)
     countries = node_countries(grid.nodes, json.loads(paths["borders"].read_text(encoding="utf-8")))
-    attachments = attach_plants(plants, grid.nodes, shares, countries)
+    total_load = TOTAL_LOAD_MW
+    load_source = str(LOAD_REFERENCE["source"])
+    extra_silver: dict[str, pd.DataFrame] = {}
+    if register is not None:
+        located = register["plant_locations"].drop_duplicates("mastr_id").set_index("mastr_id")
+        plants = plants[~plants["aggregated"]].copy()
+        for axis in ("lon", "lat"):
+            plants[axis] = plants[axis].fillna(plants["mastr_id"].map(located[axis]))
+        cells = register["cells"]
+        attachments = pd.concat(
+            [
+                attach_plants(plants, grid.nodes, shares, countries),
+                attach_register(cells, grid.nodes),
+            ],
+            ignore_index=True,
+        )
+        area_load = register["area_load"]
+        shares, total_load = area_load_shares(
+            shares, grid.nodes, dict(zip(area_load["area"], area_load["mean_mw"], strict=True))
+        )
+        load_source = str(area_load["source"].iloc[0])
+        extra_silver = {"grid_de_register_cells": cells, "grid_de_area_load": area_load}
+    else:
+        attachments = attach_plants(plants, grid.nodes, shares, countries)
 
     sources = [{"source": k, "description": v} for k, v in grid.sources.items()]
     sources += [
         {"source": "power plants", "description": "Bundesnetzagentur Kraftwerksliste"},
         {"source": "population", "description": "population cells (lon, lat, population)"},
-        {"source": "load", "description": LOAD_REFERENCE["source"]},
+        {"source": "load", "description": load_source},
         {
             "source": "country borders",
             "description": "Natural Earth admin 0 v5.1.2 (public domain)",
@@ -360,8 +389,17 @@ def model_tables(
         "grid_de_plants": plants,
         "grid_de_plant_attachments": attachments,
         "grid_de_load_shares": shares,
+        **extra_silver,
     }
-    model = cim_tables(grid, attachments, shares, model_version=run_date, countries=countries)
+    model = cim_tables(
+        grid,
+        attachments,
+        shares,
+        total_load_mw=total_load,
+        load_source=load_source,
+        model_version=run_date,
+        countries=countries,
+    )
     gold = {name: frame.assign(model_version=run_date) for name, frame in model.tables().items()}
     return silver, gold, model
 
@@ -456,6 +494,14 @@ def _input_table(spark: Any, name: str | None, query: str) -> pd.DataFrame:
     return frame
 
 
+def _register_inputs(directory: Path) -> dict[str, pd.DataFrame] | None:
+    """Prepared register and load tables, if present in the volume."""
+    names = ("cells", "plant_locations", "area_load")
+    if not all((directory / f"{name}.parquet").exists() for name in names):
+        return None
+    return {name: pd.read_parquet(directory / f"{name}.parquet") for name in names}
+
+
 # ---------------------------------------------------------------- steps
 
 
@@ -475,7 +521,8 @@ def build_layer(step: str, config: PipelineConfig, spark: Any = None) -> dict[st
         "SELECT round(lon / 0.05) * 0.05 AS lon, round(lat / 0.05) * 0.05 AS lat, "
         "sum(population) AS population FROM {table} GROUP BY 1, 2",
     ).astype(float)
-    silver, gold, model = model_tables(paths, plants, population, config.run_date)
+    register = _register_inputs(config.files / "register")
+    silver, gold, model = model_tables(paths, plants, population, config.run_date, register)
     if step == "silver":
         store.write("silver", silver)
         return {"silver_tables": {k: len(v) for k, v in silver.items()}}

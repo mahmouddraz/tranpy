@@ -338,6 +338,7 @@ def cim_tables(
     shares: pd.DataFrame,
     *,
     total_load_mw: float = TOTAL_LOAD_MW,
+    load_source: str = LOAD_REFERENCE["source"],
     model_version: str = "",
     countries: pd.Series | None = None,
 ) -> CimTables:
@@ -458,12 +459,15 @@ def cim_tables(
     )
 
     gen = plants[plants["node"].isin(bus_mrid)].copy()
-    gen["active"] = gen["in_operation"] & ~gen["reserve"]
+    storage = gen["fuel"].str.contains("speicher", case=False, na=False)
+    gen["active"] = gen["in_operation"] & ~gen["reserve"] & ~storage
+    if "unit_count" not in gen:
+        gen["unit_count"] = np.nan
     grouped = (
         gen.groupby(["node", "fuel", "active"])
         .agg(
             max_p_mw=("capacity_mw", "sum"),
-            units=("mastr_id", "nunique"),
+            units=("unit_count", lambda v: v.fillna(1.0).sum()),
             estimated=("data_quality", lambda v: bool((v == "estimated").any())),
             renewable=("renewable", "first"),
         )
@@ -528,7 +532,7 @@ def cim_tables(
     info = {
         "model_version": model_version,
         "total_load_mw": total_load_mw,
-        "load_source": LOAD_REFERENCE["source"],
+        "load_source": load_source,
         "power_factor": _POWER_FACTOR,
         "dispatch": f"all plants in operation (excl. reserve) at {scale:.3f} x net capacity",
         "hvdc_left_out": ", ".join(hvdc["name"].astype(str)),
