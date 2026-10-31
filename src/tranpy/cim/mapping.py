@@ -48,11 +48,9 @@ def network(nodes: pd.DataFrame, circuits: pd.DataFrame, transformers: pd.DataFr
             }
         ),
     }
-    levels = sorted(
-        {float(v) for v in nodes["kv"]}
-        | {float(v) for v in transformers["kv_hv"]}
-        | {float(v) for v in transformers["kv_lv"]}
-    )
+    # base voltages are the nominal levels; a transformer's actual voltage is its ratedU
+    levels = sorted({float(v) for v in nodes["kv"]})
+    node_kv = dict(zip(nodes["node"], nodes["kv"].astype(float), strict=True))
     rows["BaseVoltage"] = pd.DataFrame(
         {
             "mRID": _ids("basevoltage", levels),
@@ -151,7 +149,7 @@ def network(nodes: pd.DataFrame, circuits: pd.DataFrame, transformers: pd.DataFr
         }
     )
     ends = []
-    for number, _node, kv in ((1, "node_hv", "kv_hv"), (2, "node_lv", "kv_lv")):
+    for number, node, kv in ((1, "node_hv", "kv_hv"), (2, "node_lv", "kv_lv")):
         high = number == 1  # the source gives the impedance on the high voltage side
         ends.append(
             pd.DataFrame(
@@ -160,7 +158,7 @@ def network(nodes: pd.DataFrame, circuits: pd.DataFrame, transformers: pd.DataFr
                     "name": [f"{n} end {number}" for n in transformers["name"]],
                     "PowerTransformer": tr_id,
                     "endNumber": number,
-                    "BaseVoltage": _ids("basevoltage", transformers[kv].astype(float)),
+                    "BaseVoltage": _ids("basevoltage", transformers[node].map(node_kv)),
                     "ratedU": transformers[kv].astype(float).to_numpy(),
                     "Terminal": [mrid("terminal", t, number) for t in tr_id],
                     "r": transformers["r_ohm"].astype(float).to_numpy() if high else 0.0,

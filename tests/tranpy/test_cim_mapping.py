@@ -99,3 +99,12 @@ def test_records_follow_the_column_types() -> None:
     frame = pd.DataFrame({many.name: ["x", None]})
     fake = type(table)("Fake", (), (), [many])
     assert to_records(frame, fake) == [(["x"],), (None,)]
+
+
+def test_base_voltages_are_nominal_levels() -> None:
+    frame = TRANSFORMERS.assign(kv_hv=400.0, kv_lv=231.0)
+    rows = conform(network(NODES, CIRCUITS, frame))
+    assert sorted(rows["BaseVoltage"]["nominalVoltage"]) == [220.0, 380.0]
+    ends = rows["PowerTransformerEnd"].set_index("endNumber")
+    assert ends.loc[1, "ratedU"] == 400.0
+    assert ends.loc[1, "BaseVoltage"] in set(rows["BaseVoltage"]["mRID"])
