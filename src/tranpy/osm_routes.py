@@ -14,7 +14,9 @@ from __future__ import annotations
 import itertools
 import json
 import re
+import time
 import unicodedata
+import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Iterable, Mapping, Sequence
@@ -50,16 +52,11 @@ _END_REACH_KM = 2.5
 
 
 def fetch_circuit_relations(target: Path, timeout_s: float = 190.0) -> Path:
-    """Download the circuit relations (kept if already there)."""
+    """Download the circuit relations (kept if already there; retried when Overpass is busy)."""
+    from tranpy.german_grid import _overpass
+
     if not target.exists():
-        target.parent.mkdir(parents=True, exist_ok=True)
-        request = urllib.request.Request(
-            OVERPASS,
-            urllib.parse.urlencode({"data": CIRCUITS_QUERY}).encode(),
-            {"User-Agent": "tranpy-research"},
-        )
-        with urllib.request.urlopen(request, timeout=timeout_s) as response:
-            target.write_bytes(response.read())
+        _overpass(CIRCUITS_QUERY, target, timeout_s=timeout_s)
     return target
 
 
@@ -471,8 +468,7 @@ def fetch_dlm250_lines(target: Path, timeout_s: float = 180.0) -> Path:
              "TYPENAMES": "objart_51005_l", "OUTPUTFORMAT": "application/json",
              "SRSNAME": "EPSG:4326", "COUNT": 5000, "STARTINDEX": start, "SORTBY": "objid"}
         )  # fmt: skip
-        with urllib.request.urlopen(f"{DLM250_WFS}?{query}", timeout=timeout_s) as response:
-            page = json.loads(response.read())["features"]
+        page = _wfs_page(f"{DLM250_WFS}?{query}", timeout_s)
         features += page
         if len(page) < 5000:
             break
@@ -480,6 +476,21 @@ def fetch_dlm250_lines(target: Path, timeout_s: float = 180.0) -> Path:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps({"type": "FeatureCollection", "features": features}))
     return target
+
+
+def _wfs_page(url: str, timeout_s: float, attempts: int = 5) -> list[dict[str, Any]]:
+    """One page of a WFS GetFeature answer, retried with backoff on server errors."""
+    for attempt in range(attempts):
+        try:
+            with urllib.request.urlopen(url, timeout=timeout_s) as response:
+                return list(json.loads(response.read())["features"])
+        except (urllib.error.HTTPError, urllib.error.URLError, TimeoutError) as exc:
+            if attempt == attempts - 1:
+                raise
+            if isinstance(exc, urllib.error.HTTPError) and exc.code < 500 and exc.code != 429:
+                raise
+            time.sleep(20 * 2**attempt)
+    raise RuntimeError("unreachable")
 
 
 def dlm250_geometries(path: Path) -> list[npt.NDArray[np.float64]]:
