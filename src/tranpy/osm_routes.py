@@ -709,7 +709,8 @@ def route_grid(
             continue
         route, method, identity, relation = found
         paths[key] = route.points
-        reach = 1.0 if str(c["node0"]).startswith("y-") or str(c["node1"]).startswith("y-") else 1.5
+        # large stations put the line entry up to 2 km from the node position
+        reach = 1.0 if str(c["node0"]).startswith("y-") or str(c["node1"]).startswith("y-") else 2.0
         d0 = np.hypot(*((route.points[0] - np.array(a)) * _KM))
         d1 = np.hypot(*((route.points[-1] - np.array(b)) * _KM))
         e0 = np.hypot(*((route.points[0] - np.array(b)) * _KM))
