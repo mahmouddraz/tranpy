@@ -207,3 +207,17 @@ def test_complete_parameters_scales_sections_and_replaces_implausible_values() -
     assert lines.loc[1, "x_ohm"] == pytest.approx(0.26 * 62.0)
     assert lines.loc[1, "data_quality"] == "estimated"
     assert lines.loc[2, "x_ohm"] == 13.0
+
+
+def test_tee_falls_back_to_the_junction_at_the_short_section() -> None:
+    lines = pd.DataFrame(
+        {"node0": ["alpha|380", "y-j|380", "y-j|380"],
+         "node1": ["y-j|380", "beta|380", "gamma|380"],
+         "kv": [380.0] * 3, "length_km": [80.0, 75.0, 33.0]}
+    )  # fmt: skip
+    positions = {"alpha|380": [8.0, 52.0], "beta|380": [8.6, 52.0], "gamma|380": [8.3, 52.3]}
+    placed, report = place_tees(
+        ["y-j|380"], lines, positions, {380: WayNetwork.build(WAYS, 380, set())}
+    )
+    assert np.allclose(placed["y-j|380"], [8.3, 52.0], atol=0.01)
+    assert "long sections unusable" in report.iloc[0]["how"]

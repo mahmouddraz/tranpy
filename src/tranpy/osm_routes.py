@@ -366,6 +366,22 @@ def place_tees(
             error = abs(la + lb - found.km) / max(found.km, 1.0)
             if best is None or error < best[0]:
                 best = (error, ea, la, eb, lb, found)
+        if best is None or best[0] > 0.2:
+            # the long sections are often published as whole-circuit lengths; the
+            # shortest section is reliable: the tee is the junction at that distance
+            ea, la, pa = min(ends, key=lambda e: e[1])
+            pts, tree = junctions[kv]
+            if tree is not None and la <= 40:
+                near = tree.query_ball_point(pa, la * 1.5)
+                near = [k for k in near if np.hypot(*(pts[k] * _KM - pa)) >= 0.5 * la]
+                if near:
+                    k = min(near, key=lambda k: abs(np.hypot(*(pts[k] * _KM - pa)) - la))
+                    placed[tee] = [float(pts[k][0]), float(pts[k][1])]
+                    report.append(
+                        {"tee": tee, "a": ea, "b": None, "route_km": np.nan, "sections_km": la,
+                         "how": f"junction {la:.1f} km from {ea} (long sections unusable)"}
+                    )  # fmt: skip
+                    continue
         if best is None:
             report.append({"tee": tee, "result": "no route between ends"})
             continue
