@@ -6,14 +6,23 @@ import pandas as pd
 import pytest
 
 from tranpy.simulation.grid_case import (
+    BORDER_SHORT_CIRCUIT,
+    CE_FCR_FULL_HZ,
     DYNAMIC_VALUES,
+    ENTSOE_INERTIA,
     MACHINE_VALUES,
+    NEIGHBOUR_INERTIA,
     _main_component,
+    border_shares,
+    border_short_circuit_gva,
     build_connected_case,
     build_grid_case,
+    continental_europe_equivalent,
+    entsoe_kinetic_energy_mws,
     fuel_class,
     line_parameters,
 )
+from tranpy_core.errors import DataError
 
 
 @pytest.mark.parametrize(
@@ -218,3 +227,212 @@ def test_connected_case_gives_hydro_units_a_hydro_governor(tmp_path, governor, m
     omega = system.dae.ts.x[:, list(system.GENROU.omega.a)]
     assert abs(omega - 1.0).max() < 1e-6
     assert pd.read_csv(path.with_suffix(".machines.csv"))["group"].tolist() == ["hydro"]
+
+
+@pytest.mark.parametrize("inertia", ["low", "central", "high"])
+def test_continental_europe_equivalent_follows_the_entsoe_values(inertia) -> None:  # type: ignore[no-untyped-def]
+    eq = continental_europe_equivalent(50_000.0, inertia)
+    ce_load = 50_000.0 / 0.19
+    assert eq.kinetic_energy_mws == pytest.approx(
+        {"low": 5, "central": 10, "high": 17}[inertia] * ce_load / 2
+    )
+    assert 3.0 <= eq.h_s <= 6.0
+    assert eq.fcr_max_mw / eq.fcr_mw_per_hz == pytest.approx(CE_FCR_FULL_HZ)
+    assert eq.t_valve_s + eq.t_lag_s * 3 <= 30.0  # 95 % of the FCR within 30 s
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_neighbour_equivalent_holds_the_target_inertia_and_stays_flat(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    andes = pytest.importorskip("andes")
+    eq = continental_europe_equivalent(50_000.0)
+    path = build_connected_case(
+        _connected(),
+        {"a": 1.02, "b": 1.0, "x": 1.0},
+        {"a": (200.0, 30.0)},
+        {"a": (50.0, 0.0)},
+        {"x": -10.0},
+        tmp_path / "case.xlsx",
+        neighbour_equivalent=eq,
+    )
+    system = andes.load(str(path), setup=False, no_output=True, default_config=True)
+    neighbour = system.GENCLS.as_df()
+    german = system.GENROU.as_df()
+    kinetic = (neighbour["M"] / 2 * neighbour["Sn"]).sum() + (german["M"] / 2 * german["Sn"]).sum()
+    assert kinetic == pytest.approx(eq.kinetic_energy_mws)
+    assert ((neighbour["M"] / 2).between(3.0, 6.0)).all()
+    assert (neighbour["D"] * neighbour["Sn"] / 50.0).sum() == pytest.approx(eq.damping_mw_per_hz)
+    governors = system.TGOV1.as_df()
+    mine = governors[governors["syn"].isin(neighbour["idx"])]
+    assert len(mine) == len(neighbour)
+    assert (mine["Tn"] / (50.0 * mine["R"])).sum() == pytest.approx(eq.fcr_mw_per_hz)
+    system.setup()
+    for model in system.models.values():
+        if model.n and "fn" in model.params:
+            assert set(model.params["fn"].v) == {50.0}, model.class_name
+    assert system.PFlow.run()
+    system.TDS.config.tf = 20.0
+    system.TDS.config.no_tqdm = 1
+    assert system.TDS.run()
+    omega = system.dae.ts.x[:, list(system.GENROU.omega.a) + list(system.GENCLS.omega.a)]
+    assert abs(omega - 1.0).max() < 1e-6
+
+
+def test_border_short_circuit_table_is_sourced_and_within_the_breaker_bound() -> None:
+    table = pd.read_csv(BORDER_SHORT_CIRCUIT)
+    assert (
+        table["source"].str.len().gt(0).all()
+        and table["label"].isin({"published", "estimate"}).all()
+    )
+    bound = 3**0.5 * table["nominal_kv"] * 1.1 * 63 / 1000  # GVA at 63 kA and Um = 1.1 Un
+    assert (table["sk_gva"] <= bound).all()
+    vigy = table.set_index("node")["sk_gva"].to_dict()["vigy|380"]
+    assert border_short_circuit_gva("vigy|380", 380.0) == pytest.approx(vigy)
+
+
+@pytest.mark.filterwarnings("ignore")
+@pytest.mark.parametrize("german_load_mw", [20_000.0, 80_000.0])
+def test_border_reactance_follows_the_short_circuit_power_not_the_rating(  # type: ignore[no-untyped-def]
+    tmp_path, german_load_mw
+) -> None:
+    andes = pytest.importorskip("andes")
+    path = build_connected_case(
+        _connected(),
+        {"a": 1.02, "b": 1.0, "x": 1.0},
+        {"a": (200.0, 30.0)},
+        {"a": (50.0, 0.0)},
+        {"x": -10.0},
+        tmp_path / "case.xlsx",
+        neighbour_equivalent=continental_europe_equivalent(german_load_mw),
+    )
+    system = andes.load(str(path), setup=False, no_output=True, default_config=True)
+    g = system.GENCLS.as_df().iloc[0]
+    x_ohm = g["xd1"] * g["Vn"] ** 2 / g["Sn"]
+    assert x_ohm == pytest.approx(g["Vn"] ** 2 / (1000.0 * border_short_circuit_gva("X", g["Vn"])))
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_short_circuit_scale_scales_the_border_reactance(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    andes = pytest.importorskip("andes")
+    x = []
+    for scale in (1.0, 1.3):
+        path = build_connected_case(
+            _connected(),
+            {"a": 1.02, "b": 1.0, "x": 1.0},
+            {"a": (200.0, 30.0)},
+            {"a": (50.0, 0.0)},
+            {"x": -10.0},
+            tmp_path / f"case{scale}.xlsx",
+            neighbour_equivalent=continental_europe_equivalent(50_000.0, short_circuit_scale=scale),
+        )
+        system = andes.load(str(path), setup=False, no_output=True, default_config=True)
+        x.append(float(system.GENCLS.xd1.v[0]))
+    assert x[0] / x[1] == pytest.approx(1.3)
+
+
+CASE_HOURS = (
+    "high_wind", "high_solar", "low_load", "high_load", "median_load",
+    "winter_peak", "summer_peak", "very_light_night", "baltic_import_low_load",
+)  # fmt: skip
+
+
+def test_entsoe_kinetic_energy_uses_table_1_on_the_online_rating() -> None:
+    # nuclear 960 MW at LF 0.96 is 1000 MVA online at H 5.9 s; wind and solar add nothing
+    assert entsoe_kinetic_energy_mws({"B14": 960.0, "B19": 5000.0, "B16": 3000.0}) == (
+        pytest.approx(5900.0)
+    )
+    assert entsoe_kinetic_energy_mws({"B02": 810.0}) == pytest.approx(3800.0)
+    assert ENTSOE_INERTIA["B11"] == (2.7, 0.61)
+    with pytest.raises(DataError):
+        entsoe_kinetic_energy_mws({"B99": 1.0})
+
+
+def test_neighbour_inertia_table_covers_every_case_hour_in_ce_only() -> None:
+    table = pd.read_csv(NEIGHBOUR_INERTIA)
+    assert set(table["hour"]) == set(CASE_HOURS)
+    assert not set(table["country"]) & {"DE", "GB", "IE", "NO", "SE", "FI", "DK2"}
+    assert table["source"].str.contains("A75").all()
+    per_hour = table.groupby("hour")["kinetic_energy_mws"].sum()
+    assert per_hour.between(400_000.0, 2_500_000.0).all()
+
+
+@pytest.mark.parametrize("scale", [0.7, 1.0, 1.3])
+def test_entsoe_hourly_equivalent_takes_the_hour_and_scale(scale) -> None:  # type: ignore[no-untyped-def]
+    table = pd.read_csv(NEIGHBOUR_INERTIA)
+    rows = table[table["hour"].eq("high_wind")]
+    eq = continental_europe_equivalent(
+        50_000.0, "entsoe_hourly", hour="high_wind", inertia_scale=scale
+    )
+    assert eq.kinetic_energy_mws == pytest.approx(scale * rows["kinetic_energy_mws"].sum())
+    assert not eq.includes_germany
+    assert eq.country_energy_mws is None
+    by_country = continental_europe_equivalent(
+        50_000.0, "entsoe_hourly", hour="high_wind", split="country"
+    )
+    assert by_country.country_energy_mws is not None
+    assert set(by_country.country_energy_mws) == set(rows["country"])
+    ce_load = 50_000.0 + rows["generation_mw"].sum()
+    assert eq.damping_mw_per_hz == pytest.approx(0.02 * ce_load)
+    one = continental_europe_equivalent(
+        50_000.0, "entsoe_hourly", hour="high_wind", self_regulation_per_hz=0.01
+    )
+    assert one.damping_mw_per_hz == pytest.approx(0.01 * ce_load)
+    with pytest.raises(DataError):
+        continental_europe_equivalent(50_000.0, "entsoe_hourly")
+
+
+def test_border_shares_route_countries_without_an_ac_border_node() -> None:
+    names = {"a": "vigy|380", "b": "vogelgrun|220", "c": "kasso|380"}
+    kv = {"a": 380.0, "b": 220.0, "c": 380.0}
+    plain = border_shares(names, kv)
+    assert plain["a"] == pytest.approx(380**2 / (2 * 380**2 + 220**2))
+    # Spain goes to France, Italy only to France here (no Swiss or Austrian node), Belgium half to
+    # France and half to the Netherlands (no Dutch node: all to France)
+    shares = border_shares(
+        names, kv, {"FR": 100.0, "ES": 50.0, "IT": 30.0, "BE": 20.0, "DK1": 40.0}
+    )
+    assert shares["c"] == pytest.approx(40.0 / 240.0)
+    assert shares["a"] + shares["b"] == pytest.approx(200.0 / 240.0)
+    assert shares["a"] / shares["b"] == pytest.approx(380**2 / 220**2)
+    with pytest.raises(DataError):
+        border_shares({"x": "nowhere|380"}, {"x": 380.0}, {"FR": 1.0})
+
+
+def test_border_nodes_have_countries_and_hvdc_terminals_are_marked() -> None:
+    table = pd.read_csv(BORDER_SHORT_CIRCUIT).set_index("node")
+    assert table["country"].notna().all()
+    assert table.loc["asphard|380", "country"] == "CH"
+    assert table.loc["blooren|220", "country"] == "LU"
+    assert table.loc[["werben|220", "meiningen|220"], "country"].eq("AT").all()
+    assert table.loc["ertsmyra|380", "country"] == "NO"
+    assert "HVDC" in table.loc["ertsmyra|380", "operator"]
+    assert "HVDC" in table.loc["lixhe|380", "operator"]
+
+
+@pytest.mark.filterwarnings("ignore")
+def test_entsoe_hourly_neighbours_hold_their_own_energy_and_stay_flat(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    andes = pytest.importorskip("andes")
+    tables = _connected()
+    bus = tables.busbar_section
+    tables.busbar_section = bus.assign(name=bus["name"].where(bus["mrid"].ne("x"), "vigy|380"))
+    eq = continental_europe_equivalent(50_000.0, "entsoe_hourly", hour="high_wind")
+    path = build_connected_case(
+        tables,
+        {"a": 1.02, "b": 1.0, "x": 1.0},
+        {"a": (200.0, 30.0)},
+        {"a": (50.0, 0.0)},
+        {"x": -10.0},
+        tmp_path / "case.xlsx",
+        neighbour_equivalent=eq,
+    )
+    system = andes.load(str(path), setup=False, no_output=True, default_config=True)
+    neighbour = system.GENCLS.as_df()
+    # the German machines are not subtracted: the table holds the neighbours only
+    assert (neighbour["M"] / 2 * neighbour["Sn"]).sum() == pytest.approx(eq.kinetic_energy_mws)
+    assert (neighbour["D"] * neighbour["Sn"] / 50.0).sum() == pytest.approx(eq.damping_mw_per_hz)
+    system.setup()
+    assert system.PFlow.run()
+    system.TDS.config.tf = 10.0
+    system.TDS.config.no_tqdm = 1
+    assert system.TDS.run()
+    omega = system.dae.ts.x[:, list(system.GENROU.omega.a) + list(system.GENCLS.omega.a)]
+    assert abs(omega - 1.0).max() < 1e-6
