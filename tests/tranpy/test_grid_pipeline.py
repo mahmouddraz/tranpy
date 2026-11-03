@@ -5,7 +5,13 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from tranpy.grid_pipeline import PipelineConfig, _safe_columns, export_tables, verify_tables
+from tranpy.grid_pipeline import (
+    PipelineConfig,
+    _safe_columns,
+    export_tables,
+    split_out_of_service,
+    verify_tables,
+)
 from tranpy_core.errors import ConfigurationError
 
 
@@ -66,3 +72,29 @@ def test_verify_tables() -> None:
 
 def test_no_export_gives_no_tables(tmp_path: Path) -> None:
     assert export_tables(tmp_path) == ({}, {})
+
+
+def test_split_out_of_service_leaves_reserve_and_closed_plants_out() -> None:
+    attachments = pd.DataFrame(
+        {
+            "mastr_id": ["A", "B", "C", "D", "cell"],
+            "name": ["a", "b", "c", "d", None],
+            "node": ["x|380"] * 5,
+            "fuel": ["Erdgas"] * 5,
+            "capacity_mw": [100.0, 200.0, 50.0, 10.0, 5.0],
+            "status": [
+                "In Betrieb",
+                "Netzreserve aufgrund § 13b EnWG",
+                "vorläufig stillgelegt nach § 13b EnWG",
+                "endgültig stillgelegt",
+                None,
+            ],
+            "in_operation": [True, False, False, False, None],
+            "reserve": [False, True, True, False, None],
+        }
+    )
+    kept, out = split_out_of_service(attachments)
+    assert kept["mastr_id"].tolist() == ["A", "cell"]
+    assert out["element"].tolist() == ["B", "C", "D"]
+    assert out["group"].tolist() == ["grid reserve", "provisionally closed", "closed"]
+    assert out["capacity_mw"].sum() == 260.0

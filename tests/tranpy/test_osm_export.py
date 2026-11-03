@@ -5,7 +5,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
-from tranpy.osm_export import latest_export, read_hv_layers, status, tower_line_number
+from tranpy.osm_export import export_ways, latest_export, read_hv_layers, status, tower_line_number
 
 gpd = pytest.importorskip("geopandas")
 pytest.importorskip("pyogrio")
@@ -54,7 +54,32 @@ def test_read_hv_layers_keeps_only_the_transmission_grid(tmp_path: Path) -> None
     out = read_hv_layers(path)
     assert {name: len(table) for name, table in out.items()} == {
         "lines": 1, "towers": 1, "substations": 1, "transformers": 1, "switches": 1,
+        "infeed_stations": 1, "infeed_transformers": 1, "infeed_lines": 2,
     }  # fmt: skip
     assert out["towers"]["line_number"].tolist() == ["2409"]
     assert out["lines"]["status"].tolist() == ["in_operation"]
     assert out["lines"]["geometry_wkt"].iloc[0].startswith("LINESTRING")
+
+
+def test_export_ways_share_vertices_and_keep_only_foreign_downloads() -> None:
+    def row(way: int, wkt: str, state: str = "in_operation") -> dict[str, object]:
+        return {"id": way, "voltages": "380000", "status": state, "geometry_wkt": wkt}
+
+    lines = pd.DataFrame(
+        [
+            row(1, "LINESTRING(10 50,10.1 50)"),
+            row(2, "LINESTRING(10.1 50,10.2 50)", "out_of_service"),
+        ]
+    )
+    point = {"lon": 9.0, "lat": 47.0}
+    download = {
+        1: {"id": 1, "geometry": [point, point], "tags": {}},
+        3: {"id": 3, "geometry": [point, point], "tags": {}},
+        4: {"id": 4, "geometry": [point, point], "tags": {}},
+    }
+    ways = export_ways(lines, download, lambda lon, lat: True)
+    assert ways[1]["nodes"][-1] == ways[2]["nodes"][0]
+    assert ways[1]["geometry"][0]["lon"] == 10.0
+    assert "disused:power" in ways[2]["tags"]
+    assert set(ways) == {1, 2, 3, 4}
+    assert set(export_ways(lines, download, lambda lon, lat: False)) == {1, 2}

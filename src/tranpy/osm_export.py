@@ -8,6 +8,7 @@ Needs the ``[grid]`` extra.
 from __future__ import annotations
 
 import re
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,7 @@ from scipy.spatial import cKDTree
 from tranpy_core._optional import require
 
 HV_VOLTS = 200_000
+INFEED_VOLTS = 100_000
 """Lowest voltage of the transmission grid in this model."""
 
 SOURCE = "Open Infrastructure Map export of OpenStreetMap data, ODbL"
@@ -87,20 +89,68 @@ def _near_lines(towers: Any, lines: Any, distance_km: float) -> Any:
     return towers[distance <= distance_km]
 
 
+def _vertex(lon: float, lat: float) -> int:
+    """Stable id of a vertex: the export has no OpenStreetMap node ids."""
+    return round(lon * 1e6) * 10_000_000_000 + round(lat * 1e6)
+
+
+def _with_vertices(way: dict[str, Any]) -> dict[str, Any]:
+    return {**way, "nodes": [_vertex(q["lon"], q["lat"]) for q in way["geometry"]]}
+
+
+def export_ways(
+    lines: pd.DataFrame,
+    download: Mapping[Any, dict[str, Any]] | None = None,
+    abroad: Callable[[float, float], bool] | None = None,
+) -> dict[int, dict[str, Any]]:
+    """Export lines as ways for the route builder, ``{way id: way}``.
+
+    The export ends at the German border, so ways of ``download`` it lacks are kept where
+    ``abroad`` holds at their midpoint. Vertices are identified by position in both.
+    """
+    wkt = require("shapely.wkt", "grid")
+    ways: dict[int, dict[str, Any]] = {}
+    records: list[Any] = lines.to_dict("records")
+    for row in records:
+        tags = {"power": "line", "voltage": str(row["voltages"])}
+        for key in ("name", "ref", "circuits", "cables", "location", "frequency", "operator"):
+            if pd.notna(row.get(key)) and str(row.get(key)):
+                tags[key] = str(row[key])
+        if row["status"] == UNDER_CONSTRUCTION:
+            tags["construction"] = "line"
+        if row["status"] == OUT_OF_SERVICE:
+            tags["disused:power"] = "line"
+        line = wkt.loads(row["geometry_wkt"])
+        ways[int(row["id"])] = _with_vertices(
+            {
+                "type": "way",
+                "id": int(row["id"]),
+                "geometry": [{"lon": float(c[0]), "lat": float(c[1])} for c in line.coords],
+                "tags": tags,
+            }
+        )
+    if download and abroad:
+        for key, way in download.items():
+            middle = way["geometry"][len(way["geometry"]) // 2]
+            if int(key) not in ways and abroad(middle["lon"], middle["lat"]):
+                ways[int(key)] = _with_vertices(way)
+    return ways
+
+
 def read_hv_layers(path: Path, tower_distance_km: float = 0.3) -> dict[str, pd.DataFrame]:
     """HV lines, pylons near them, HV substations, transformers and switches near them.
 
     The tables keep every published column and add ``geometry_wkt``, ``lon``, ``lat``; lines and
     substations also get ``status``, pylons ``line_number``.
     """
-    lines = _high_voltage(_read(path, "power_line"))
+    all_lines = _read(path, "power_line")
+    lines = _high_voltage(all_lines)
     towers = _near_lines(_read(path, "power_tower"), lines, tower_distance_km)
     points = _read(path, "power_substation_point")
     polygons = _read(path, "power_substation_polygon")
-    transformers = _read(path, "power_transformer")
-    transformers = transformers[
-        pd.to_numeric(transformers["v_primary"], errors="coerce") >= HV_VOLTS
-    ]
+    every_transformer = _read(path, "power_transformer")
+    primary = pd.to_numeric(every_transformer["v_primary"], errors="coerce")
+    transformers = every_transformer[primary >= HV_VOLTS]
     substations = pd.concat(
         [
             _flat(_high_voltage(polygons)).assign(shape="polygon"),
@@ -110,10 +160,21 @@ def read_hv_layers(path: Path, tower_distance_km: float = 0.3) -> dict[str, pd.D
     )
     switches = _near_lines(_read(path, "power_switch"), lines, tower_distance_km)
     tower_table = _flat(towers)
+    # the 110 kV yard of an EHV site is often its own polygon, below the HV filter above
+    voltage = pd.to_numeric(polygons["max_voltage"], errors="coerce")
+    infeed = polygons[
+        (voltage >= INFEED_VOLTS)
+        & ~polygons.reindex(columns=["frequency"])["frequency"].astype(str).eq("16.7")
+    ]
     return {
         "lines": _flat(lines).pipe(lambda t: t.assign(status=status(t))),
         "towers": tower_table.assign(line_number=tower_table["ref"].map(tower_line_number)),
         "substations": substations.assign(status=status(substations)),
         "transformers": _flat(transformers),
         "switches": _flat(switches),
+        "infeed_stations": _flat(infeed),
+        "infeed_lines": _flat(
+            all_lines[pd.to_numeric(all_lines["max_voltage"], errors="coerce") >= INFEED_VOLTS]
+        ),
+        "infeed_transformers": _flat(every_transformer[primary.isna() | (primary >= HV_VOLTS)]),
     }

@@ -221,6 +221,9 @@ def build_germany_case(
                 "ra": 0.0,
             },
         )
+    for model in ss.models.values():  # ANDES defaults each device's fn to 60 Hz
+        if model.n and "fn" in model.params:
+            model.params["fn"].v[:] = [frequency_hz] * model.n
     ss.setup()
     if not ss.PFlow.run():
         raise SimulationError("the AC power flow of the German case does not converge")

@@ -44,7 +44,7 @@ import sys
 import tempfile
 import zipfile
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import UTC, datetime
 from importlib import resources
 from pathlib import Path
@@ -53,11 +53,18 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from tranpy.dispatch import HVDC_CONVERTERS
 from tranpy.german_grid import (
     OSM_GRID,
     build_german_grid,
     fetch_osm_hv_lines,
     fetch_osm_substations,
+)
+from tranpy.grid_connections import (
+    ASSUMPTION,
+    ConnectionParameters,
+    infeed_transformers,
+    unit_counts,
 )
 from tranpy.grid_data import CORE_SGM, load_core_grid_model
 from tranpy.grid_layers import (
@@ -69,10 +76,19 @@ from tranpy.grid_layers import (
     node_countries,
     plants_from_kraftwerksliste,
 )
-from tranpy.grid_register import area_load_shares, attach_register
+from tranpy.grid_library import LIBRARY, infeed_library, library_tables
+from tranpy.grid_register import (
+    apply_plant_connections,
+    area_load_shares,
+    attach_register,
+    connected_nodes,
+    connection_mva,
+    node_control_areas,
+    rating_suspect,
+)
 from tranpy.maps import NATURAL_EARTH_COUNTRIES
 from tranpy.osm_export import SOURCE as OSM_EXPORT_SOURCE
-from tranpy.osm_export import latest_export, read_hv_layers
+from tranpy.osm_export import export_ways, latest_export, read_hv_layers
 from tranpy.osm_routes import (
     dlm250_geometries,
     fetch_circuit_relations,
@@ -81,6 +97,15 @@ from tranpy.osm_routes import (
     load_ways,
     route_grid,
 )
+from tranpy.osm_topology import (
+    added_circuits,
+    added_transformers,
+    build_sections,
+    check_topology,
+    export_length_km,
+    with_osm_topology,
+)
+from tranpy_core._optional import require
 from tranpy_core.data.download import fetch
 from tranpy_core.errors import ConfigurationError, DataError
 
@@ -102,6 +127,13 @@ COMMENTS: dict[str, str] = {
     "with node ids and geometry (Overpass API). OpenStreetMap contributors, ODbL 1.0.",
     "grid_osm_pypsa_buses_raw": "PyPSA-Eur prebuilt OpenStreetMap network 0.7, buses. ODbL 1.0.",
     "grid_osm_pypsa_lines_raw": "PyPSA-Eur prebuilt OpenStreetMap network 0.7, lines. ODbL 1.0.",
+    "grid_de_osm_sections": "Sections of the OpenStreetMap export between stations, compared "
+    "with the modelled circuits. ODbL 1.0.",
+    "grid_de_osm_circuits": "Circuits only the OpenStreetMap export shows, with typical values "
+    "labelled as estimates. ODbL 1.0.",
+    "grid_de_osm_transformers_added": "380/220 kV transformers only the OpenStreetMap export "
+    "shows, with median values labelled as estimates. ODbL 1.0.",
+    "grid_de_osm_nodes": "Stations and junctions only the OpenStreetMap export shows. ODbL 1.0.",
     "grid_de_nodes": "German 220/380 kV network nodes with location, how it was located, country.",
     "grid_de_circuits": "German 220/380 kV circuits: operator parameters (R, X ohm; B "
     "microsiemens per circuit), rating, tie-line/HVDC flags, route.",
@@ -113,6 +145,8 @@ COMMENTS: dict[str, str] = {
     "grid_de_plants": "Power plant list normalised (status, capacity, WGS84 coordinates).",
     "grid_de_plant_attachments": "Power plants attached to transmission substations; method and "
     "data_quality (published or estimated) per row.",
+    "grid_de_out_of_service": "Elements kept in the data but left out of the solved model "
+    "(plants out of service, in reserve or closed), with the register status.",
     "grid_de_load_shares": "Population per German transmission substation (basis of the loads).",
     "cim_substation": "German HV grid model (CIM Substation).",
     "cim_voltage_level": "German HV grid model (CIM VoltageLevel).",
@@ -338,30 +372,283 @@ def bronze_tables(paths: Mapping[str, Path], retrieved: str) -> dict[str, pd.Dat
 # ---------------------------------------------------------------- silver and gold
 
 
+def _abroad(borders: Path) -> Callable[[float, float], bool]:
+    """Test whether a position lies outside Germany."""
+    shapely = require("shapely", "grid")
+    countries = json.loads(borders.read_text(encoding="utf-8"))["features"]
+    germany = next(
+        shapely.geometry.shape(c["geometry"])
+        for c in countries
+        if c["properties"].get("ADM0_A3") == "DEU"
+    )
+    return lambda lon, lat: not germany.contains(shapely.Point(lon, lat))
+
+
+_DUPLICATE_TIE = "Meppen - Niederlangen EMSLD OW"
+_DANGLING_TEE = {
+    "wuhlheide abzweig#302/1|220": "wuhlheide|220",
+    "wuhlheide abzweig#302/2|220": "wuhlheide|220",
+}
+_EULA_TAUCHA = "osm-4808-0"
+_OUT_OF_OPERATION = {
+    "Daxlanden - Maximiliansau ge (Rheingraben prov)": (
+        "JAO release 9 change log removes the provisional Rheingraben row"
+    ),
+    "Kuehmoos - Maximiliansau RGRABN": (
+        "two TSO signals: JAO release 9 TransnetBW row comment 'currently out of service'; "
+        "Amprion brochure 09/2026 expects 2035"
+    ),
+}
+_DOUBLE_COUNTED = (
+    "Y-Grafenrheinfeld -(Hoepfingen-Stalldorf) ge/rt",
+    "Y-Hoepfingen -(Grafenrheinfeld-Stalldorf) ge/rt",
+    "Y-Stalldorf -(Grafenrheinfeld-Hoepfingen) ge/rt",
+)
+"""Amprion's share of a tie line (EIC 11T0-0000-0983-G) TenneT also reports as a tee segment."""
+_CURATED_CIRCUITS = (
+    (
+        "Zukunft - Oberzier Weisweiler Nord (estimated values)",
+        "osm/25426571|380",
+        "oberzier|380",
+        13.2,
+        "export section osm-14157 380 kV Weisweiler Nord|Sued; kuladig.de BKM-20306119",
+    ),
+    (
+        "Zukunft - Oberzier Weisweiler Sued (estimated values)",
+        "osm/25426571|380",
+        "oberzier|380",
+        13.2,
+        "export section osm-14157 380 kV Weisweiler Nord|Sued; kuladig.de BKM-20306119",
+    ),
+    (
+        "Zwoenitz - Roehrsdorf 577 (estimated values)",
+        "osm/944960289|380",
+        "rohrsdorf|380",
+        30.6,
+        "export section osm-14312, lines 577/578 Roehrsdorf - Markersbach / Zwoenitz",
+    ),
+    (
+        "Zwoenitz - Roehrsdorf 578 (estimated values)",
+        "osm/944960289|380",
+        "rohrsdorf|380",
+        30.6,
+        "export section osm-14312, lines 577/578 Roehrsdorf - Markersbach / Zwoenitz",
+    ),
+)
+_MARKERSBACH_ZWOENITZ_KM = 21.7
+
+
+def _plant_group(status: str) -> str:
+    low = status.lower()
+    for key, group in (
+        ("netzreserve", "grid reserve"),
+        ("kapazitätsreserve", "capacity reserve"),
+        ("besonderes netztechnisches", "special grid equipment"),
+        ("vorläufig", "provisionally closed"),
+        ("endgültig", "closed"),
+    ):
+        if key in low:
+            return group
+    return "not in operation"
+
+
+def split_out_of_service(attachments: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Attachments of operating plants, and the plants left out of the solved model.
+
+    Plants the register shows out of service, in a reserve (grid, capacity, special grid
+    equipment) or closed stay in ``grid_de_plants`` but are not attached: grid reserve units
+    are not dispatched in normal hours. Register cells carry no status and stay attached.
+    """
+    operating = attachments.get("in_operation", pd.Series(True, index=attachments.index))
+    reserve = attachments.get("reserve", pd.Series(False, index=attachments.index))
+    off = ~operating.fillna(True).astype(bool) | reserve.fillna(False).astype(bool)
+    left = attachments[off]
+    status = left["status"].fillna("").astype(str)
+    out = pd.DataFrame(
+        {
+            "element": left["mastr_id"],
+            "name": left["name"],
+            "node": left["node"],
+            "fuel": left["fuel"],
+            "capacity_mw": left["capacity_mw"],
+            "status": status,
+            "group": status.map(_plant_group),
+            "reason": "register: "
+            + status
+            + "; kept in grid_de_plants, left out of the solved model",
+        }
+    ).reset_index(drop=True)
+    return attachments[~off].reset_index(drop=True), out
+
+
+def with_curated_connections(lines: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Join islands of the added topology, drop a doubly reported tie; returns the change log."""
+    out = lines[lines["name"].astype(str).ne(_DUPLICATE_TIE)].copy()
+    changes: list[dict[str, Any]] = [
+        {
+            "eic": r.eic,
+            "name": r.name,
+            "field": "row",
+            "previous": "operating circuit",
+            "new": "removed",
+            "reason": "tie line reported by both TSOs; TenneT tee segment kept",
+        }
+        for r in lines[lines["name"].astype(str).eq(_DUPLICATE_TIE)].itertuples()
+    ]
+    doubled = out["name"].astype(str).isin(_DOUBLE_COUNTED)
+    changes += [
+        {
+            "eic": r.eic,
+            "name": r.name,
+            "field": "row",
+            "previous": "operating circuit",
+            "new": "removed",
+            "reason": "tee rows double count Grafenrheinfeld - Hoepfingen and - Stalldorf; "
+            "which pair is real is not proven",
+        }
+        for r in out[doubled].itertuples()
+    ]
+    out = out[~doubled].copy()
+    for name, evidence in _OUT_OF_OPERATION.items():
+        hit = out["name"].astype(str).eq(name)
+        out.loc[hit, "status"] = "out_of_service"
+        out.loc[hit, "status_evidence"] = evidence
+        if hit.any():
+            changes.append(
+                {
+                    "eic": out.loc[hit, "eic"].iloc[0],
+                    "name": name,
+                    "field": "status",
+                    "previous": "in_operation",
+                    "new": "out_of_service",
+                    "reason": evidence,
+                }
+            )
+    for column in ("node0", "node1"):
+        tee = out[column].isin(_DANGLING_TEE)
+        for r in out[tee].itertuples():
+            changes.append(
+                {
+                    "eic": r.eic,
+                    "name": r.name,
+                    "field": column,
+                    "previous": getattr(r, column),
+                    "new": _DANGLING_TEE[getattr(r, column)],
+                    "reason": "export shows circuit 302 entering Umspannwerk Wuhlheide",
+                }
+            )
+        out[column] = out[column].replace(_DANGLING_TEE)
+    second = out[out["eic"].eq(_EULA_TAUCHA)]
+    if len(second):
+        out = pd.concat([out, second.assign(eic=f"{_EULA_TAUCHA[:-1]}1")], ignore_index=True)
+        changes.append(
+            {
+                "eic": f"{_EULA_TAUCHA[:-1]}1",
+                "name": second.iloc[0]["name"],
+                "field": "row",
+                "previous": "",
+                "new": "second circuit, estimated values",
+                "reason": "export refs 205;206; the one circuit was only assumed",
+            }
+        )
+    ends = out["node0"].eq("osm/166604822|380") | out["node1"].eq("osm/166604822|380")
+    template = out[ends & out["data_quality"].eq("estimated")]
+    if template.empty:
+        return out, pd.DataFrame(changes)
+    sample = template.iloc[0]
+    per_km = {c: float(sample[c]) / float(sample["length_km"]) for c in ("r_ohm", "x_ohm", "b_us")}
+
+    def sized(km: float) -> dict[str, float]:
+        return {"length_km": km, **{c: v * km for c, v in per_km.items()}}
+
+    for column, value in sized(_MARKERSBACH_ZWOENITZ_KM).items():
+        out.loc[template.index, column] = value
+    known = set(out["node0"]) | set(out["node1"])
+    added: list[dict[str, Any]] = []
+    for name, a, b, km, evidence in _CURATED_CIRCUITS:
+        if a in known and b in known:
+            added.append(
+                {
+                    **{str(k): v for k, v in sample.to_dict().items()},
+                    **sized(km),
+                    "eic": f"curated/{name}",
+                    "name": name,
+                    "node0": a,
+                    "node1": b,
+                    "route_source": evidence,
+                }
+            )
+            changes.append(
+                {
+                    "eic": f"curated/{name}",
+                    "name": name,
+                    "field": "row",
+                    "previous": "",
+                    "new": "added, estimated values",
+                    "reason": evidence,
+                }
+            )
+    return pd.concat([out, pd.DataFrame(added)], ignore_index=True), pd.DataFrame(changes)
+
+
 def model_tables(
     paths: Mapping[str, Path],
     plants_raw: pd.DataFrame,
     population: pd.DataFrame,
     run_date: str,
     register: Mapping[str, pd.DataFrame] | None = None,
+    osm_layers: Mapping[str, pd.DataFrame] | None = None,
 ) -> tuple[dict[str, pd.DataFrame], dict[str, pd.DataFrame], Any]:
-    """Silver and gold tables from the downloaded sources and the two input tables."""
+    """Silver and gold tables from the downloaded sources and the two input tables.
+
+    With ``osm_layers`` (see :func:`read_hv_layers`) the model also holds the circuits and
+    stations only the OpenStreetMap export shows, before load and generation are attached.
+    """
     core = load_core_grid_model(paths["sgm"], tsos=None)
     grid = build_german_grid(
         core, paths["pypsa_buses.csv"].parent, substations=paths["substations"]
     )
     countries = node_countries(grid.nodes, json.loads(paths["borders"].read_text(encoding="utf-8")))
+    ways = load_ways(paths["lines"])
+    if osm_layers is not None:
+        ways = export_ways(osm_layers["lines"], ways, _abroad(paths["borders"]))
     routed = route_grid(
         grid.lines,
         grid.nodes,
-        load_ways(paths["lines"]),
+        ways,
         load_relations(paths["circuits"]),
         dlm250_geometries(paths["dlm250"]),
         foreign_nodes=[str(n) for n, c in countries.items() if c != "DEU"],
     )
     grid.lines, grid.nodes = routed.lines, routed.nodes
+    osm_silver: dict[str, pd.DataFrame] = {}
+    curated = pd.DataFrame()
+    if osm_layers is not None:
+        osm_silver = osm_topology_tables(
+            {
+                "grid_de_osm_ways": osm_layers["lines"],
+                "grid_de_osm_substations": osm_layers["substations"],
+            },
+            {"grid_de_circuits": grid.lines, "grid_de_nodes": grid.nodes},
+        )
+        grid.lines, grid.nodes = with_osm_topology(
+            grid.lines,
+            grid.nodes,
+            osm_silver["grid_de_osm_circuits"],
+            osm_silver["grid_de_osm_nodes"],
+        )
+        for node in osm_silver["grid_de_osm_nodes"]["node"]:
+            countries[node] = "DEU"
+        osm_silver["grid_de_osm_transformers_added"] = added_transformers(
+            osm_layers["transformers"], grid.transformers, grid.nodes
+        )
+        grid.transformers = pd.concat(
+            [grid.transformers, osm_silver["grid_de_osm_transformers_added"]], ignore_index=True
+        )
+        grid.lines, curated = with_curated_connections(grid.lines)
     plants = plants_from_kraftwerksliste(plants_raw)
-    shares = load_shares(population, grid.nodes)
+    main = connected_nodes(grid.nodes, grid.lines, grid.transformers)
+    shares = load_shares(population, main)
     total_load = TOTAL_LOAD_MW
     load_source = str(LOAD_REFERENCE["source"])
     extra_silver: dict[str, pd.DataFrame] = {}
@@ -373,19 +660,23 @@ def model_tables(
         cells = register["cells"]
         attachments = pd.concat(
             [
-                attach_plants(plants, grid.nodes, shares, countries),
-                attach_register(cells, grid.nodes),
+                apply_plant_connections(attach_plants(plants, main, shares, countries)),
+                attach_register(cells, main, connection_mva(grid.lines)),
             ],
             ignore_index=True,
         )
         area_load = register["area_load"]
         shares, total_load = area_load_shares(
-            shares, grid.nodes, dict(zip(area_load["area"], area_load["mean_mw"], strict=True))
+            shares,
+            grid.nodes,
+            dict(zip(area_load["area"], area_load["mean_mw"], strict=True)),
+            cells,
         )
         load_source = str(area_load["source"].iloc[0])
         extra_silver = {"grid_de_register_cells": cells, "grid_de_area_load": area_load}
     else:
         attachments = attach_plants(plants, grid.nodes, shares, countries)
+    attachments, out_of_service = split_out_of_service(attachments)
 
     sources = [{"source": k, "description": v} for k, v in grid.sources.items()]
     sources += [
@@ -402,6 +693,7 @@ def model_tables(
         "substation_aliases_de.csv",
         "split_sites_de.csv",
         "line_corrections_de.csv",
+        "plant_connections_de.csv",
         "substation_locations_de.csv",
         "substation_locations_foreign.csv",
     ):
@@ -423,20 +715,24 @@ def model_tables(
         )
     silver = {
         "grid_de_nodes": grid.nodes.assign(country=grid.nodes["node"].map(countries)),
-        "grid_de_circuits": grid.lines.assign(route=grid.lines["route"].map(_points)),
+        "grid_de_circuits": grid.lines.assign(
+            route=grid.lines["route"].map(_points), rating_suspect=rating_suspect(grid.lines)
+        ),
         "grid_de_transformers": grid.transformers,
         "grid_de_issues": grid.issues,
         "grid_de_sources": pd.DataFrame(sources).assign(model_version=run_date),
         "grid_de_curation": pd.concat(curation, ignore_index=True),
         "grid_de_plants": plants,
         "grid_de_plant_attachments": attachments,
+        "grid_de_out_of_service": out_of_service,
         "grid_de_load_shares": shares,
         "grid_de_circuit_routes": routed.routes,
         "grid_de_tee_positions": routed.tees,
-        "grid_de_field_changes": routed.changes,
+        "grid_de_field_changes": pd.concat([routed.changes, curated], ignore_index=True),
         "grid_de_route_candidates": routed.candidates,
         "grid_de_loose_ends": routed.loose_ends,
         **extra_silver,
+        **osm_silver,
     }
     for row in routed.loose_ends.to_dict("records"):
         gap = max(float(row["gap_km_node0"]), float(row["gap_km_node1"]))
@@ -455,8 +751,221 @@ def model_tables(
         model_version=run_date,
         countries=countries,
     )
+    if osm_layers is not None and register is not None:
+        units = paths.get("transformer_site_units")
+        site_units = pd.read_csv(units) if units is not None and Path(units).exists() else None
+        checked = paths.get("transformer_owner_checked")
+        owner = (
+            read_owner_checked(Path(checked))
+            if checked is not None and Path(checked).exists()
+            else None
+        )
+        model, final = final_model(
+            model, grid.lines, grid.nodes, register["cells"], osm_layers, silver, site_units, owner
+        )
+        silver.update(final)
     gold = {name: frame.assign(model_version=run_date) for name, frame in model.tables().items()}
     return silver, gold, model
+
+
+def read_owner_checked(path: Path) -> pd.DataFrame:
+    """The owner's count table; commas left unquoted in the last column stay part of it."""
+    lines = path.read_text(encoding="utf-8").splitlines()
+    header = lines[0].split(",")
+    rows = [
+        line.split(",", len(header) - 1) + [""] * (len(header) - 1 - line.count(","))
+        for line in lines[1:]
+        if line.strip()
+    ]
+    frame = pd.DataFrame(rows, columns=header).replace("", np.nan)
+    for column in ("kv_hv", "kv_lv", "ehv_units"):
+        if column in frame:
+            frame[column] = pd.to_numeric(frame[column])
+    return frame
+
+
+_OIM = "owner_checked_oim 2026-11-02"
+OWNER_SITE_UNITS = pd.DataFrame(
+    [
+        {
+            "site": "hamburg/sud",
+            "kv_hv": 380.0,
+            "units": 6,
+            "mva": 1020.0,
+            "count_source": f"{_OIM}: 6 units join the 110 and 380 kV busbars",
+            "rating_source": (
+                "720 MVA for 5 units (BNetzA BK4-22-0020) plus 300 MVA for the 6th, applied for "
+                "(NEP M442) and seen built; its service is assumed"
+            ),
+        },
+        {"site": "sittling", "kv_hv": 220.0, "units": 1, "mva": 200.0,
+         "count_source": f"{_OIM}: one 220/110 kV unit", "rating_source": "export tag 200 MVA"},
+        {"site": "regensburg", "kv_hv": 220.0, "units": 1,
+         "count_source": f"{_OIM}: one unit joins the 220 kV side; the others are 110 kV/MV"},
+        {"site": "y-plattling#465", "kv_hv": 380.0, "units": 1,
+         "count_source": f"{_OIM}: one unit in the 380 kV station on circuit 465; the 4 in the "
+         "110 kV substation are 110 kV/MV"},
+        {"site": "eller", "kv_hv": 220.0, "units": 2,
+         "count_source": f"{_OIM}: 2 units labelled 220/110 kV"},
+        {"site": "dulken", "kv_hv": 220.0, "units": 2,
+         "count_source": f"{_OIM}: 2 x 220/110 kV; the 380/110 kV unit has no 380 kV bus in "
+         "the model, and 3 more units are 110 kV/MV"},
+        {"site": "pirach", "kv_hv": 220.0, "units": 3,
+         "count_source": f"{_OIM}: 3 units join the 220 kV busbars; a 4th is unclear"},
+        {"site": "simbach", "kv_hv": 220.0, "units": 2,
+         "count_source": f"{_OIM}: 2 units, one labelled; 2 more are 110 kV/MV"},
+    ]
+)  # fmt: skip
+OWNER_STATIONS = {
+    "plattling": "y-plattling#465",
+    "elverlingsen": "osm/1463885594",
+    "herlasgrun": "osm/167352587",
+    "brandenburg/west": "osm/40621568",
+}
+"""Infeeds the owner placed at another station of the site, as ``{site: node site}``."""
+"""Owner decisions that take precedence over the researched site table."""
+OWNER_SITE_NAMES = {"itzehoe/west": "itzeho/west"}
+"""Owner-table site names that differ from the node site (the node keeps the export spelling)."""
+AREA_MVA = {"50Hertz": 44110.0}
+"""Installed EHV/110 kV capacity, 50Hertz Almanach 2024; other areas publish no total."""
+SIMBENCH = "SimBench 1-EHV-mixed: synthetic benchmark, P/S 0.95 and Q/S 0.31"
+SIMBENCH_PARAMETERS = ("power_factor", "leading_limit")
+
+
+def final_model(
+    model: Any,
+    lines: pd.DataFrame,
+    nodes: pd.DataFrame,
+    cells: pd.DataFrame,
+    osm_layers: Mapping[str, pd.DataFrame],
+    silver: Mapping[str, pd.DataFrame],
+    site_units: pd.DataFrame | None = None,
+    owner_checked: pd.DataFrame | None = None,
+    ratings: str = "median",
+) -> tuple[Any, dict[str, pd.DataFrame]]:
+    """Library defaults, owner decisions and the infeed data the hourly connection step reads.
+
+    ``site_units`` (see :func:`~tranpy.grid_connections.apply_site_units`) takes precedence over
+    the export counts and library ratings where a site was researched; ``owner_checked``
+    (see :func:`~tranpy.grid_connections.unit_counts`) takes precedence over both. ``ratings``
+    fills unrated units with the median published unit rating (``"median"``) or the library
+    rating (``"library"``, a sensitivity).
+
+    The model stays neutral: :func:`~tranpy.grid_connections.connect` runs per dispatched hour.
+    """
+    hvdc = set(lines.loc[lines["hvdc"].fillna(False).astype(bool), "eic"])
+    final, tables = library_tables(model, hvdc)
+    bus = final.busbar_section.merge(
+        final.voltage_level[["mrid", "nominal_voltage_kv", "site"]].rename(columns={"mrid": "vl"}),
+        left_on="voltage_level_mrid",
+        right_on="vl",
+    )
+    areas = node_control_areas(nodes, cells)
+    main = bus[
+        bus["name"].isin(connected_nodes(nodes, lines, silver["grid_de_transformers"])["node"])
+        & bus["name"].map(areas).notna()
+        & bus["nominal_voltage_kv"].ge(220)
+    ]
+    connection = connection_tables(
+        osm_layers["infeed_stations"],
+        osm_layers["infeed_transformers"],
+        main[["mrid", "site", "lon", "lat"]].assign(kv=main["nominal_voltage_kv"]),
+        FINAL_CONNECTION,
+        osm_layers["infeed_lines"],
+    )
+    infeed = infeed_library(connection["grid_de_connection_infeed"])
+    for site, station in OWNER_STATIONS.items():
+        target = main[main["site"].eq(station)]
+        moved = infeed["site"].eq(site)
+        if len(target) and moved.any():
+            infeed.loc[moved, ["site", "bus_hv"]] = [station, str(target["mrid"].iloc[0])]
+    if owner_checked is not None:
+        owner_checked = owner_checked.assign(site=owner_checked["site"].replace(OWNER_SITE_NAMES))
+    earlier = OWNER_SITE_UNITS.rename(columns={"units": "ehv_units", "count_source": "evidence"})
+    if owner_checked is not None:
+        known = set(zip(owner_checked["site"], owner_checked["kv_hv"].astype(float), strict=True))
+        earlier = earlier[
+            [(a, b) not in known for a, b in zip(earlier["site"], earlier["kv_hv"], strict=True)]
+        ]
+        for column in ("mva", "rating_source"):
+            # a published rating of the earlier owner table stays with its count
+            if column not in owner_checked:
+                owner_checked = owner_checked.assign(**{column: np.nan})
+    owner = (
+        pd.concat([owner_checked, earlier], ignore_index=True)
+        if owner_checked is not None
+        else earlier
+    )
+    owner = owner.assign(site=owner["site"].replace({v: k for k, v in OWNER_STATIONS.items()}))
+    infeed, owner_missed = unit_counts(
+        infeed,
+        owner,
+        site_units,
+        OWNER_STATIONS,
+        main[["mrid", "site"]].assign(kv=main["nominal_voltage_kv"]),
+        ratings=ratings,
+        areas=dict(zip(main["mrid"], main["name"].map(areas), strict=True)),
+    )
+    area_of = infeed["bus_hv"].map(dict(zip(main["mrid"], main["name"].map(areas), strict=True)))
+    capacity_check = pd.DataFrame(
+        [
+            {
+                "area": area,
+                "model_mva": float(infeed.loc[area_of.eq(area), "mva"].sum()),
+                "published_mva": total,
+                "source": "50Hertz Almanach 2024",
+                "status": "report only, not scaled",
+            }
+            for area, total in AREA_MVA.items()
+        ]
+    )
+    parameters = pd.concat(
+        [
+            connection["grid_de_connection_parameters"].assign(
+                status=lambda t: (
+                    t["status"]
+                    .where(t["parameter"].ne("ehv_110_uk"), LIBRARY)
+                    .where(~t["parameter"].isin(SIMBENCH_PARAMETERS), SIMBENCH)
+                )
+            ),
+            pd.DataFrame(
+                [
+                    {
+                        "parameter": "load_tan_phi",
+                        "value": "0.1 to 0.2, results reported as a range",
+                        "status": "no published value; range accepted by the owner",
+                    }
+                ]
+            ),
+        ],
+        ignore_index=True,
+    ).astype({"value": str})
+    return final, {
+        **tables,
+        **connection,
+        "grid_de_connection_infeed": infeed,
+        "grid_de_connection_owner_unmatched": owner_missed,
+        "grid_de_connection_capacity_check": capacity_check,
+        "grid_de_connection_parameters": parameters,
+        "grid_de_field_changes": pd.concat(
+            [
+                silver["grid_de_field_changes"],
+                pd.DataFrame(
+                    [
+                        {
+                            "eic": "hvdc/SE4",
+                            "name": "Baltic Cable",
+                            "field": "injection node",
+                            "previous": "osm/275466323|380",
+                            "new": HVDC_CONVERTERS["SE4"],
+                            "reason": "stand-in for parallel routes out of Luebeck, an assumption",
+                        }
+                    ]
+                ),
+            ],
+            ignore_index=True,
+        ),
+    }
 
 
 def gold_check(model: Any, out_dir: Path) -> dict[str, Any]:
@@ -600,6 +1109,48 @@ def export_tables(directory: Path) -> tuple[dict[str, pd.DataFrame], dict[str, p
     return bronze, silver
 
 
+def osm_topology_tables(
+    export: Mapping[str, pd.DataFrame], silver: Mapping[str, pd.DataFrame]
+) -> dict[str, pd.DataFrame]:
+    """Sections of the export, and the circuits and nodes only it shows."""
+    ways, stations = export["grid_de_osm_ways"], export["grid_de_osm_substations"]
+    circuits, nodes = silver["grid_de_circuits"], silver["grid_de_nodes"]
+    sections = build_sections(ways, stations, circuits)
+    added, new_nodes = added_circuits(sections, stations, circuits, nodes)
+    problems = check_topology(sections, added, new_nodes, circuits, nodes, export_length_km(ways))
+    if problems:
+        raise ValueError(f"OpenStreetMap topology: {problems}")
+    return {
+        "grid_de_osm_sections": sections,
+        "grid_de_osm_circuits": added,
+        "grid_de_osm_nodes": new_nodes,
+    }
+
+
+FINAL_CONNECTION = ConnectionParameters(ehv_110_uk=0.122, power_factor=0.95, leading_limit=0.31)
+"""380/110 kV units take uk of the library type; machine limits follow SimBench 1-EHV-mixed
+(P/S 0.95, Q within 0.31 S, a synthetic benchmark); step-up values remain assumptions (no type)."""
+
+
+def connection_tables(
+    stations: pd.DataFrame,
+    transformers: pd.DataFrame,
+    buses: pd.DataFrame,
+    parameters: ConnectionParameters | None = None,
+    lines: pd.DataFrame | None = None,
+) -> dict[str, pd.DataFrame]:
+    """Silver tables of the connection model: infeed sites, unmatched stations, assumed values."""
+    infeed, missed = infeed_transformers(stations, transformers, buses, lines)
+    values = asdict(parameters or ConnectionParameters())
+    return {
+        "grid_de_connection_infeed": infeed,
+        "grid_de_connection_unmatched": missed,
+        "grid_de_connection_parameters": pd.DataFrame(
+            {"parameter": list(values), "value": list(values.values()), "status": ASSUMPTION}
+        ),
+    }
+
+
 # ---------------------------------------------------------------- steps
 
 
@@ -623,7 +1174,14 @@ def build_layer(step: str, config: PipelineConfig, spark: Any = None) -> dict[st
         "sum(population) AS population FROM {table} GROUP BY 1, 2",
     ).astype(float)
     register = _register_inputs(config.files / "register")
-    silver, gold, model = model_tables(paths, plants, population, config.run_date, register)
+    exported = latest_export(config.files / "osm_export")
+    layers = None
+    if exported is not None:
+        with tempfile.TemporaryDirectory() as folder:
+            local = Path(folder) / exported.name
+            shutil.copyfile(exported, local)
+            layers = read_hv_layers(local)
+    silver, gold, model = model_tables(paths, plants, population, config.run_date, register, layers)
     if step == "silver":
         silver.update(export_tables(config.files / "osm_export")[1])
         store.write("silver", silver)

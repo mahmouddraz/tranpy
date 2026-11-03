@@ -145,7 +145,12 @@ class AndesEngine:
             i for i, trans in zip(ss.Line.idx.v, ss.Line.trans.v, strict=True) if not trans
         ]
         self._loads = list(ss.PQ.idx.v)
-        self._frequency_hz = float(ss.config.freq)
+        # a case file stores fn per device, not System.freq; take it from the machines
+        fn = [f for name in _MACHINES for f in getattr(ss, name).fn.v]
+        if self.case is None or not fn or len(set(fn)) > 1:
+            self._frequency_hz = float(ss.config.freq)
+        else:
+            self._frequency_hz = float(fn[0])
         self._bus_ids = list(ss.Bus.idx.v)
         self._gen_buses = set(ss.PV.bus.v) | set(ss.Slack.bus.v)
         for name in _MACHINES:
@@ -240,15 +245,26 @@ class AndesEngine:
             # ANDES itself still uses pandas and NumPy APIs that are deprecated upstream
             warnings.filterwarnings("ignore", category=DeprecationWarning, module=r"andes(\.|$)")
             warnings.filterwarnings("ignore", category=FutureWarning, module=r"andes(\.|$)")
-            frequency = _CASE_FREQUENCY_HZ.get(self.system.key) if self.case is None else None
+            frequency = (
+                _CASE_FREQUENCY_HZ.get(self.system.key)
+                if self.case is None
+                else getattr(self, "_frequency_hz", None)
+            )
             options = [f"System.freq={frequency}"] if frequency else None
-            return andes.load(
+            ss = andes.load(
                 self.case_path,
-                setup=setup,
+                setup=False,
                 no_output=True,
                 default_config=True,
                 config_option=options,
             )
+            if frequency:  # ANDES defaults each device's fn to 60 Hz
+                for model in ss.models.values():
+                    if model.n and "fn" in model.params:
+                        model.params["fn"].v[:] = [frequency] * model.n
+            if setup:
+                ss.setup()
+            return ss
 
     def simulate(self, scenarios: Sequence[FaultScenario]) -> list[SimulationResult]:
         """Simulate the scenarios (several seconds each), in parallel if ``n_jobs > 1``."""
@@ -322,7 +338,7 @@ class AndesEngine:
         monitored = set(ss.BusFreq.bus.v)
         for b in ss.Bus.idx.v:
             if b not in monitored and self._recorded(b):
-                ss.add("BusFreq", {"bus": b})
+                ss.add("BusFreq", {"bus": b, "fn": self._frequency_hz})
         ss.setup()
         for k in range(
             n_case_toggles

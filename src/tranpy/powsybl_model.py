@@ -41,8 +41,15 @@ def _ids(prefix: str, mrids: pd.Series) -> list[str]:
     return [f"{prefix}_{m.replace('-', '')}" for m in mrids]
 
 
-def network_from_cim_tables(tables: CimTables, name: str = "germany_hv") -> Any:
-    """pypowsybl network of the gold tables (circuits with both ends at one bus skipped)."""
+def network_from_cim_tables(
+    tables: CimTables, name: str = "germany_hv", compensation: pd.DataFrame | None = None
+) -> Any:
+    """pypowsybl network of the gold tables (circuits with both ends at one bus skipped).
+
+    A machine column ``target_q_mvar`` sets the injection of machines without voltage control.
+    ``compensation`` (:data:`tranpy.reactive_power.COMPENSATION_COLUMNS`) adds controlled units
+    as generators without active power and shunts as linear shunt compensators.
+    """
     pp = require("pypowsybl", "powsybl")
     network = pp.network.create_empty(name)
     sub = tables.substation
@@ -106,6 +113,21 @@ def network_from_cim_tables(tables: CimTables, name: str = "germany_hv") -> Any:
         g=(tr["g_s"] / ratio2).tolist(),
         b=(tr["b_s"] / ratio2).tolist(),
     )
+    if "phase_shift_deg" in tr:
+        shifted = tr[tr["phase_shift_deg"].fillna(0.0).ne(0.0)]
+        if len(shifted):
+            ids = _ids("T", shifted["mrid"])
+            network.create_phase_tap_changers(
+                pd.DataFrame(
+                    {"tap": 0, "low_tap": 0, "regulation_mode": "CURRENT_LIMITER", "regulating": False},  # noqa: E501
+                    index=pd.Index(ids, name="id"),
+                ),
+                pd.DataFrame(
+                    {"b": 0.0, "g": 0.0, "r": 0.0, "x": 0.0, "rho": 1.0,
+                     "alpha": shifted["phase_shift_deg"].astype(float).to_numpy()},
+                    index=pd.Index(ids, name="id"),
+                ),
+            )  # fmt: skip
 
     nominal = dict(
         zip(
@@ -126,7 +148,7 @@ def network_from_cim_tables(tables: CimTables, name: str = "germany_hv") -> Any:
         target_p=gen["p_mw"].tolist() + ext["p_mw"].tolist(),
         target_v=[nominal[m] * v for m, v in zip(gen["bus_mrid"], gen["target_v_pu"], strict=True)]
         + [nominal[m] * v for m, v in zip(ext["bus_mrid"], ext["target_v_pu"], strict=True)],
-        target_q=[0.0] * (len(gen) + len(ext)),
+        target_q=_target_q(gen) + [0.0] * len(ext),
         voltage_regulator_on=gen["voltage_control"].tolist() + [True] * len(ext),
     )
     load = tables.energy_consumer
@@ -140,7 +162,75 @@ def network_from_cim_tables(tables: CimTables, name: str = "germany_hv") -> Any:
     out_of_service = _ids("G", gen.loc[~gen["in_service"].astype(bool), "mrid"])
     if out_of_service:
         network.update_generators(id=out_of_service, connected=[False] * len(out_of_service))
+    if compensation is not None and len(compensation):
+        _add_compensation(network, compensation, bus_id, bus_vl, nominal)
     return network
+
+
+def _target_q(gen: pd.DataFrame) -> list[float]:
+    if "target_q_mvar" not in gen:
+        return [0.0] * len(gen)
+    return gen["target_q_mvar"].astype(float).fillna(0.0).tolist()
+
+
+def _add_compensation(
+    network: Any,
+    units: pd.DataFrame,
+    bus_id: dict[str, str],
+    bus_vl: dict[str, str],
+    nominal: dict[str, float],
+) -> None:
+    controlled = units[units["kind"].eq("controlled")]
+    if len(controlled):
+        ids = _ids("Q", controlled["mrid"])
+        network.create_generators(
+            id=ids,
+            voltage_level_id=[bus_vl[m] for m in controlled["bus_mrid"]],
+            bus_id=[bus_id[m] for m in controlled["bus_mrid"]],
+            min_p=[0.0] * len(ids),
+            max_p=[0.0] * len(ids),
+            target_p=[0.0] * len(ids),
+            target_v=[
+                nominal[m] * float(v)
+                for m, v in zip(controlled["bus_mrid"], controlled["target_v_pu"], strict=True)
+            ],
+            target_q=[0.0] * len(ids),
+            voltage_regulator_on=[True] * len(ids),
+        )
+        network.create_minmax_reactive_limits(
+            pd.DataFrame(
+                {
+                    "min_q": controlled["q_min_mvar"].astype(float).to_numpy(),
+                    "max_q": controlled["q_max_mvar"].astype(float).to_numpy(),
+                },
+                index=pd.Index(ids, name="id"),
+            )
+        )
+    shunts = units[units["kind"].eq("shunt")]
+    if len(shunts):
+        ids = _ids("H", shunts["mrid"])
+        kv = np.array([float(nominal[m]) for m in shunts["bus_mrid"]])
+        network.create_shunt_compensators(
+            pd.DataFrame(
+                {
+                    "voltage_level_id": [bus_vl[m] for m in shunts["bus_mrid"]],
+                    "bus_id": [bus_id[m] for m in shunts["bus_mrid"]],
+                    "model_type": "LINEAR",
+                    "section_count": 1,
+                    "target_v": 0.0,
+                    "target_deadband": 0.0,
+                },
+                index=pd.Index(ids, name="id"),
+            ),
+            pd.DataFrame(
+                {
+                    "g_per_section": 0.0,
+                    "b_per_section": shunts["q_max_mvar"].astype(float).to_numpy() / kv**2,
+                    "max_section_count": 1,
+                },
+                index=pd.Index(ids, name="id"),
+            ),
+        )
 
 
 @dataclass(frozen=True)

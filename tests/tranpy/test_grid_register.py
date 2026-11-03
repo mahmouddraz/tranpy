@@ -10,6 +10,7 @@ from tranpy.grid_register import (
     area_load_shares,
     attach_register,
     connection_key,
+    node_control_areas,
     offshore_connections,
 )
 
@@ -92,3 +93,35 @@ def test_area_without_nodes_is_an_error() -> None:
     shares = pd.DataFrame({"node": ["near|380"], "population": [1.0], "cells": [1], "share": [1.0]})
     with pytest.raises(ValueError, match="control areas"):
         area_load_shares(shares, _nodes(), {"TenneT": 40.0, "Amprion": 60.0})
+
+
+def test_a_node_of_two_operators_takes_the_area_with_the_capacity_around_it() -> None:
+    nodes = pd.DataFrame(
+        {
+            "node": ["border|380", "plain|380"],
+            "tso": ["AMPRION GMBH;TENNETGMBH", "AMPRION GMBH"],
+            "lon": [7.0, 9.0],
+            "lat": [53.0, 51.0],
+        }
+    )
+    cells = pd.DataFrame(
+        {
+            "lon": [7.0, 7.0, 7.0],
+            "lat": [53.0, 53.0, 53.0],
+            "fuel": ["Windenergie (Onshore-Anlage)", "Biomasse", OFFSHORE_FUEL],
+            "zone": ["TenneT", "Amprion", "Amprion"],
+            "mw": [100.0, 10.0, 5000.0],
+        }
+    )
+    assert node_control_areas(nodes).to_dict() == {"border|380": "Amprion", "plain|380": "Amprion"}
+    assert node_control_areas(nodes, cells)["border|380"] == "TenneT"
+
+
+def test_shared_cells_respect_a_node_limit_and_keep_all_capacity() -> None:
+    from tranpy.grid_register import _shared
+
+    cells = pd.DataFrame({"lon": [10.0], "lat": [51.0], "mw": [100.0]})
+    pool = pd.DataFrame({"node": ["a", "b"], "lon": [10.0, 10.1], "lat": [51.0, 51.0]})
+    out = _shared(cells, pool, pd.Series({"a": 20.0})).set_index("node")["share"]
+    assert out.sum() == pytest.approx(1.0)
+    assert out["a"] * 100 == pytest.approx(20.0)

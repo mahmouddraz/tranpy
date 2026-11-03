@@ -95,7 +95,7 @@ def test_records_follow_the_column_types() -> None:
     assert isinstance(first["sequenceNumber"], int)
     assert first["connected"] is True
     assert first["Measurements"] is None
-    many = [c for t in tables() for c in t.columns if c.sql_type.startswith("ARRAY")][0]
+    many = next(c for t in tables() for c in t.columns if c.sql_type.startswith("ARRAY"))
     frame = pd.DataFrame({many.name: ["x", None]})
     fake = type(table)("Fake", (), (), [many])
     assert to_records(frame, fake) == [(["x"],), (None,)]
