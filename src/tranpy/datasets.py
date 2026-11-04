@@ -51,11 +51,13 @@ __all__ = [
     "event_csv_ids",
     "flatten_powerfactory_column",
     "list_datasets",
+    "load_compact_events",
     "load_events",
     "load_ieee_9bus",
     "load_new_england",
     "load_snapshots",
     "open_event_shards",
+    "read_compact_event_table",
     "read_event_csvs",
     "rotor_angle_separation",
     "stability_labels",
@@ -163,6 +165,142 @@ def load_events(
         raise DataError(
             f"{source} holds data of system {dataset.metadata.get('system')!r}, not {spec.key!r}"
         )
+    if not include_label_channels and dataset.channel_index(LABEL_CHANNELS).size:
+        dataset = dataset.drop_channels(LABEL_CHANNELS)
+    if channels is not None:
+        dataset = dataset.select_channels(channels)
+    return dataset
+
+
+_COMPACT_EVENTS = "*.events.parquet"
+_COMPACT_TRACES = "*.traces.parquet"
+
+
+def _compact_files(source: str | Path, pattern: str) -> list[Path]:
+    src = Path(source)
+    if src.is_file():
+        return [src]
+    files = sorted(src.rglob(pattern))
+    if not files:
+        raise DataError(f"no {pattern} files under {src}")
+    return files
+
+
+def _compact_header(path: Path) -> dict[str, Any]:
+    import pyarrow.parquet as pq
+
+    meta = pq.read_schema(path).metadata or {}
+    if b"tranpy" not in meta:
+        raise DataError(f"{path} is not a tranpy compact event file")
+    header: dict[str, Any] = json.loads(meta[b"tranpy"])
+    return header
+
+
+def _expand_snapshots(frame: pd.DataFrame, header: dict[str, Any]) -> pd.DataFrame:
+    """Spread the float32 ``snap`` list column into one column per header ``snap_columns`` name."""
+    if "snap" not in frame.columns:
+        return frame
+    names = header["snap_columns"]
+    values = (
+        np.stack(frame["snap"].to_numpy()) if len(frame) else np.empty((0, len(names)), np.float32)
+    )
+    snaps = pd.DataFrame(values, columns=names, index=frame.index)
+    return pd.concat([frame.drop(columns="snap"), snaps], axis=1)
+
+
+def read_compact_event_table(source: str | Path) -> pd.DataFrame:
+    """Per-event table of a compact event set (one row per kept event).
+
+    ``source`` is an ``*.events.parquet`` file or a folder searched recursively. Columns:
+    ``sample_id``, ``label``, the scenario annotations, ``clearing_time_s``,
+    ``n_out_of_step``, ``traced`` and the snapshots ``snap:<instant>|<generator>|<var>``
+    (instants ``pre``, ``fault``, ``clear``; variables delta, omega, P, Q, V). With a folder,
+    ``case`` and ``shard`` columns name the origin of each row.
+    """
+    frames = []
+    for f in _compact_files(source, _COMPACT_EVENTS):
+        header = _compact_header(f)
+        frame = _expand_snapshots(pd.read_parquet(f), header)
+        frame.insert(0, "shard", header.get("tag", f.name.split(".")[0]))
+        frame.insert(0, "case", header.get("case", f.parent.name))
+        frames.append(frame)
+    return pd.concat(frames, ignore_index=True)
+
+
+def load_compact_events(
+    source: str | Path,
+    *,
+    channels: Sequence[str] | None = None,
+    include_label_channels: bool = False,
+) -> SignalDataset:
+    """Reduced event trajectories of a compact event set as a :class:`SignalDataset`.
+
+    ``source`` is a folder (searched recursively for ``*.traces.parquet`` and the matching
+    ``*.events.parquet``) or one ``*.traces.parquet`` file. Only the traced events are
+    returned (one case per call: the generator set, and so the channels, differ between
+    operating hours, as in the full-trace shards); their time grid is non-uniform (10 ms
+    around the fault, 50 ms elsewhere) and the values are float32 on disk. Labels and the
+    numeric annotations come from the events table; ``sample_id`` values are unique only
+    within one case, so the case of every sample is in ``metadata["cases"]``.
+    """
+    import pyarrow.parquet as pq
+
+    times, blocks, offsets, labels, ids, cases = [], [], [0], [], [], []
+    annotations: dict[str, list[float]] = {}
+    names: tuple[str, ...] | None = None
+    label_names: tuple[str, ...] = LABEL_NAMES
+    for f in _compact_files(source, _COMPACT_TRACES):
+        header = _compact_header(f)
+        if header.get("format") != "tranpy-compact-traces":
+            raise DataError(f"{f} is not a compact traces file")
+        if names is None:
+            names = tuple(header["channel_names"])
+            label_names = tuple(header.get("label_names", LABEL_NAMES))
+        elif tuple(header["channel_names"]) != names:
+            raise DataError(
+                f"{f} has other channels than the first traces file; generator sets differ "
+                "between operating hours, so load one case folder at a time"
+            )
+        events = pd.read_parquet(f.with_name(f.name.replace(".traces.", ".events.")))
+        events = events.set_index("sample_id")
+        table = pq.read_table(f)
+        sid = table.column("sample_id").to_numpy()
+        t = table.column("time").to_numpy()
+        vals = np.column_stack([table.column(c).to_numpy() for c in names]).astype(np.float64)
+        starts = np.flatnonzero(np.r_[True, sid[1:] != sid[:-1]])
+        ends = np.r_[starts[1:], sid.size]
+        numeric = [
+            c
+            for c in events.columns
+            if not c.startswith("snap:")
+            and c not in ("label", "traced")
+            and pd.api.types.is_numeric_dtype(events[c])
+        ]
+        for a, b in zip(starts, ends, strict=True):
+            i = int(sid[a])
+            times.append(t[a:b])
+            blocks.append(vals[a:b])
+            offsets.append(offsets[-1] + b - a)
+            labels.append(int(events.at[i, "label"]))
+            ids.append(i)
+            cases.append(header.get("case"))
+            for c in numeric:
+                annotations.setdefault(c, []).append(float(events.at[i, c]))
+    if names is None:
+        raise DataError(f"no traces in {source}")
+    dataset = SignalDataset(
+        time=np.concatenate(times),
+        values=np.vstack(blocks),
+        offsets=np.asarray(offsets),
+        channel_names=names,
+        labels=np.asarray(labels),
+        label_names=label_names,
+        name=f"compact_{Path(source).stem}",
+        sample_ids=np.asarray(ids),
+        annotations={k: np.asarray(v) for k, v in annotations.items()},
+        description="reduced float32 traces of a compact event set",
+        metadata={"cases": cases, "format": "tranpy-compact-traces"},
+    )
     if not include_label_channels and dataset.channel_index(LABEL_CHANNELS).size:
         dataset = dataset.drop_channels(LABEL_CHANNELS)
     if channels is not None:
