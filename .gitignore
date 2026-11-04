@@ -57,5 +57,8 @@ adrc/
 # Purchased data exports, stored in the Databricks volume
 /data/
 
+# Databricks bundle state (deploy/validate cache, variable overrides)
+.databricks/
+
 # Generated results
 examples/results/

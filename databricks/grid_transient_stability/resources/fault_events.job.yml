@@ -1,0 +1,158 @@
+# Classic single-node job cluster (owner decision: classic, cheapest total cost). Stages, all resumable:
+#   prep (18 cases: input + ANDES case) -> sim_0..sim_1 (work items: case x random-shard range, and the grid
+#   sweeps, split over the slots; concurrent on the one node) -> finalize (run.py --resume per case: trace selection,
+#   manifest, report) -> merge (serverless, Delta tables events, traces, trace_sample, runs).
+# Stored traces: every unstable event plus trace_stable stable events in total (per-case quota, run.py's
+# split); trace_sample lists them with the reason (unstable / stable_quota / extra = pruned candidate).
+# Every finished shard is on the outputs volume at once; any stage re-run (task retry, repair, or a new run with the
+# same run_name) skips what is already there with matching sha256. See src/case_task.py.
+resources:
+  jobs:
+    fault_events:
+      name: tranpy v4-dyn fault events
+      description: >-
+        v4-dyn fault-event simulation (frozen model v4final, --settings v4g --neighbours ce_entsoe --store compact)
+        on a classic single-node job cluster, merged into ${var.catalog}.${var.schema}.events/traces/trace_sample/runs.
+      tags:
+        project: tranpy
+        aidevkit_project: ai-dev-kit
+      max_concurrent_runs: 1
+      timeout_seconds: ${var.job_timeout_s}
+      parameters:
+        - {name: run_name, default: "{{job.run_id}}"}
+        - {name: n, default: "600"}
+        - {name: shard, default: "50"}
+        - {name: grid_lines, default: "6"}
+        - {name: grid_clr, default: ".05,.1,.15,.2,.3,.4,.5,.6"}
+        - {name: trace_stable, default: "1000"}
+        - {name: trace_seed, default: "20261104"}
+        - {name: trace_cand, default: "120"}
+        - {name: min_feasible, default: "50"}
+        - {name: shards_per_item, default: "3"}
+        - {name: table_prefix, default: ""}
+      job_clusters:
+        - job_cluster_key: sim
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type}
+            driver_node_type_id: ${var.node_type}
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+              project: tranpy
+            data_security_mode: SINGLE_USER
+            single_user_name: ${workspace.current_user.userName}
+            runtime_engine: STANDARD
+            azure_attributes:
+              # single node: the driver must be on demand; the subscription has 3 spot vCPUs only
+              availability: ON_DEMAND_AZURE
+      environments:
+        - environment_key: merge
+          spec:
+            environment_version: "4"
+      tasks:
+        - task_key: prep
+          job_cluster_key: sim
+          libraries: &simlibs
+            - whl: ${var.inputs}/wheels/tranpy_ai-0.2.0.dev0-py3-none-any.whl
+            # pypowsybl 1.16.1 is not served by the workspace package proxy: the PyPI wheel
+            # (sha256 4402b096d936...f841, checked) is uploaded to the volume
+            - whl: ${var.inputs}/wheels/pypowsybl-1.16.1-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+            - pypi: {package: andes==2.0.0}
+            - pypi: {package: prettytable==3.18.0}
+            - pypi: {package: pandapower==3.1.2}
+            - pypi: {package: numpy==2.5.4}
+            - pypi: {package: pandas==3.1.0}
+            - pypi: {package: scipy==1.18.1}
+            - pypi: {package: pyarrow==26.0.1}
+            - pypi: {package: scikit-learn==1.9.1}
+            - pypi: {package: kvxopt==1.3.3.3}
+            - pypi: {package: sympy==1.14.0}
+            - pypi: {package: openpyxl==3.1.5}
+            - pypi: {package: networkx==3.7}
+            - pypi: {package: geopandas==1.2.0}
+            - pypi: {package: shapely==2.2.0}
+            - pypi: {package: pyproj==3.8.0}
+            - pypi: {package: matplotlib==3.11.2}
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          retry_on_timeout: true
+          timeout_seconds: ${var.prep_timeout_s}
+          spark_python_task:
+            python_file: ../src/case_task.py
+            parameters: [--mode, prep, --cases, all, --par, "${var.par}",
+                         --inputs, "${var.inputs}", --out-root, "${var.outputs}/{{job.parameters.run_name}}",
+                         --n, "{{job.parameters.n}}", --shard, "{{job.parameters.shard}}",
+                         --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
+                         --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
+                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+        - task_key: sim_0
+          job_cluster_key: sim
+          libraries: *simlibs
+          depends_on: [{task_key: prep}]
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          retry_on_timeout: true
+          timeout_seconds: ${var.sim_timeout_s}
+          spark_python_task:
+            python_file: ../src/case_task.py
+            parameters: [--mode, sim, --slot, "0", --slots, "2",
+                         --inputs, "${var.inputs}", --out-root, "${var.outputs}/{{job.parameters.run_name}}",
+                         --n, "{{job.parameters.n}}", --shard, "{{job.parameters.shard}}",
+                         --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
+                         --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
+                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+        - task_key: sim_1
+          job_cluster_key: sim
+          libraries: *simlibs
+          depends_on: [{task_key: prep}]
+          max_retries: 2
+          min_retry_interval_millis: 60000
+          retry_on_timeout: true
+          timeout_seconds: ${var.sim_timeout_s}
+          spark_python_task:
+            python_file: ../src/case_task.py
+            parameters: [--mode, sim, --slot, "1", --slots, "2",
+                         --inputs, "${var.inputs}", --out-root, "${var.outputs}/{{job.parameters.run_name}}",
+                         --n, "{{job.parameters.n}}", --shard, "{{job.parameters.shard}}",
+                         --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
+                         --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
+                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+        - task_key: finalize
+          job_cluster_key: sim
+          libraries: *simlibs
+          depends_on: [{task_key: sim_0}, {task_key: sim_1}]
+          run_if: ALL_DONE
+          max_retries: 1
+          min_retry_interval_millis: 60000
+          timeout_seconds: ${var.finalize_timeout_s}
+          spark_python_task:
+            python_file: ../src/case_task.py
+            parameters: [--mode, finalize, --cases, all, --par, "${var.par}",
+                         --inputs, "${var.inputs}", --out-root, "${var.outputs}/{{job.parameters.run_name}}",
+                         --n, "{{job.parameters.n}}", --shard, "{{job.parameters.shard}}",
+                         --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
+                         --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
+                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+        - task_key: merge
+          environment_key: merge
+          depends_on: [{task_key: finalize}]
+          run_if: ALL_DONE
+          max_retries: 1
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/merge_task.py
+            # every run parameter is passed explicitly and checked against the case manifests
+            parameters: [--out-root, "${var.outputs}/{{job.parameters.run_name}}", --catalog, "${var.catalog}", --schema, "${var.schema}",
+                         --job-run-id, "{{job.run_id}}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --git-commit, "${var.git_commit}", --n, "{{job.parameters.n}}", --shard, "{{job.parameters.shard}}",
+                         --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
+                         --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
+                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}"]
