@@ -1,0 +1,43 @@
+# Transient-stability classification benchmark on the v4-dyn fault events (tranpy.ml_benchmark).
+# Every model is crossed with every imbalance option; `extra` adds models whose balancing is built in.
+# Evaluation: leave one operating hour out (t10 and t20 of an hour held out together), out-of-fold
+# predictions pooled and reported per stratum. Gate: higher PR-AUC and a miss rate not higher.
+seed: 20261104
+split_by: hour
+report_by: [hour, clearing_band, kind, event_type, tan_phi]
+primary_metric: average_precision
+
+# system_* : system-level statistics; aligned_* : per machine, aligned by stable machine id.
+# *_pre : before the fault; *_clear : pre-fault plus the faulted state at the clearing instant.
+feature_sets: [system_pre, system_clear, aligned_pre, aligned_clear]
+
+models:
+  - logistic_regression
+  - random_forest
+  - extra_trees
+  - lightgbm
+  - xgboost
+  - dense_network
+
+# Established options only (scikit-learn / imbalanced-learn); see tranpy_core.imbalance.
+imbalance:
+  - none
+  - class_weight
+  - undersample
+  - smote
+  - {method: class_weight, threshold: f1}
+
+extra:
+  - {model: balanced_random_forest}
+  - {model: easy_ensemble}
+
+# One thread per fit: candidates run in parallel processes on the node.
+params:
+  logistic_regression: {max_iter: 2000}
+  random_forest: {n_estimators: 300, n_jobs: 1}
+  extra_trees: {n_estimators: 300, n_jobs: 1}
+  lightgbm: {n_estimators: 300, n_jobs: 1}
+  xgboost: {n_estimators: 300, n_jobs: 1}
+  balanced_random_forest: {n_estimators: 300, n_jobs: 1}
+  easy_ensemble: {n_estimators: 10, n_jobs: 1}
+  dense_network: {hidden_units: [64, 32], epochs: 60, batch_size: 64, early_stopping_patience: 8}

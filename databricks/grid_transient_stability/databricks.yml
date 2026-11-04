@@ -20,6 +20,7 @@ include:
 sync:
   paths:
     - src
+    - config
 
 variables:
   catalog:
@@ -54,6 +55,15 @@ variables:
     default: "1800"
   job_timeout_s:
     default: "50400"
+  ml_inputs:
+    description: Volume folder with the wheel of the ML job (kept apart from the simulation inputs and their SHA256SUMS).
+    default: /Volumes/energyai_dbw_dev/grid_transient_stability/inputs/ml
+  ml_outputs:
+    description: Volume folder for ML features, selections and logs (one folder per ML job run).
+    default: /Volumes/energyai_dbw_dev/grid_transient_stability/outputs/ml
+  ml_git_commit:
+    description: tranpy commit of the ML wheel (plus uncommitted files).
+    default: uncommitted (ml pipeline on f6b5745)
   git_commit:
     description: tranpy commit the wheel was built from (plus uncommitted files).
     default: f6b5745 (bccf92f model code plus the compact loader)

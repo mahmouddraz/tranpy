@@ -229,6 +229,20 @@ _builtin(
     strict_params=False,
 )
 
+_builtin(
+    "balanced_random_forest",
+    "imblearn.ensemble.BalancedRandomForestClassifier",
+    "Random forest with a balanced bootstrap per tree (imbalanced-learn)",
+    defaults={"sampling_strategy": "all", "replacement": True, "bootstrap": False},
+    extra="imbalance",
+)
+_builtin(
+    "easy_ensemble",
+    "imblearn.ensemble.EasyEnsembleClassifier",
+    "AdaBoost learners on balanced random undersamples (imbalanced-learn)",
+    extra="imbalance",
+)
+
 for _name, _cls, _desc in [
     ("dense_network", "DenseNetworkClassifier", "Fully connected neural network (Keras)"),
     ("lstm_network", "LSTMNetworkClassifier", "LSTM with attention pooling (Keras)"),

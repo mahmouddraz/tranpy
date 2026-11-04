@@ -18,6 +18,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.utils.class_weight import compute_class_weight
 from sklearn.utils.multiclass import unique_labels
 from sklearn.utils.validation import check_is_fitted
 
@@ -32,6 +33,23 @@ __all__ = [
 ]
 
 
+def _keras_class_weight(
+    class_weight: str | dict[int, float] | None, target: npt.NDArray[np.float32]
+) -> dict[int, float] | None:
+    """Keras ``class_weight`` dict from the scikit-learn convention (``"balanced"`` or a dict)."""
+    if class_weight is None:
+        return None
+    if class_weight == "balanced":
+        classes = np.array([0.0, 1.0], dtype=np.float32)
+        weights = compute_class_weight("balanced", classes=classes, y=target)
+        return {0: float(weights[0]), 1: float(weights[1])}
+    if isinstance(class_weight, dict):
+        return {int(k): float(v) for k, v in class_weight.items()}
+    raise ConfigurationError(
+        f"class_weight must be None, 'balanced' or a dict, got {class_weight!r}"
+    )
+
+
 class _KerasClassifier(ClassifierMixin, BaseEstimator):  # type: ignore[misc]
     """Shared fit/predict logic for binary Keras classifiers with a sigmoid output."""
 
@@ -44,6 +62,7 @@ class _KerasClassifier(ClassifierMixin, BaseEstimator):  # type: ignore[misc]
     deterministic: bool
     random_state: int
     n_steps: int
+    class_weight: str | dict[int, float] | None
 
     def _build(self, keras: Any, input_shape: tuple[int, ...]) -> Any:
         raise NotImplementedError
@@ -75,6 +94,7 @@ class _KerasClassifier(ClassifierMixin, BaseEstimator):  # type: ignore[misc]
         if len(self.classes_) != 2:
             raise ModelError(f"binary classification only, got classes {self.classes_.tolist()}")
         target = (y_arr == self.classes_[1]).astype(np.float32)
+        class_weight = _keras_class_weight(self.class_weight, target)
         inputs = self._as_input(X, fitting=True)
         # keras.utils.set_random_seed reseeds the global NumPy/Python RNGs; restore them afterwards
         np_state, py_state = np.random.get_state(), random.getstate()  # noqa: NPY002
@@ -103,6 +123,7 @@ class _KerasClassifier(ClassifierMixin, BaseEstimator):  # type: ignore[misc]
                 validation_split=self.validation_fraction,
                 shuffle=self.shuffle,
                 callbacks=callbacks,
+                class_weight=class_weight,
                 verbose=0,
             )
         finally:
@@ -145,6 +166,7 @@ class DenseNetworkClassifier(_KerasClassifier):
         shuffle: bool = True,
         deterministic: bool = True,
         random_state: int = 0,
+        class_weight: str | dict[int, float] | None = None,
     ) -> None:
         self.hidden_units = hidden_units
         self.activation = activation
@@ -157,6 +179,7 @@ class DenseNetworkClassifier(_KerasClassifier):
         self.shuffle = shuffle
         self.deterministic = deterministic
         self.random_state = random_state
+        self.class_weight = class_weight
 
     n_steps = 0
 
@@ -188,6 +211,7 @@ class LSTMNetworkClassifier(_KerasClassifier):
         shuffle: bool = True,
         deterministic: bool = True,
         random_state: int = 0,
+        class_weight: str | dict[int, float] | None = None,
     ) -> None:
         self.n_steps = n_steps
         self.lstm_units = lstm_units
@@ -202,6 +226,7 @@ class LSTMNetworkClassifier(_KerasClassifier):
         self.shuffle = shuffle
         self.deterministic = deterministic
         self.random_state = random_state
+        self.class_weight = class_weight
 
     def _build(self, keras: Any, input_shape: tuple[int, ...]) -> Any:
         inputs = keras.layers.Input(shape=input_shape)
@@ -240,6 +265,7 @@ class TCNNetworkClassifier(_KerasClassifier):
         shuffle: bool = True,
         deterministic: bool = True,
         random_state: int = 0,
+        class_weight: str | dict[int, float] | None = None,
     ) -> None:
         self.n_steps = n_steps
         self.n_filters = n_filters
@@ -255,6 +281,7 @@ class TCNNetworkClassifier(_KerasClassifier):
         self.shuffle = shuffle
         self.deterministic = deterministic
         self.random_state = random_state
+        self.class_weight = class_weight
 
     def _build(self, keras: Any, input_shape: tuple[int, ...]) -> Any:
         inputs = keras.layers.Input(shape=input_shape)
@@ -299,6 +326,7 @@ class TransformerNetworkClassifier(_KerasClassifier):
         shuffle: bool = True,
         deterministic: bool = True,
         random_state: int = 0,
+        class_weight: str | dict[int, float] | None = None,
     ) -> None:
         self.n_steps = n_steps
         self.d_model = d_model
@@ -315,6 +343,7 @@ class TransformerNetworkClassifier(_KerasClassifier):
         self.shuffle = shuffle
         self.deterministic = deterministic
         self.random_state = random_state
+        self.class_weight = class_weight
 
     def _build(self, keras: Any, input_shape: tuple[int, ...]) -> Any:
         if self.d_model % self.n_heads:

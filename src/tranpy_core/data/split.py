@@ -10,13 +10,24 @@ from dataclasses import dataclass
 
 import numpy as np
 import numpy.typing as npt
-from sklearn.model_selection import KFold, StratifiedGroupKFold, StratifiedKFold
+from sklearn.model_selection import (
+    KFold,
+    LeaveOneGroupOut,
+    StratifiedGroupKFold,
+    StratifiedKFold,
+)
 from sklearn.model_selection import train_test_split as _sk_train_test_split
 
 from tranpy_core.errors import ConfigurationError
 from tranpy_core.random import Seed, spawn_seed
 
-__all__ = ["Split", "kfold_splits", "repeated_kfold_splits", "train_test_split"]
+__all__ = [
+    "Split",
+    "kfold_splits",
+    "leave_one_group_out_splits",
+    "repeated_kfold_splits",
+    "train_test_split",
+]
 
 IntArray = npt.NDArray[np.int64]
 
@@ -122,3 +133,15 @@ def repeated_kfold_splits(
             labels, n_splits=n_splits, seed=base + r, groups=groups, stratify=stratify
         )
     ]
+
+
+def leave_one_group_out_splits(groups: npt.ArrayLike) -> list[Split]:
+    """One split per group, with that group as the test set (scikit-learn ``LeaveOneGroupOut``).
+
+    Tests generalisation to a group never seen in training, e.g. an operating hour.
+    """
+    g = np.asarray(groups)
+    if np.unique(g).size < 2:
+        raise ConfigurationError("leave-one-group-out needs at least two groups")
+    placeholder = np.zeros((g.shape[0], 1))
+    return [Split(train=tr, test=te) for tr, te in LeaveOneGroupOut().split(placeholder, groups=g)]

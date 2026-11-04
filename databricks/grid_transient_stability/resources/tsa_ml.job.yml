@@ -1,0 +1,120 @@
+# Transient-stability ML on one merged fault-event dataset (src/ml_task.py):
+#   features -> benchmark -> register -> score, on the same classic single-node VM as the simulation.
+# The benchmark crosses models x imbalance options (config/tsa_v4dyn.yaml), leave one hour out; every candidate
+# is an MLflow run; the best per assessment time is registered in Unity Catalog (alias challenger, champion
+# only through the gate). Results are provisional until the real-event validation of the dynamic model.
+#
+#   databricks bundle run tsa_ml -p eaib-dev                                  # full benchmark on v4-dyn
+#   databricks bundle run tsa_ml -p eaib-dev --params dataset_job_run_id=834847395904661,events_prefix=smoke2_,table_prefix=smoke_ml_,only_models=logistic_regression\,extra_trees,only_sets=system_pre\,system_clear
+resources:
+  jobs:
+    tsa_ml:
+      name: tranpy transient-stability ML benchmark
+      description: >-
+        Features, model x imbalance benchmark (MLflow), Unity Catalog registration with a promotion gate and
+        batch scoring of the fault events in ${var.catalog}.${var.schema}.
+      tags:
+        project: tranpy
+      max_concurrent_runs: 1
+      timeout_seconds: 36000
+      parameters:
+        - {name: dataset_job_run_id, default: "684113746510223"}
+        - {name: events_prefix, default: ""}
+        - {name: table_prefix, default: ""}
+        - {name: ml_name, default: "{{job.run_id}}"}
+        - {name: only_models, default: ""}
+        - {name: only_sets, default: ""}
+      job_clusters:
+        - job_cluster_key: ml
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type}
+            driver_node_type_id: ${var.node_type}
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+              project: tranpy
+            data_security_mode: SINGLE_USER
+            single_user_name: ${workspace.current_user.userName}
+            runtime_engine: STANDARD
+            azure_attributes:
+              availability: ON_DEMAND_AZURE
+      tasks:
+        - task_key: features
+          job_cluster_key: ml
+          libraries: &mllibs
+            - whl: ${var.ml_inputs}/wheels/tranpy_ai-0.2.0.dev0-py3-none-any.whl
+            - pypi: {package: numpy==2.5.4}
+            - pypi: {package: pandas==3.1.0}
+            - pypi: {package: scipy==1.18.1}
+            - pypi: {package: pyarrow==26.0.1}
+            - pypi: {package: scikit-learn==1.9.1}
+            - pypi: {package: imbalanced-learn==0.14.2}
+            - pypi: {package: sklearn-compat==0.1.6}
+            - pypi: {package: xgboost==3.4.1}
+            - pypi: {package: lightgbm==4.7.0}
+            - pypi: {package: tensorflow==2.21.0}
+            - pypi: {package: skops==0.16.0}
+            - pypi: {package: mlflow-skinny==3.18.0}
+            - pypi: {package: azure-storage-file-datalake==12.26.1}
+            - pypi: {package: pyyaml==6.0.3}
+            - pypi: {package: openpyxl==3.1.5}
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/ml_task.py
+            parameters: [--mode, features,
+                         --catalog, "${var.catalog}", --schema, "${var.schema}",
+                         --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
+                         --outputs, "${var.outputs}/{{job.parameters.dataset_job_run_id}}",
+                         --ml-dir, "${var.ml_outputs}/{{job.parameters.ml_name}}",
+                         --only-models, "{{job.parameters.only_models}}", --only-sets, "{{job.parameters.only_sets}}",
+                         --git-commit, "${var.ml_git_commit}", --job-run-id, "{{job.run_id}}",
+                         --pip-requirements, "${var.ml_inputs}/wheels/tranpy_ai-0.2.0.dev0-py3-none-any.whl,numpy==2.5.4,pandas==3.1.0,scipy==1.18.1,scikit-learn==1.9.1,imbalanced-learn==0.14.2,sklearn-compat==0.1.6,xgboost==3.4.1,lightgbm==4.7.0,tensorflow==2.21.0,skops==0.16.0"]
+        - task_key: benchmark
+          job_cluster_key: ml
+          libraries: *mllibs
+          depends_on: [{task_key: features}]
+          timeout_seconds: 28800
+          spark_python_task:
+            python_file: ../src/ml_task.py
+            parameters: [--mode, benchmark, --config, "${workspace.file_path}/config/tsa_v4dyn.yaml",
+                         --catalog, "${var.catalog}", --schema, "${var.schema}",
+                         --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
+                         --outputs, "${var.outputs}/{{job.parameters.dataset_job_run_id}}",
+                         --ml-dir, "${var.ml_outputs}/{{job.parameters.ml_name}}",
+                         --only-models, "{{job.parameters.only_models}}", --only-sets, "{{job.parameters.only_sets}}",
+                         --git-commit, "${var.ml_git_commit}", --job-run-id, "{{job.run_id}}"]
+        - task_key: register
+          job_cluster_key: ml
+          libraries: *mllibs
+          depends_on: [{task_key: benchmark}]
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/ml_task.py
+            parameters: [--mode, register, --config, "${workspace.file_path}/config/tsa_v4dyn.yaml",
+                         --catalog, "${var.catalog}", --schema, "${var.schema}",
+                         --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
+                         --outputs, "${var.outputs}/{{job.parameters.dataset_job_run_id}}",
+                         --ml-dir, "${var.ml_outputs}/{{job.parameters.ml_name}}",
+                         --git-commit, "${var.ml_git_commit}", --job-run-id, "{{job.run_id}}",
+                         --pip-requirements, "${var.ml_inputs}/wheels/tranpy_ai-0.2.0.dev0-py3-none-any.whl,numpy==2.5.4,pandas==3.1.0,scipy==1.18.1,scikit-learn==1.9.1,imbalanced-learn==0.14.2,sklearn-compat==0.1.6,xgboost==3.4.1,lightgbm==4.7.0,tensorflow==2.21.0,skops==0.16.0"]
+        - task_key: score
+          job_cluster_key: ml
+          libraries: *mllibs
+          depends_on: [{task_key: register}]
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/ml_task.py
+            parameters: [--mode, score,
+                         --catalog, "${var.catalog}", --schema, "${var.schema}",
+                         --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
+                         --outputs, "${var.outputs}/{{job.parameters.dataset_job_run_id}}",
+                         --ml-dir, "${var.ml_outputs}/{{job.parameters.ml_name}}",
+                         --git-commit, "${var.ml_git_commit}", --job-run-id, "{{job.run_id}}"]

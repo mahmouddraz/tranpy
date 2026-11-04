@@ -40,12 +40,14 @@ Issues = "https://github.com/mahmouddraz/tranpy/issues"
 explain = ["shap>=0.45", "lime>=0.2.0.1", "dalex>=1.7", "setuptools<85"]
 neural = ["tensorflow>=2.16"]
 boosting = ["xgboost>=2.0", "lightgbm>=4.0"]
+imbalance = ["imbalanced-learn>=0.14"]
+mlflow = ["mlflow-skinny>=3.0"]
 plot = ["matplotlib>=3.8"]
 persistence = ["skops>=0.10"]
 andes = ["andes>=2.0"]
 powsybl = ["pypowsybl>=1.10"]
 grid = ["geopandas>=1.0", "pyogrio>=0.9"]
-all = ["tranpy-ai[explain,neural,boosting,plot,persistence,andes,powsybl,grid]"]
+all = ["tranpy-ai[explain,neural,boosting,imbalance,plot,persistence,andes,powsybl,grid]"]
 
 [project.scripts]
 tranpy = "tranpy.cli:main"
@@ -96,7 +98,7 @@ files = ["src"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["shap.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "andes.*", "powerfactory", "matplotlib.*", "pypowsybl.*", "databricks.*", "pyspark.*"]
+module = ["shap.*", "imblearn.*", "mlflow.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "andes.*", "powerfactory", "matplotlib.*", "pypowsybl.*", "databricks.*", "pyspark.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
