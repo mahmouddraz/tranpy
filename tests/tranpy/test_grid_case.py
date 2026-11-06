@@ -179,7 +179,8 @@ def test_cases_run_every_device_at_50_hz(tmp_path) -> None:  # type: ignore[no-u
 
 # ANDES writes its empty model tables with a pandas call deprecated upstream
 @pytest.mark.filterwarnings("ignore:The inplace keyword:DeprecationWarning")
-# pandas 3 raises Pandas4Warning (a DeprecationWarning); named by base class so the filter also loads under pandas 2
+# pandas 3 raises Pandas4Warning (a DeprecationWarning); named by base class so the filter
+# also loads under pandas 2
 @pytest.mark.filterwarnings("ignore::DeprecationWarning")
 def test_connected_case_turns_small_machines_into_injections(tmp_path) -> None:  # type: ignore[no-untyped-def]
     andes = pytest.importorskip("andes")
