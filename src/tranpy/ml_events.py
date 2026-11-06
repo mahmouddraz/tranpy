@@ -46,6 +46,7 @@ from tranpy.line_features import LINE_PREFIX, CaseGrid, line_features, read_case
 from tranpy_core.errors import DataError
 
 __all__ = [
+    "ANGLE_SEPARATION_CAP_DEG",
     "AT_CLEARING",
     "FEATURE_SETS",
     "GRID_FEATURE_SETS",
@@ -53,6 +54,7 @@ __all__ = [
     "LEAKY_COLUMNS",
     "SCENARIO_COLUMNS",
     "aligned_features",
+    "cap_angle_separation",
     "case_machines",
     "check_no_leakage",
     "complete_events",
@@ -95,6 +97,17 @@ LEAKY_COLUMNS = (
 DEFAULT_EVENT_TYPE = "line_fault_3ph"
 CLEARING_BANDS = (0.0, 0.1, 0.2, 0.3, 0.4, 0.5, np.inf)
 
+ANGLE_SEPARATION_CAP_DEG = 720.0
+"""Ceiling of ``angle_separation_deg`` in the derived event frame (two full turns).
+
+The label threshold is 360 degrees (``tranpy.datasets.stability_labels``, criterion
+``angle_360``, TSI <= 0); once a machine has pole-slipped the separation keeps growing with
+the simulated time and is unbounded (the v4.1 unstable events reach ~2e4 degrees), so it
+carries no information beyond "lost synchronism". The cap keeps every capped value past
+the threshold (TSI(720) = -33.3) so the sign of the TSI and the bands up to 360 degrees are
+unchanged. The stored raw events keep the uncapped value.
+"""
+
 _CASE = re.compile(r"^(?P<hour>.+)_t(?P<tan>\d+)$")
 _SNAP = re.compile(r"^snap:(?P<inst>[^|]+)\|(?P<gen>[^|]+)\|(?P<var>[^|]+)$")
 
@@ -112,10 +125,22 @@ def check_no_leakage(columns: Iterable[str]) -> None:
         raise DataError(f"outcome-derived columns in the features: {sorted(bad)}")
 
 
+def cap_angle_separation(
+    separation_deg: pd.Series, cap_deg: float = ANGLE_SEPARATION_CAP_DEG
+) -> pd.Series:
+    """``separation_deg`` clipped to ``cap_deg``, NaN kept (:data:`ANGLE_SEPARATION_CAP_DEG`)."""
+    if cap_deg <= 360.0:
+        raise ValueError(f"the cap must lie above the 360 degree label threshold, got {cap_deg}")
+    return separation_deg.astype(float).clip(upper=cap_deg)
+
+
 def event_frame(events: pd.DataFrame) -> pd.DataFrame:
     """``events`` with the grouping columns ``hour``, ``tan_phi``, ``clearing_band``,
-    ``event_type`` and ``kind`` added (existing columns of these names are kept)."""
+    ``event_type`` and ``kind`` added (existing columns of these names are kept), and
+    ``angle_separation_deg`` capped at :data:`ANGLE_SEPARATION_CAP_DEG`."""
     out = events.copy()
+    if "angle_separation_deg" in out:
+        out["angle_separation_deg"] = cap_angle_separation(out["angle_separation_deg"])
     parsed = out["case"].astype(str).str.extract(_CASE)
     if parsed["hour"].isna().any():
         bad = sorted(out.loc[parsed["hour"].isna(), "case"].astype(str).unique())

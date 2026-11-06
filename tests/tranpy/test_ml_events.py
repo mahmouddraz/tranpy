@@ -222,3 +222,30 @@ def test_line_feature_sets_extend_the_old_ones(two_hours) -> None:
         assert isinstance(sets[name]["line|fault_line_cat"].dtype, pd.CategoricalDtype)
     with pytest.raises(DataError, match="CaseGrid"):
         feature_sets(events, machines, ["line_pre"])
+
+
+def test_event_frame_caps_angle_separation_only_in_the_derived_frame(two_hours) -> None:
+    from tranpy.ml_events import ANGLE_SEPARATION_CAP_DEG, cap_angle_separation
+
+    events, _ = two_hours
+    raw = np.full(len(events), 120.0)
+    raw[0], raw[1], raw[2] = 2.1e4, 400.0, np.nan  # pole slip, just past the threshold, missing
+    events = events.assign(angle_separation_deg=raw.copy())
+    frame = event_frame(events)
+    assert ANGLE_SEPARATION_CAP_DEG > 360.0
+    assert frame["angle_separation_deg"].max() == ANGLE_SEPARATION_CAP_DEG
+    assert frame.loc[0, "angle_separation_deg"] == ANGLE_SEPARATION_CAP_DEG
+    assert frame.loc[1, "angle_separation_deg"] == 400.0
+    assert np.isnan(frame.loc[2, "angle_separation_deg"])
+    assert (frame.loc[3:, "angle_separation_deg"] == 120.0).all()
+    # the input (the stored raw events) is untouched
+    assert events.loc[0, "angle_separation_deg"] == 2.1e4
+    # capped values stay on the unstable side of the 360 degree label threshold
+    assert (frame.loc[frame["angle_separation_deg"] >= 360.0].index == [0, 1]).all()
+    with pytest.raises(ValueError, match="above the 360"):
+        cap_angle_separation(pd.Series([1.0]), cap_deg=360.0)
+
+
+def test_event_frame_without_separation_column_is_unchanged(two_hours) -> None:
+    events, _ = two_hours
+    assert "angle_separation_deg" not in event_frame(events)

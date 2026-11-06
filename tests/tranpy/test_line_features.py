@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from tranpy.line_features import CaseGrid, line_features, line_power
+from tranpy.line_features import X_CAP, CaseGrid, line_features, line_power, post_trip_table
 from tranpy.ml_events import check_no_leakage
 from tranpy_core.errors import DataError
 
@@ -40,8 +40,12 @@ def _sheets() -> dict[str, pd.DataFrame]:
             "phi": 0.0,
         }
     )
-    genrou = pd.DataFrame({"idx": ["M0"], "u": 1, "bus": [5], "gen": ["G0"], "Sn": 200.0, "M": 8.0})
-    gencls = pd.DataFrame({"idx": ["E0"], "u": 1, "bus": [3], "gen": ["G1"], "Sn": 100.0, "M": 4.0})
+    genrou = pd.DataFrame(
+        {"idx": ["M0"], "u": 1, "bus": [5], "gen": ["G0"], "Sn": 200.0, "M": 8.0, "xd1": 0.3}
+    )
+    gencls = pd.DataFrame(
+        {"idx": ["E0"], "u": 1, "bus": [3], "gen": ["G1"], "Sn": 100.0, "M": 4.0, "xd1": 0.2}
+    )
     pv = pd.DataFrame({"idx": ["G0", "G1"], "bus": [5, 3], "p0": [1.0, 0.3]})
     return {"Bus": bus, "Line": line, "GENROU": genrou, "GENCLS": gencls, "PV": pv}
 
@@ -163,3 +167,82 @@ def test_bad_inputs_are_errors(grid: CaseGrid) -> None:
         line_features(_events([4], [0.0]), {"tiny_t10": grid})
     with pytest.raises(DataError, match="voltages"):
         CaseGrid.from_sheets(_sheets(), np.ones(4), ANGLES)
+
+
+# Hand values of the post-trip descriptors (DC model, |x| only). Machines grounded through
+# xd1 on the system base: bus 5 via 0.3 * 100 / 200 = 0.15, bus 3 via 0.2 * 100 / 100 = 0.2.
+# Bus 3 towards the machines: 0.2 || (0.2 + 0.05 + 0.15) = 0.2 * 0.4 / 0.6.
+X_BUS3 = 0.2 * 0.4 / 0.6
+X_BUS2 = 0.05 + X_BUS3  # the double circuit 2-3 in parallel
+X_BUS1 = 0.1 + X_BUS2
+
+
+def test_thevenin_between_the_ends_and_islanding(grid: CaseGrid) -> None:
+    X = line_features(_events([0, 1, 2, 3], [0.0, 0.0, 0.0, 0.0]), {"tiny_t10": grid})
+    # L0 and L3 are the only path to their far side; L1/L2 keep the other circuit
+    assert np.allclose(X["line|x_th_ends"], [0.1, 0.05, 0.05, 0.2])
+    assert np.allclose(X["line|post_x_th_ends"], [X_CAP, 0.1, 0.1, X_CAP])
+    assert X["line|islanded"].tolist() == [1.0, 0.0, 0.0, 1.0]
+
+
+def test_post_trip_short_circuit_strength_and_machine_thevenin(grid: CaseGrid) -> None:
+    # L0 at bus 1 / bus 2, L1 at bus 2 / bus 3
+    X = line_features(_events([0, 0, 1, 1], [0.0, 1.0, 0.0, 1.0]), {"tiny_t10": grid})
+    assert np.allclose(X["line|post_bus_sc_strength"], [0.0, 20.0, 20.0, 15.0])
+    assert np.allclose(X["line|x_th_bus"], [X_BUS1, X_BUS2, X_BUS2, X_BUS3])
+    # bus 1 loses every machine with L0; bus 2 keeps one circuit to bus 3 after L1
+    assert np.allclose(X["line|post_x_th_bus"], [X_CAP, X_BUS2, 0.1 + X_BUS3, X_BUS3])
+
+
+def test_rerouted_loading_follows_the_outage_distribution_factors(grid: CaseGrid) -> None:
+    lt = grid._line_table()
+    ref = lt["s_mva"].quantile(0.95)  # one voltage level: one reference
+    p = grid.branches["p1"].to_numpy() * MVA  # branch rows: L0, T0, L1, L2, L3
+    X = line_features(_events([1, 0], [0.0, 1.0]), {"tiny_t10": grid})
+    # L1 tripped: its whole flow moves to L2 (LODF 1); L0 and L3 are unchanged
+    post_l2 = abs(p[3] + p[2]) / ref
+    others = max(abs(p[0]), abs(p[4])) / ref
+    assert np.isclose(X.loc[10, "line|post_loading_max"], max(post_l2, others))
+    assert np.isclose(X.loc[10, "line|post_loading_rise_max"], post_l2 - abs(p[3]) / ref)
+    # L0 tripped islands bus 1: nothing is re-routed, the neighbours keep their loading
+    assert np.isclose(X.loc[20, "line|post_loading_max"], max(abs(p[2]), abs(p[3])) / ref)
+    assert X.loc[20, "line|post_loading_rise_max"] == 0.0
+
+
+def test_post_trip_table_covers_transformers_and_is_finite(grid: CaseGrid) -> None:
+    ref = np.full(len(grid.branches), 100.0)
+    t = post_trip_table(grid, ref)
+    assert len(t) == len(grid.branches)
+    assert np.isfinite(t.to_numpy(np.float64)).all()
+    assert t.loc[1, "islanded"] == 1.0  # the step-up transformer is radial
+    assert np.isclose(t.loc[1, "x_th_ends"], 0.05)
+
+
+def test_distance_to_the_nearest_380kv_bus() -> None:
+    """A 220 kV chain A-B hanging on a 380 kV bus C through a transformer."""
+    bus = pd.DataFrame({"idx": [1, 2, 3], "Vn": [220, 220, 380]})
+    line = pd.DataFrame(
+        {
+            "idx": ["L0", "T0"],
+            "u": 1,
+            "bus1": [1, 2],
+            "bus2": [2, 3],
+            "Vn1": [220, 220],
+            "Vn2": [220, 380],
+            "r": 0.0,
+            "x": [0.1, 0.3],
+            "b": 0.0,
+            "trans": [0, 1],
+        }
+    )
+    gencls = pd.DataFrame({"idx": ["E0"], "u": 1, "bus": [3], "gen": ["G0"], "Sn": 100.0, "M": 4.0})
+    pv = pd.DataFrame({"idx": ["G0"], "bus": [3], "p0": [0.5]})
+    g = CaseGrid.from_sheets(
+        {"Bus": bus, "Line": line, "GENCLS": gencls, "PV": pv}, np.ones(3), np.zeros(3)
+    )
+    X = line_features(_events([0, 0], [0.0, 1.0]), {"tiny_t10": g})
+    assert np.allclose(X["line|x_dist_380kv"], [0.4, 0.3])
+    assert np.allclose(X["line|machine_x_dist"], [0.4, 0.3])
+    # no xd1 in the sheet: the machine bus is grounded directly
+    assert np.allclose(X["line|x_th_bus"], [0.4, 0.3], atol=1e-5)
+    assert X["line|islanded"].tolist() == [1.0, 1.0]

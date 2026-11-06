@@ -36,6 +36,7 @@ ASSESSMENT = {
 }
 KEYS = ["case", "sample_id", "shard"]
 STRATA = ["hour", "tan_phi", "clearing_band", "kind", "event_type", "fault_line"]
+LINE_STRATA = {"vn_kv": "line|vn_kv"}  # strata read off the line descriptors, when computed
 
 
 def log(*a):
@@ -133,7 +134,11 @@ def features(a):
     sets = {k: X.loc[keep].reset_index(drop=True) for k, X in sets.items()}
     out = Path(a.ml_dir) / "features"
     out.mkdir(parents=True, exist_ok=True)
-    strata = frame[[*KEYS, "label", *STRATA]]
+    strata = frame[[*KEYS, "label", *STRATA]].copy()
+    for name, col in LINE_STRATA.items():
+        source = next((X for X in sets.values() if col in X), None)
+        if source is not None:
+            strata[name] = source[col].to_numpy()
     strata.to_parquet(out / "strata.parquet", index=False)
     manifest = {
         "dataset_job_run_id": run,

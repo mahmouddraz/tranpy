@@ -63,7 +63,7 @@ variables:
     default: /Volumes/energyai_dbw_dev/grid_transient_stability/outputs/ml
   ml_git_commit:
     description: tranpy commit of the ML wheel (plus uncommitted files).
-    default: 863a45c + uncommitted steps 1-3 (CI, protocols, line features, tuning; wheel sha256 87761afb; UC tag split fix, SIME first-swing rules, ml_windows)
+    default: 134b78c + uncommitted post-trip line descriptors (line_features.post_trip_table, vn_kv stratum; wheel sha256 71bb3300; also carries the uncommitted angle-separation cap of ml_events and the explicit skops serialization of ml_tracking)
   git_commit:
     description: tranpy commit the wheel was built from (plus uncommitted files).
     default: 863a45c + uncommitted v4.1 German FCR (grid_case.py sha256 27b6bade...)

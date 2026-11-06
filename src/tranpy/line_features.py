@@ -18,6 +18,17 @@ Line powers use the ANDES ``Line`` pi model (series ``r + jx``, shunts ``g1 + g/
 ``b1 + b/2`` at the from end, ``g2 + g/2``, ``b2 + b/2`` at the to end, off-nominal
 ``tap`` and phase shift ``phi`` on the from side) and the sign of ANDES: positive P is
 power flowing from the bus into the line. Graph operations use ``scipy.sparse.csgraph``.
+
+Post-trip descriptors (what the network looks like once the faulted line is tripped at
+clearing) come from the DC susceptance matrix ``B = A^T diag(1/|x|) A`` of all in-service
+branches (taps and resistances ignored) and its inverse ``Z``, with the line ``k`` removed
+by the Sherman-Morrison update ``(B - b_k e_k e_k^T)^-1 = Z + b_k Z e_k e_k^T Z /
+(1 - b_k e_k^T Z e_k)``, ``e_k = e_i - e_j``, ``b_k = 1/x_k``. The denominator is the
+line-outage factor ``1 - PTDF_kk``; zero means the trip islands the ends. Two systems are
+solved: the plain network (a tiny uniform shunt removes the singular mode) for the
+reactance between the line ends and the outage distribution factors, and the network with
+every machine grounded through its transient reactance ``xd1`` (system base) for the
+Thevenin reactance of the faulted bus towards the machines.
 """
 
 from __future__ import annotations
@@ -29,17 +40,21 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-from scipy.sparse import coo_matrix, csr_matrix
+from scipy.sparse import coo_matrix, csc_matrix, csr_matrix, diags
 from scipy.sparse.csgraph import dijkstra, shortest_path
+from scipy.sparse.linalg import splu
 
 from tranpy_core.errors import DataError
 
 __all__ = [
     "LINE_PREFIX",
+    "X_CAP",
     "CaseGrid",
+    "dc_inverse",
     "faulted_bus",
     "line_features",
     "line_power",
+    "post_trip_table",
     "read_case_grid",
 ]
 
@@ -47,6 +62,12 @@ LINE_PREFIX = "line|"
 HOPS = (1, 2, 3)
 LOADING_QUANTILE = 0.95
 _MACHINE_SHEETS = ("GENROU", "GENCLS")
+X_CAP = 1.0e3
+"""Cap (pu) of a Thevenin reactance or electrical distance that is infinite (islanded)."""
+_EPS_SHUNT = 1.0e-8  # uniform shunt that makes the DC matrix non-singular
+_ISLAND_TOL = 1.0e-6  # 1 - PTDF_kk below this: the trip islands the two ends
+_XD1_FLOOR = 1.0e-6  # machines without xd1 are grounded directly
+_KV_EHV = 380.0
 
 
 def line_power(
@@ -100,7 +121,8 @@ class CaseGrid:
         branches: every in-service ``Line`` row with ``i1``/``i2`` (bus positions) and the
             pre-fault ``p1``, ``q1``, ``p2``, ``q2`` (pu).
         fault_lines: positions in ``branches`` of the fault candidates, engine order.
-        machines: ``bus`` (position), ``Sn`` (MVA), ``M`` (2H, s), ``P`` (pu).
+        machines: ``bus`` (position), ``Sn`` (MVA), ``M`` (2H, s), ``P`` (pu), ``xd1_sys``
+            (transient reactance on the system base, NaN when the sheet has none).
         adjacency: symmetric sparse bus graph (unit weights), in-service branches.
         mva: system base (MVA).
     """
@@ -160,7 +182,7 @@ class CaseGrid:
         branches["trans"] = branches["trans"].astype(int)
         branches["delta_deg"] = np.degrees(np.abs(a[i1] - a[i2]))
         fault_lines = np.flatnonzero(branches["trans"].to_numpy() == 0)
-        machines = _machines(sheets, pos, machine_p)
+        machines = _machines(sheets, pos, machine_p, mva)
         n = len(buses)
         adjacency = coo_matrix((np.ones(len(i1)), (i1, i2)), shape=(n, n)).tocsr()
         adjacency = ((adjacency + adjacency.T) > 0).astype(np.float64)
@@ -213,6 +235,12 @@ class CaseGrid:
         else:
             data["machine_hops"] = np.full(n, np.inf)
             data["machine_x_dist"] = np.full(n, np.inf)
+        ehv = np.flatnonzero(data["bus_vn_kv"] >= _KV_EHV)
+        if len(ehv):
+            d380 = dijkstra(xgraph, directed=False, indices=ehv, min_only=True)
+            data["x_dist_380kv"] = np.minimum(d380, X_CAP)
+        else:
+            data["x_dist_380kv"] = np.full(n, X_CAP)
         data.update(_top_two_angles(br, n))
         return pd.DataFrame(data)
 
@@ -236,7 +264,7 @@ class CaseGrid:
         pair = pd.Series(list(zip(np.minimum(i1, i2), np.maximum(i1, i2), strict=True)))
         x = br["x"].to_numpy(np.float64)
         r = br["r"].to_numpy(np.float64)
-        return pd.DataFrame(
+        table = pd.DataFrame(
             {
                 "i1": i1,
                 "i2": i2,
@@ -256,6 +284,111 @@ class CaseGrid:
                 "n_circuits": pair.map(pair.value_counts()).to_numpy(np.float64),
             }
         )
+        ref_by_line = np.full(len(self.branches), np.nan)
+        ref_by_line[self.fault_lines] = np.where(ref > 0, ref, np.nan)
+        post = post_trip_table(self, ref_by_line)
+        return pd.concat([table, post.iloc[self.fault_lines].reset_index(drop=True)], axis=1)
+
+
+def dc_inverse(
+    i1: np.ndarray, i2: np.ndarray, b: np.ndarray, n: int, shunt: np.ndarray
+) -> np.ndarray:
+    """Dense inverse of the DC matrix ``A^T diag(b) A + diag(shunt)`` (sparse LU)."""
+    rows = np.concatenate([i1, i2, i1, i2])
+    cols = np.concatenate([i1, i2, i2, i1])
+    vals = np.concatenate([b, b, -b, -b])
+    B = coo_matrix((vals, (rows, cols)), shape=(n, n)).tocsc() + diags(shunt, format="csc")
+    return np.asarray(splu(csc_matrix(B)).solve(np.eye(n)))
+
+
+def post_trip_table(grid: CaseGrid, ref_mva: np.ndarray) -> pd.DataFrame:
+    """Per branch (all in-service branches, ``grid.branches`` order): the network after
+    the branch is tripped, from the DC model (see the module notes).
+
+    Args:
+        grid: the case.
+        ref_mva: per branch, the apparent-power reference of its loading (MVA; NaN for
+            branches without one, which are left out of the loading columns).
+
+    Returns:
+        ``x_th_ends`` (Thevenin reactance between the two ends, pre-fault, all paths
+        including the branch), ``post_x_th_ends`` (the same once the branch is tripped,
+        i.e. through the parallel paths; :data:`X_CAP` when none), ``islanded`` (1.0 when
+        the trip separates the two ends), per end ``post_sc_1``/``post_sc_2`` (sum of
+        1/|x| of the remaining branches at the end bus), ``x_th_bus_1``/``x_th_bus_2``
+        (pre-fault Thevenin reactance of the end bus towards the machines, grounded through
+        ``xd1``), ``post_x_th_bus_1``/``post_x_th_bus_2`` (the same after the trip),
+        ``post_loading_max`` (largest post-trip |P| over the lines at the two ends, relative
+        to ``ref_mva``; the pre-fault P of the tripped branch re-routed by the line outage
+        distribution factors) and ``post_loading_rise_max`` (largest increase of that
+        relative loading over the same lines).
+    """
+    br = grid.branches
+    n = len(grid.buses)
+    L = len(br)
+    i1, i2 = br["i1"].to_numpy(), br["i2"].to_numpy()
+    x = np.abs(br["x"].to_numpy(np.float64))
+    if np.any(x <= 0):
+        raise DataError("post-trip descriptors need x != 0 on every branch")
+    b = 1.0 / x
+    rng = np.arange(L)
+    # plain network: reactance between the ends and the distribution factors
+    Z = dc_inverse(i1, i2, b, n, np.full(n, _EPS_SHUNT))
+    ZE = Z[:, i1] - Z[:, i2]  # n x L: Z e_k per branch k
+    x_th = ZE[i1, rng] - ZE[i2, rng]  # e_k^T Z e_k
+    denom = 1.0 - b * x_th  # 1 - PTDF_kk
+    islanded = denom < _ISLAND_TOL
+    safe = np.where(islanded, 1.0, denom)
+    post_x_th = np.where(islanded, X_CAP, np.minimum(x_th / safe, X_CAP))
+    # machines grounded through xd1: Thevenin reactance of each end bus towards them
+    mb = grid.machines["bus"].to_numpy()
+    xd1 = grid.machines["xd1_sys"].to_numpy(np.float64) if len(mb) else np.zeros(0)
+    xd1 = np.where(np.isfinite(xd1) & (xd1 > 0), xd1, _XD1_FLOOR)
+    ground = np.bincount(mb, weights=1.0 / xd1, minlength=n) + _EPS_SHUNT
+    Zg = dc_inverse(i1, i2, b, n, ground)
+    ZgE = Zg[:, i1] - Zg[:, i2]
+    denom_g = 1.0 - b * (ZgE[i1, rng] - ZgE[i2, rng])
+    cut_g = denom_g < _ISLAND_TOL
+    safe_g = np.where(cut_g, 1.0, denom_g)
+    zdiag = np.diag(Zg)
+    out: dict[str, np.ndarray] = {
+        "x_th_ends": x_th,
+        "post_x_th_ends": post_x_th,
+        "islanded": islanded.astype(np.float64),
+    }
+    sc = np.bincount(np.concatenate([i1, i2]), weights=np.tile(b, 2), minlength=n)
+    for end, bus in ((1, i1), (2, i2)):
+        out[f"post_sc_{end}"] = sc[bus] - b
+        out[f"x_th_bus_{end}"] = np.minimum(zdiag[bus], X_CAP)
+        post = zdiag[bus] + b * ZgE[bus, rng] ** 2 / safe_g
+        # a trip that cuts one end from every machine: that end (|Z e_k| ~ x_k) loses
+        # its Thevenin source, the other end (|Z e_k| ~ 0) keeps its pre-fault value
+        cut_here = cut_g & (np.abs(ZgE[bus, rng]) > 0.5 * x)
+        post = np.where(cut_g, zdiag[bus], post)
+        out[f"post_x_th_bus_{end}"] = np.where(cut_here, X_CAP, np.minimum(post, X_CAP))
+    # re-routed flow: post-trip P on the lines at the two ends
+    p = br["p1"].to_numpy(np.float64) * grid.mva
+    ref = np.asarray(ref_mva, dtype=np.float64)
+    is_line = np.isfinite(ref) & (ref > 0)
+    incidence = coo_matrix((np.ones(2 * L), (np.tile(rng, 2), np.concatenate([i1, i2]))))
+    touching = (csr_matrix(incidence) @ csr_matrix(incidence).T).tolil()
+    post_max = np.zeros(L)
+    rise_max = np.zeros(L)
+    for k in range(L):
+        others = np.asarray([j for j in touching.rows[k] if j != k and is_line[j]], dtype=int)
+        if len(others) == 0:
+            continue
+        pre = np.abs(p[others]) / ref[others]
+        if islanded[k]:
+            post_max[k] = float(np.max(pre))
+            continue
+        ptdf = b[others] * (ZE[i1[others], k] - ZE[i2[others], k])
+        flow = np.abs(p[others] + ptdf / denom[k] * p[k]) / ref[others]
+        post_max[k] = float(np.max(flow))
+        rise_max[k] = float(np.max(flow - pre))
+    out["post_loading_max"] = post_max
+    out["post_loading_rise_max"] = rise_max
+    return pd.DataFrame(out)
 
 
 def _symmetric_min(i: np.ndarray, j: np.ndarray, w: np.ndarray, n: int) -> csr_matrix:
@@ -298,11 +431,14 @@ def _machines(
     sheets: Mapping[str, pd.DataFrame],
     pos: pd.Series,
     machine_p: Mapping[Any, float] | None,
+    mva: float = 100.0,
 ) -> pd.DataFrame:
     parts = [sheets[s] for s in _MACHINE_SHEETS if s in sheets and len(sheets[s])]
     if not parts:
-        return pd.DataFrame({"bus": np.zeros(0, int), "Sn": [], "M": [], "P": []})
+        return pd.DataFrame({"bus": np.zeros(0, int), "Sn": [], "M": [], "P": [], "xd1_sys": []})
     m = pd.concat(parts, ignore_index=True)
+    if "xd1" not in m:
+        m["xd1"] = np.nan
     if "u" in m:
         m = m[m["u"].astype(float) != 0].reset_index(drop=True)
     p0: dict[Any, float] = {}
@@ -322,6 +458,7 @@ def _machines(
             "Sn": m["Sn"].astype(float).to_numpy(),
             "M": m["M"].astype(float).to_numpy(),
             "P": p.astype(float).to_numpy(),
+            "xd1_sys": m["xd1"].astype(float).to_numpy() * mva / m["Sn"].astype(float).to_numpy(),
         }
     )
 
@@ -345,7 +482,12 @@ def line_features(events: pd.DataFrame, grids: Mapping[str, CaseGrid]) -> pd.Dat
         ``bus_sc_strength`` (sum of 1/|x| of the branches at the bus), ``kinetic_mws_khop``
         (sum of H * Sn of the machines within k hops, k = 1, 2, 3), ``gen_mw_khop``,
         ``machine_hops`` and ``machine_x_dist`` (hop count and reactance path to the
-        nearest machine). ``fault_line_cat`` is ``fault_line`` as a pandas categorical.
+        nearest machine), ``x_dist_380kv`` (reactance path to the nearest 380 kV bus).
+        Post-trip columns (:func:`post_trip_table`, DC model with the faulted line removed):
+        ``x_th_ends``, ``post_x_th_ends``, ``islanded``, ``post_bus_sc_strength`` (at the
+        faulted bus), ``x_th_bus``, ``post_x_th_bus`` (faulted bus towards the machines),
+        ``post_loading_max``, ``post_loading_rise_max``. ``fault_line_cat`` is
+        ``fault_line`` as a pandas categorical.
     """
     for c in ("case", "fault_line", "fault_position"):
         if c not in events:
@@ -391,6 +533,14 @@ def _case_features(rows: pd.DataFrame, grid: CaseGrid) -> pd.DataFrame:
         "other_delta_max_deg": np.maximum(
             _other_max(bt, bus, grid.fault_lines[fl]), _other_max(bt, far, grid.fault_lines[fl])
         ),
+        "x_th_ends": L["x_th_ends"].to_numpy(),
+        "post_x_th_ends": L["post_x_th_ends"].to_numpy(),
+        "islanded": L["islanded"].to_numpy(),
+        "post_bus_sc_strength": np.where(at2, L["post_sc_2"], L["post_sc_1"]),
+        "x_th_bus": np.where(at2, L["x_th_bus_2"], L["x_th_bus_1"]),
+        "post_x_th_bus": np.where(at2, L["post_x_th_bus_2"], L["post_x_th_bus_1"]),
+        "post_loading_max": L["post_loading_max"].to_numpy(),
+        "post_loading_rise_max": L["post_loading_rise_max"].to_numpy(),
     }
     for c in bt.columns:
         if not c.startswith("top"):

@@ -11,14 +11,16 @@ version tags, so the gate compares like with like.
 
 from __future__ import annotations
 
+import importlib.metadata
 import json
+import warnings
 from collections.abc import Mapping
 from typing import Any
 
 import pandas as pd
 
 from tranpy.ml_benchmark import CandidateResult, promotion_decision
-from tranpy_core._optional import require
+from tranpy_core._optional import is_available, require
 
 __all__ = ["log_candidate", "register_model_version"]
 
@@ -140,19 +142,15 @@ def register_model_version(
     """
     mlflow = _mlflow()
     signature = mlflow.models.infer_signature(X.head(50), model.predict_proba(X.head(50))[:, 1])
-    # mlflow saves scikit-learn models with skops, which loads only trusted types; the
-    # model is our own fit, so the types it uses (scorers, splitters, our wrappers) are listed
-    skops_io = require("skops.io", "persistence")
-    trusted = skops_io.get_untrusted_types(data=skops_io.dumps(model))
+    fmt, extra = _serialization(mlflow, model, pip_requirements)
     info = mlflow.sklearn.log_model(
         model,
         name="model",
-        skops_trusted_types=trusted,
         signature=signature,
         input_example=X.head(3),
         registered_model_name=registered_name,
-        pip_requirements=pip_requirements,
         pyfunc_predict_fn="predict_proba",
+        **extra,
     )
     client = mlflow.MlflowClient()
     version = str(info.registered_model_version)
@@ -162,6 +160,7 @@ def register_model_version(
         **dict(tags),
         # the gate metrics only (all metrics are in the cross-validation run)
         **_metric_tags(metrics, primary_metric),
+        "serialization_format": fmt,
         "gate": "promoted" if promote else "kept_champion",
         "gate_reason": reason,
     }.items():
@@ -169,4 +168,54 @@ def register_model_version(
     client.set_registered_model_alias(registered_name, CHALLENGER, version)
     if promote:
         client.set_registered_model_alias(registered_name, CHAMPION, version)
-    return {"version": version, "promoted": promote, "reason": reason}
+    return {"version": version, "promoted": promote, "reason": reason, "serialization_format": fmt}
+
+
+def _serialization(
+    mlflow: Any, model: Any, pip_requirements: list[str] | None
+) -> tuple[str, dict[str, Any]]:
+    """The serialization format to request and the matching ``log_model`` keywords.
+
+    ``mlflow.sklearn.log_model`` defaults to cloudpickle whenever it runs in a Databricks
+    runtime or against a Databricks tracking URI and to skops elsewhere (mlflow 3.x,
+    ``_get_default_serialization_format``); passing ``skops_trusted_types`` alone does not
+    select skops, which is why the models of the first registered versions were pickles.
+    The format is therefore requested explicitly: skops (loads only trusted types; the model
+    is our own fit, so the types it uses are listed) when the installed mlflow supports it
+    and skops is installed, otherwise cloudpickle with a warning and the format on record.
+    """
+    skops_format = getattr(mlflow.sklearn, "SERIALIZATION_FORMAT_SKOPS", None)
+    cloudpickle = getattr(mlflow.sklearn, "SERIALIZATION_FORMAT_CLOUDPICKLE", "cloudpickle")
+    if skops_format is None:
+        warnings.warn(
+            "the installed mlflow cannot save scikit-learn models with skops; "
+            f"falling back to {cloudpickle} (loading it executes pickled code)",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return str(cloudpickle), {
+            "serialization_format": cloudpickle,
+            "pip_requirements": pip_requirements,
+        }
+    if not is_available("skops.io"):
+        warnings.warn(
+            f"skops is not installed; falling back to {cloudpickle} "
+            "(install 'tranpy-ai[persistence]' to save models safely)",
+            RuntimeWarning,
+            stacklevel=3,
+        )
+        return str(cloudpickle), {
+            "serialization_format": cloudpickle,
+            "pip_requirements": pip_requirements,
+        }
+    skops_io = require("skops.io", "persistence")
+    trusted = list(skops_io.get_untrusted_types(data=skops_io.dumps(model)))
+    requirements = pip_requirements
+    if requirements is not None and not any(r.strip().startswith("skops") for r in requirements):
+        # mlflow pins skops itself only when it infers the requirements
+        requirements = [*requirements, f"skops=={importlib.metadata.version('skops')}"]
+    return str(skops_format), {
+        "serialization_format": skops_format,
+        "skops_trusted_types": trusted,
+        "pip_requirements": requirements,
+    }

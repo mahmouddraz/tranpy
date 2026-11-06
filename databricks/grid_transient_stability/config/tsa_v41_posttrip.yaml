@@ -1,0 +1,47 @@
+# Pre-fault assessment only, with the post-trip descriptors of the faulted line added to the
+# line_pre set (tranpy.line_features.post_trip_table: Thevenin reactance between the line ends
+# after the trip, islanding flag, short-circuit strength and Thevenin reactance of the faulted bus
+# towards the machines after the trip, re-routed loading of the neighbouring lines by the line
+# outage distribution factors, reactance distance to the nearest 380 kV bus). Derived from
+# tsa_v41.yaml (same seed, protocols, tuning: Optuna TPE, 30 trials per outer fold, inner
+# 3-fold by hour) restricted to the two pre-fault sets with line descriptors, so the hour /
+# random / line PR-AUC can be read against the tuned v4.1 winners (job run 1086973316840813:
+# line_pre xgboost__class_weight hour 0.781 [0.761, 0.800], lightgbm__none 0.786 [0.767, 0.803]).
+#
+# Trimmed to the 1.5 node-hour budget: the f1-threshold imbalance option (same PR-AUC as
+# class_weight, a full extra study per candidate) and the balanced random forest (half the
+# tuning cost of the v4.1 run, never selected) are left out. The winners of the v4.1 run
+# (xgboost / lightgbm with none or class_weight) are all retained. Estimate from the v4.1
+# measurements: 2 sets x 2 boosting models x 2 options x 19 outer folds x 30 trials x 3 inner
+# fits ~ 4.1 core-hours (x1.4 observed) + logistic regression + bootstrap ~ 6 core-hours on
+# 7 workers ~ 0.9 node-hours, plus features / register (one more study) / score ~0.3.
+#
+# report_by adds vn_kv (voltage level of the faulted line, from the line descriptors; written
+# to strata.parquet by the features task) for the per-level tables.
+seed: 20261104
+protocols: [hour, random, line]
+report_by: [hour, clearing_band, kind, event_type, tan_phi, vn_kv]
+primary_metric: average_precision
+
+feature_sets: [line_pre, system_line_pre]
+
+models:
+  - lightgbm
+  - xgboost
+  - logistic_regression
+
+imbalance:
+  - none
+  - class_weight
+
+params:
+  logistic_regression: {max_iter: 2000}
+  lightgbm: {n_estimators: 300, n_jobs: 1}
+  xgboost: {n_estimators: 300, n_jobs: 1}
+
+tuning:
+  n_trials: 30
+  inner_folds: 3
+  metric: average_precision
+  timeout_s: null
+  only_sets: [line_pre, system_line_pre]
