@@ -14,7 +14,11 @@ Two established ways to get one fixed-length input for all hours are provided:
   COI-relative angle, angle spread, largest speed deviation, totals, lowest voltage,
   committed kinetic energy), independent of which machines are committed.
 
-Both add the scenario inputs of the event (:data:`SCENARIO_COLUMNS`). Instants are
+Both add the scenario inputs of the event (:data:`SCENARIO_COLUMNS`). A third input
+describes *where* the fault is: :func:`line_pre_features` adds the physical descriptors of
+the faulted line and bus from :mod:`tranpy.line_features` (pre-fault power through the
+line, impedance, meshing, local inertia); the sets ``line_pre``, ``system_line_pre`` and
+``system_line_clear`` need the :class:`~tranpy.line_features.CaseGrid` of every case. Instants are
 ``pre`` (before the fault), ``fault`` and ``clear`` (the faulted state at the clearing
 instant): ``("pre",)`` gives a pre-fault assessment, :data:`AT_CLEARING` an assessment at
 the moment of clearing. In the v4-dyn store the ``fault`` snapshot equals ``pre`` for every
@@ -38,11 +42,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from tranpy.line_features import LINE_PREFIX, CaseGrid, line_features, read_case_grid
 from tranpy_core.errors import DataError
 
 __all__ = [
     "AT_CLEARING",
     "FEATURE_SETS",
+    "GRID_FEATURE_SETS",
     "INSTANTS",
     "LEAKY_COLUMNS",
     "SCENARIO_COLUMNS",
@@ -53,7 +59,9 @@ __all__ = [
     "event_frame",
     "expand_snap_arrays",
     "feature_sets",
+    "line_pre_features",
     "population_counts",
+    "read_case_grid",
     "read_case_machines",
     "read_gen_maps",
     "system_features",
@@ -93,7 +101,13 @@ _SNAP = re.compile(r"^snap:(?P<inst>[^|]+)\|(?P<gen>[^|]+)\|(?P<var>[^|]+)$")
 
 def check_no_leakage(columns: Iterable[str]) -> None:
     """Raise :class:`DataError` if a feature column is derived from the simulated outcome."""
-    bad = [c for c in columns if c in LEAKY_COLUMNS or str(c).startswith("unstable_")]
+    bad = [
+        c
+        for c in columns
+        if c in LEAKY_COLUMNS
+        or str(c).startswith("unstable_")
+        or str(c).removeprefix(LINE_PREFIX) in LEAKY_COLUMNS
+    ]
     if bad:
         raise DataError(f"outcome-derived columns in the features: {sorted(bad)}")
 
@@ -328,29 +342,68 @@ def system_features(
     return out
 
 
+def line_pre_features(
+    events: pd.DataFrame,
+    machines_by_case: Mapping[str, pd.DataFrame],
+    *,
+    instants: Sequence[str] = (),
+    grids: Mapping[str, CaseGrid] | None = None,
+) -> pd.DataFrame:
+    """Faulted-line descriptors (:func:`tranpy.line_features.line_features`), plus the
+    scenario inputs and, for ``instants``, the system-level features of those instants.
+
+    ``machines_by_case`` is only used when ``instants`` is not empty.
+    """
+    if grids is None:
+        raise DataError("line features need the CaseGrid of every case (grids=)")
+    parts = [_scenario(events)]
+    if instants:
+        parts = [system_features(events, machines_by_case, instants=instants)]
+    parts.append(line_features(events, grids))
+    out = pd.concat(parts, axis=1)
+    check_no_leakage(out.columns)
+    return out
+
+
 FEATURE_SETS = {
     "system_pre": (system_features, ("pre",)),
     "system_clear": (system_features, AT_CLEARING),
     "aligned_pre": (aligned_features, ("pre",)),
     "aligned_clear": (aligned_features, AT_CLEARING),
+    "line_pre": (line_pre_features, ()),
+    "system_line_pre": (line_pre_features, ("pre",)),
+    "system_line_clear": (line_pre_features, AT_CLEARING),
 }
-"""Named feature sets: representation (system-level or aligned per machine) x assessment
-time (pre-fault, or at clearing)."""
+"""Named feature sets: representation (system-level, aligned per machine, or faulted-line
+descriptors) x assessment time (pre-fault, or at clearing)."""
+
+GRID_FEATURE_SETS = ("line_pre", "system_line_pre", "system_line_clear")
+"""The sets of :data:`FEATURE_SETS` that need a :class:`~tranpy.line_features.CaseGrid`
+per case (``grids=`` of :func:`feature_sets`)."""
 
 
 def feature_sets(
     events: pd.DataFrame,
     machines_by_case: Mapping[str, pd.DataFrame],
-    names: Sequence[str] = tuple(FEATURE_SETS),
+    names: Sequence[str] | None = None,
+    grids: Mapping[str, CaseGrid] | None = None,
 ) -> dict[str, pd.DataFrame]:
-    """The feature sets ``names`` of ``events`` (rows in the order of ``events``)."""
+    """The feature sets ``names`` of ``events`` (rows in the order of ``events``).
+
+    Without ``names``: every set, or, without ``grids``, every set that needs no grid.
+    """
+    if names is None:
+        names = tuple(n for n in FEATURE_SETS if grids is not None or n not in GRID_FEATURE_SETS)
     unknown = sorted(set(names) - set(FEATURE_SETS))
     if unknown:
         raise DataError(f"unknown feature sets {unknown}; use {sorted(FEATURE_SETS)}")
     out = {}
     for name in names:
         builder, instants = FEATURE_SETS[name]
-        out[name] = builder(events, machines_by_case, instants=instants)
+        if name in GRID_FEATURE_SETS:
+            out[name] = line_pre_features(events, machines_by_case, instants=instants, grids=grids)
+        else:
+            out[name] = builder(events, machines_by_case, instants=instants)
     return out
 
 

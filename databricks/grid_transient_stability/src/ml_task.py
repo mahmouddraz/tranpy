@@ -1,13 +1,19 @@
 """Transient-stability ML on the merged fault events: features -> benchmark -> register -> score.
 
-  features   events (Delta, one dataset job run) + per-case machine tables (outputs volume, prep/)
-             -> feature sets and strata as parquet in ML_DIR, with a manifest (sha256, counts).
-  benchmark  every (feature set, model, imbalance option) of the config, leave one hour out, in
-             parallel processes; one MLflow run each (nested in a benchmark run); Delta tables
-             tsa_benchmark, tsa_benchmark_strata, tsa_oof_predictions; ML_DIR/best.json.
-  register   per assessment time (pre-fault, at clearing) the best candidate, refitted on all
-             events, logged and registered as CATALOG.SCHEMA.tsa_<time>; alias challenger, and
-             champion if it passes the gate (higher primary metric, miss rate not higher).
+  features   events (Delta, one dataset job run) + per-case machine tables and case grids
+             (outputs volume, prep/: CASE.xlsx with CASE.op.pkl + CASE.buses.csv for the solved
+             operating point, else the ANDES power flow) -> the feature sets of the config and
+             the strata as parquet in ML_DIR, with a manifest (sha256, counts).
+  benchmark  every (feature set, model, imbalance option, protocol) of the config in parallel
+             processes, with nested Optuna tuning where the config's `tuning` says so; one
+             MLflow run each (nested in a benchmark run); Delta tables tsa_benchmark (pooled
+             metrics with 95 % bootstrap intervals <m>_lo/<m>_hi, the protocol and `tuned`),
+             tsa_benchmark_strata, tsa_oof_predictions; ML_DIR/best.json.
+  register   per assessment time (pre-fault, at clearing) the best candidate of the first
+             protocol (tranpy.ml_benchmark.select_best), refitted on all events (tuned once
+             more on all events when it was a tuned candidate), logged and registered as
+             CATALOG.SCHEMA.tsa_<time>; alias challenger, and champion if it passes the gate
+             (primary metric better beyond the interval, or tied with a lower miss rate).
   score      the champion of each registered model on all events -> Delta tsa_predictions
              (in-sample for the training events; the out-of-fold predictions are in
              tsa_oof_predictions).
@@ -24,9 +30,12 @@ import sys
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-ASSESSMENT = {"pre": ("system_pre", "aligned_pre"), "clear": ("system_clear", "aligned_clear")}
+ASSESSMENT = {
+    "pre": ("system_pre", "aligned_pre", "line_pre", "system_line_pre"),
+    "clear": ("system_clear", "aligned_clear", "system_line_clear"),
+}
 KEYS = ["case", "sample_id", "shard"]
-STRATA = ["hour", "tan_phi", "clearing_band", "kind", "event_type"]
+STRATA = ["hour", "tan_phi", "clearing_band", "kind", "event_type", "fault_line"]
 
 
 def log(*a):
@@ -52,6 +61,35 @@ def spark_session():
 
 
 # ---------------------------------------------------------------------------------- features
+def _feature_set_names(a):
+    """Feature sets of the config (every set when no config is given)."""
+    import yaml
+
+    from tranpy.ml_benchmark import BenchmarkSpec
+
+    if not a.config:
+        return None
+    return list(BenchmarkSpec.from_mapping(yaml.safe_load(Path(a.config).read_text())).feature_sets)
+
+
+def _case_grids(a, cases, names):
+    """CaseGrid per case for the sets that need one (tranpy.ml_events.GRID_FEATURE_SETS)."""
+    from tranpy.ml_events import GRID_FEATURE_SETS, read_case_grid
+
+    if names is not None and not set(names) & set(GRID_FEATURE_SETS):
+        return None
+    grids = {}
+    for c in cases:
+        prep = Path(a.outputs) / c / "prep"
+        solved = (prep / f"{c}.op.pkl").exists() and (prep / f"{c}.buses.csv").exists()
+        grids[c] = read_case_grid(prep, c)
+        log(
+            f"grid {c}: {len(grids[c].branches)} branches, {len(grids[c].fault_lines)} fault "
+            f"candidates, voltages from {'op.pkl + buses.csv' if solved else 'ANDES power flow'}"
+        )
+    return grids
+
+
 def features(a):
     from tranpy.ml_events import (
         complete_events,
@@ -82,8 +120,10 @@ def features(a):
         c: read_case_machines(Path(a.outputs) / c / "prep", c, headers[c]["events"]["gen_map"])
         for c in sorted(events["case"].unique())
     }
+    names = _feature_set_names(a)
+    grids = _case_grids(a, sorted(events["case"].unique()), names)
     frame = event_frame(events)
-    sets = feature_sets(frame, machines)
+    sets = feature_sets(frame, machines, names=names, grids=grids)
     # complete-case: an event missing a snapshot (no output sample at the clearing instant)
     # is left out of every feature set, so all sets are compared on the same events
     keep = complete_events(sets)
@@ -103,6 +143,8 @@ def features(a):
         "files": {"strata.parquet": sha256(out / "strata.parquet")},
         "columns": {},
         "machines": {c: len(m) for c, m in machines.items()},
+        "config": Path(a.config).name if a.config else "",
+        "grids": sorted(grids) if grids else [],
     }
     for name, X in sets.items():
         X.to_parquet(out / f"{name}.parquet", index=False)
@@ -157,7 +199,12 @@ def benchmark(a):
     import pandas as pd
     import yaml
 
-    from tranpy.ml_benchmark import BenchmarkSpec, candidates, evaluate_feature_file
+    from tranpy.ml_benchmark import (
+        BenchmarkSpec,
+        candidates,
+        evaluate_feature_file,
+        select_best,
+    )
     from tranpy.ml_tracking import log_candidate
 
     spec = BenchmarkSpec.from_mapping(yaml.safe_load(Path(a.config).read_text()))
@@ -191,7 +238,7 @@ def benchmark(a):
                     fs,
                     c,
                     spec.seed,
-                    spec.split_by,
+                    c.protocol,
                     list(spec.report_by),
                 )
                 for fs, c in jobs
@@ -199,22 +246,35 @@ def benchmark(a):
             for k, fut in enumerate(as_completed(futures), 1):
                 fs, cand, result, error, dt = fut.result()
                 if result is None:
-                    failed.append({"feature_set": fs, "candidate": cand.name, "error": error})
-                    log(f"[{k}/{len(jobs)}] {fs} {cand.name} FAILED {error}")
+                    failed.append(
+                        {
+                            "feature_set": fs,
+                            "candidate": cand.name,
+                            "protocol": cand.protocol,
+                            "error": error,
+                        }
+                    )
+                    log(f"[{k}/{len(jobs)}] {fs} {cand.name} [{cand.protocol}] FAILED {error}")
                     continue
                 run_id = log_candidate(result, tags=tags)
                 m = result.metrics()
                 log(
-                    f"[{k}/{len(jobs)}] {fs} {cand.name} AP={m['average_precision']:.3f} "
-                    f"miss={m['miss_rate']:.3f} mcc={m['mcc']:.3f} ({dt:.0f} s)"
+                    f"[{k}/{len(jobs)}] {fs} {cand.name} [{cand.protocol}] "
+                    f"AP={m['average_precision']:.3f} "
+                    f"[{m['average_precision_lo']:.3f}, {m['average_precision_hi']:.3f}] "
+                    f"miss={m['miss_rate']:.3f} mcc={m['mcc']:.3f} "
+                    f"({dt:.0f} s{', tuned' if result.tuned else ''})"
                 )
                 rows.append(
                     {
                         "feature_set": fs,
                         "candidate": cand.name,
+                        "protocol": cand.protocol,
                         "model": cand.model,
                         "imbalance_method": cand.imbalance.method,
                         "threshold_metric": cand.imbalance.threshold or "fixed_0.5",
+                        "tuned": result.tuned,
+                        "tuning_time_s": float(result.tuning["time_s"]) if result.tuned else 0.0,
                         "mlflow_run_id": run_id,
                         **m,
                     }
@@ -222,12 +282,18 @@ def benchmark(a):
                 for col, tab in result.by_stratum.items():
                     t = tab.drop(columns="confusion_matrix").reset_index(names="stratum")
                     strata_rows.append(
-                        t.assign(feature_set=fs, candidate=cand.name, stratum_by=col)
+                        t.assign(
+                            feature_set=fs,
+                            candidate=cand.name,
+                            protocol=cand.protocol,
+                            stratum_by=col,
+                        )
                     )
                 oof.append(
                     strata[[*KEYS, "label"]].assign(
                         feature_set=fs,
                         candidate=cand.name,
+                        protocol=cand.protocol,
                         p_unstable=result.oof_score,
                         predicted_label=result.oof_pred,
                     )
@@ -249,19 +315,25 @@ def benchmark(a):
     _write(a, "tsa_oof_predictions", pd.concat(oof, ignore_index=True).assign(**meta))
     best = {}
     for time_, sets_ in ASSESSMENT.items():
-        pool_ = res[res["feature_set"].isin(sets_)]
+        # selection on the first protocol only (the others are reported, not compared across)
+        pool_ = res[res["feature_set"].isin(sets_) & (res["protocol"] == spec.protocols[0])]
         if pool_.empty:
             continue
-        top = pool_.sort_values([spec.primary_metric, "miss_rate"], ascending=[False, True]).iloc[0]
+        rows_ = pool_.to_dict(orient="records")
+        top = pool_.iloc[select_best(rows_, primary=spec.primary_metric, tie_metric="miss_rate")]
         best[time_] = {
             "feature_set": top["feature_set"],
             "candidate": top["candidate"],
+            "protocol": top["protocol"],
+            "tuned": bool(top["tuned"]),
             "mlflow_run_id": top["mlflow_run_id"],
             "metrics": {k: float(top[k]) for k in res.columns if k in m},
         }
         log(
-            f"best {time_}: {top['feature_set']} {top['candidate']} "
-            f"{spec.primary_metric}={top[spec.primary_metric]:.4f} miss={top['miss_rate']:.4f}"
+            f"best {time_}: {top['feature_set']} {top['candidate']} [{top['protocol']}] "
+            f"{spec.primary_metric}={top[spec.primary_metric]:.4f} "
+            f"[{top[spec.primary_metric + '_lo']:.4f}, {top[spec.primary_metric + '_hi']:.4f}] "
+            f"miss={top['miss_rate']:.4f}"
         )
     (Path(a.ml_dir) / "best.json").write_text(json.dumps(best, indent=1))
     if failed:
@@ -289,8 +361,9 @@ def register(a):
     import mlflow
     import yaml
 
-    from tranpy.ml_benchmark import BenchmarkSpec, candidates
+    from tranpy.ml_benchmark import BenchmarkSpec, candidates, tuning_for
     from tranpy.ml_tracking import register_model_version
+    from tranpy.ml_tuning import tune_params
 
     spec = BenchmarkSpec.from_mapping(yaml.safe_load(Path(a.config).read_text()))
     by_name = {c.name: c for c in candidates(spec)}
@@ -312,9 +385,29 @@ def register(a):
                     "cv_run_id": b["mlflow_run_id"],
                 }
             )
-            model = cand.build(spec.seed).fit(X, strata["label"].to_numpy())
+            y = strata["label"].to_numpy()
+            params = {}
+            tuning = tuning_for(cand, b["feature_set"]) if b.get("tuned") else None
+            if tuning is not None:
+                # the final model is tuned the same way on all events (inner folds by hour)
+                study = tune_params(
+                    cand.model,
+                    lambda p, c=cand: c.build_unthresholded(spec.seed, **p),
+                    X.to_numpy(),
+                    y,
+                    spec=tuning,
+                    seed=spec.seed,
+                    groups=strata["hour"].astype(str).to_numpy(),
+                )
+                params = study.best_params
+                mlflow.log_params({f"tuned_{k}": v for k, v in params.items()})
+                mlflow.log_metric("tuning_best_value", study.best_value)
+                mlflow.log_text(study.trials.to_csv(index=False), "tuning_trials.csv")
+                log(f"tsa_{time_}: tuned on all events, {tuning.metric}={study.best_value:.4f}")
+            model = cand.build(spec.seed, **params).fit(X, y)
             threshold = float(getattr(model, "best_threshold_", 0.5))
             mlflow.log_param("decision_threshold", threshold)
+            mlflow.log_param("tuned", tuning is not None)
             res = register_model_version(
                 model,
                 X,
@@ -327,6 +420,7 @@ def register(a):
                     "candidate": cand.name,
                     "feature_set": b["feature_set"],
                     "decision_threshold": str(threshold),
+                    "tuned": str(tuning is not None).lower(),
                 },
                 pip_requirements=requirements or None,
             )
@@ -382,7 +476,9 @@ def main():
     p.add_argument("--dataset-job-run-id", required=True)
     p.add_argument("--outputs", required=True, help="volume folder of the dataset run's cases")
     p.add_argument("--ml-dir", required=True, help="volume folder for features and selections")
-    p.add_argument("--config", default="", help="benchmark YAML (benchmark and register)")
+    p.add_argument(
+        "--config", default="", help="benchmark YAML (feature sets, benchmark and register)"
+    )
     p.add_argument("--experiment", default="tsa")
     p.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) - 1))
     p.add_argument("--only-models", default="", help="comma list: restrict the config (smoke)")

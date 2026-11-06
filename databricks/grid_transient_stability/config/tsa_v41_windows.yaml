@@ -1,0 +1,61 @@
+# Accuracy versus assessment time on the re-traced v4.1 events (re-trace run 588561814210793:
+# 2,328 traced events = every unstable event + 1,000 stable, inclusion-weighted to the 11,159-event
+# population; strata and faulted-line descriptors from ML run 1086973316840813).
+# src/windows_task.py; representations and instants: tranpy.ml_windows.
+#
+# Instants: pre-fault; the clearing instant plus 0 / 0.05 / 0.1 / 0.2 / 0.3 s (the event's own
+# clearing time, see D9 in docs/validation.md); fault inception plus 0.3 / 0.5 / 0.8 s (fixed
+# wall-clock instants, causal with respect to the clearing). The traces hold 10 ms samples up to
+# clearing + 0.5 s, so every window is at trace resolution. An event whose simulation stopped
+# (separation) before an instant is left out there and counted (n_excluded).
+# Inputs: window (system-level series at the instant + window statistics), window_line (plus the
+# line_pre descriptors), sequence (the series on the 10 ms grid, for the sequence networks).
+# Protocols as in tsa_v41.yaml; 95 % bootstrap intervals on every pooled metric.
+#
+# Cost (Standard_F8as_v7, 7 workers): LightGBM tuned, 20 trials x 3 inner folds per outer fold:
+#   9 instants x 2 inputs x 3 protocols x 19 outer folds x 61 fits x ~0.1 s (2,328 rows) ~ 1.8
+#   core-hours; sequences: 8 instants x 6 networks x 9 hour folds = 432 Keras fits of <= 2,100 rows x
+#   <= 81 steps x 10 series, 30 epochs with early stopping, 1 thread: a local smoke measured 25-45 s
+#   per fit on 199 rows x 11 steps, so ~1-3 min here -> ~15 core-hours; ~2.5 node-hours in all
+#   (sequence jobs are submitted first). The sequence networks therefore run under the primary
+#   (hour) protocol only; the window inputs run under all three.
+seed: 20261104
+protocols: [hour, random, line]
+report_by: [hour, clearing_band, kind]
+primary_metric: average_precision
+
+instants: [pre, clear+0s, clear+0.05s, clear+0.1s, clear+0.2s, clear+0.3s,
+           inception+0.3s, inception+0.5s, inception+0.8s]
+inputs: [window, window_line]
+
+models: [lightgbm]
+imbalance: [class_weight]
+params:
+  lightgbm: {n_estimators: 300, n_jobs: 1}
+tuning:
+  n_trials: 20
+  inner_folds: 3
+  metric: average_precision
+  timeout_s: null
+
+# Keras sequence networks (tranpy_core.models.neural) on the `sequence` input, class weights;
+# two sizes each, no nested tuning (sizes are the tuning). n_steps is set per instant.
+sequence:
+  protocols: [hour]
+  imbalance: class_weight
+  models:
+    lstm_network:
+      small: {lstm_units: [32], dense_units: 16, dropout: 0.2, epochs: 30, batch_size: 64,
+              early_stopping_patience: 5}
+      large: {lstm_units: [64, 32], dense_units: 32, dropout: 0.2, epochs: 30, batch_size: 64,
+              early_stopping_patience: 5}
+    tcn_network:
+      small: {n_filters: 32, kernel_size: 3, dilation_rates: [1, 2, 4], dense_units: 16,
+              dropout: 0.2, epochs: 30, batch_size: 64, early_stopping_patience: 5}
+      large: {n_filters: 64, kernel_size: 3, dilation_rates: [1, 2, 4, 8], dense_units: 32,
+              dropout: 0.2, epochs: 30, batch_size: 64, early_stopping_patience: 5}
+    transformer_network:
+      small: {d_model: 32, n_heads: 4, n_layers: 1, ff_dim: 64, dense_units: 16, dropout: 0.1,
+              epochs: 30, batch_size: 64, early_stopping_patience: 5}
+      large: {d_model: 64, n_heads: 4, n_layers: 2, ff_dim: 128, dense_units: 32, dropout: 0.1,
+              epochs: 30, batch_size: 64, early_stopping_patience: 5}

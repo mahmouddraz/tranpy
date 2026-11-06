@@ -39,11 +39,12 @@ from sklearn.metrics import (
 
 from tranpy_core.data.split import Split, repeated_kfold_splits
 from tranpy_core.errors import ModelError
-from tranpy_core.random import Seed
+from tranpy_core.random import Seed, make_rng
 
 __all__ = [
     "CrossValidationResult",
     "Scores",
+    "bootstrap_ci",
     "cross_validate",
     "evaluate",
     "evaluate_by_group",
@@ -161,6 +162,65 @@ def score_predictions(
         miss_rate=1.0 - sensitivity,
         brier=brier,
     )
+
+
+def bootstrap_ci(
+    y: npt.ArrayLike,
+    y_pred: npt.ArrayLike,
+    scores: npt.ArrayLike,
+    *,
+    probabilities: bool = True,
+    sample_weight: npt.ArrayLike | None = None,
+    n_boot: int = 1000,
+    seed: Seed = 0,
+    stratify: bool = True,
+    alpha: float = 0.05,
+) -> dict[str, tuple[float, float]]:
+    """Percentile bootstrap confidence interval of every metric in :data:`METRICS`.
+
+    The samples are resampled with replacement ``n_boot`` times (Efron's nonparametric
+    bootstrap); with ``stratify`` each label class is resampled separately, so the class
+    counts of every resample equal those of the data and PR-AUC stays defined. Every
+    resample is scored with :func:`score_predictions` (weights travel with their samples)
+    and the interval is the ``alpha/2`` and ``1 - alpha/2`` quantiles of the resampled
+    metric, NaN resamples ignored. Returns ``{metric: (lo, hi)}``, ``(nan, nan)`` for a
+    metric undefined on every resample.
+    """
+    y_true = np.asarray(y)
+    y_hat = np.asarray(y_pred)
+    s = np.asarray(scores, dtype=np.float64)
+    w = None if sample_weight is None else np.asarray(sample_weight, dtype=np.float64)
+    if n_boot < 1:
+        raise ValueError(f"n_boot must be at least 1, got {n_boot}")
+    n = y_true.shape[0]
+    rng = make_rng(seed)
+    classes = (
+        [np.flatnonzero(y_true == c) for c in np.unique(y_true)] if stratify else [np.arange(n)]
+    )
+    draws = {metric: np.full(n_boot, np.nan) for metric in METRICS}
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", category=UserWarning)
+        warnings.simplefilter("ignore", category=RuntimeWarning)
+        for b in range(n_boot):
+            idx = np.concatenate([rng.choice(members, size=members.size) for members in classes])
+            resampled = score_predictions(
+                y_true[idx],
+                y_hat[idx],
+                s[idx],
+                probabilities=probabilities,
+                sample_weight=None if w is None else w[idx],
+            )
+            for metric in METRICS:
+                draws[metric][b] = getattr(resampled, metric)
+    out: dict[str, tuple[float, float]] = {}
+    for metric, values in draws.items():
+        finite = values[np.isfinite(values)]
+        if finite.size == 0:
+            out[metric] = (float("nan"), float("nan"))
+        else:
+            lo, hi = np.quantile(finite, [alpha / 2.0, 1.0 - alpha / 2.0])
+            out[metric] = (float(lo), float(hi))
+    return out
 
 
 def evaluate(

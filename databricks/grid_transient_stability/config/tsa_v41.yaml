@@ -1,0 +1,79 @@
+# Tuned transient-stability benchmark on the v4.1 fault events (dataset job run 738439695169033,
+# 11,159 complete events, 11.9 % unstable) with the faulted-line descriptors (tranpy.line_features).
+# Every model is crossed with every imbalance option and every protocol; `extra` adds the model
+# whose balancing is built in. Protocols (tranpy.ml_benchmark.PROTOCOLS):
+#   hour    leave one operating hour out (primary: selection and the promotion gate)
+#   random  stratified 5-fold, shuffled with the seed (the i.i.d. estimate, reported alongside)
+#   line    stratified group 5-fold by the faulted line (do the descriptors carry unseen lines?)
+# Every pooled metric gets a 95 % stratified bootstrap interval (1000 resamples) as <m>_lo / <m>_hi;
+# ranking: higher PR-AUC, ties inside the leader's interval settled by the lower miss rate.
+#
+# Tuning (tranpy.ml_tuning): Optuna TPE, 30 trials per outer training fold, inner
+# StratifiedGroupKFold (3 folds by hour) on the training rows only, best parameters refitted on
+# the outer training fold; the outer test fold never enters a study. Tuned on the three sets with
+# line descriptors only (`only_sets`); the other sets keep the fixed parameters below, so the
+# effect of the descriptors and of the tuning can be read separately.
+#
+# Node-hour estimate (Standard_F8as_v7, 8 cores, 7 worker processes, one thread per fit):
+#   measured locally on the v4.1 features (11,159 events), one fit of each model on one
+#   leave-one-hour-out training fold with class_weight, scaled x1.4 for the node (v4 run:
+#   lightgbm on system_clear 3.7 s there vs 2.6 s locally). Seconds per fit, local:
+#                        lightgbm  xgboost  logreg   BRF(300)        columns
+#     system_pre            0.4      0.5     0.03     2.7              19
+#     system_line_pre       1.0      1.1     0.05     3.4              44
+#     line_pre              0.7      0.8     0.02     2.7              33
+#     aligned_pre          18.8     26.1     5.3     20.8            1016
+#     system_clear          0.5      0.3     0.03     2.2              28
+#     system_line_clear     0.8      0.6     0.03     2.9              53
+#     bootstrap of 1000 resamples: 16 s per candidate
+#   untuned work: 10 candidates per set x 3 protocols (9 + 5 + 5 = 19 outer fits each; the
+#   f1-threshold option fits 6x per fold) + bootstrap -> 4.0 core-hours, 3.2 of them aligned_pre;
+#   tuning work (3 sets): per candidate 19 outer folds x 30 trials x 3 inner fits of 2/3 of the
+#   rows (x0.7), boosting trials average ~1.8x the fixed 300 trees (BRF ~1.5x); the threshold
+#   option tunes the unwrapped pipeline (tranpy.ml_benchmark.Candidate.build_unthresholded), so it
+#   costs the same as class_weight -> 18.9 core-hours (BRF 9.4, xgboost 4.7, lightgbm 4.5);
+#   total ~23 core-hours = ~3.3 node-hours on 7 workers (longest single candidate ~2.4 h: tuned
+#   BRF on system_line_pre), plus features / register (one more study) / score ~0.3 node-hours:
+#   ~3.6 node-hours, within the 8-hour budget without cutting trials or sets. A local smoke
+#   (lightgbm, system_line_pre, hour, 3 trials) measured 1.7 s per inner fit, 1.4x the model
+#   above, so the boosting share may be ~40 % higher: ~4 node-hours in all. Observed wall time
+#   will be higher if the long BRF studies land at the end of the queue (as_completed order).
+seed: 20261104
+protocols: [hour, random, line]
+report_by: [hour, clearing_band, kind, event_type, tan_phi]
+primary_metric: average_precision
+
+# system_* : system-level statistics; aligned_* : per machine, aligned by stable machine id;
+# line_pre : faulted-line and fault-bus descriptors with the scenario inputs; system_line_* : both.
+# *_pre : before the fault; *_clear : pre-fault plus the faulted state at the clearing instant.
+feature_sets: [system_pre, system_line_pre, line_pre, aligned_pre, system_clear, system_line_clear]
+
+models:
+  - lightgbm
+  - xgboost
+  - logistic_regression
+
+# Established options only (scikit-learn / imbalanced-learn); see tranpy_core.imbalance.
+imbalance:
+  - none
+  - class_weight
+  - {method: class_weight, threshold: f1}
+
+extra:
+  - {model: balanced_random_forest}
+
+# Fixed parameters (the untuned sets, and the starting point the tuned sets are compared with).
+# One thread per fit: candidates run in parallel processes on the node.
+params:
+  logistic_regression: {max_iter: 2000}
+  lightgbm: {n_estimators: 300, n_jobs: 1}
+  xgboost: {n_estimators: 300, n_jobs: 1}
+  balanced_random_forest: {n_estimators: 300, n_jobs: 1}
+
+# Nested hyperparameter tuning (tranpy.ml_tuning.TuningSpec); `tuning: null` disables it.
+tuning:
+  n_trials: 30
+  inner_folds: 3
+  metric: average_precision
+  timeout_s: null
+  only_sets: [system_line_pre, line_pre, system_line_clear]

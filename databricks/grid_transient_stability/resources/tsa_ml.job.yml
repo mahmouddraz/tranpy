@@ -1,10 +1,15 @@
 # Transient-stability ML on one merged fault-event dataset (src/ml_task.py):
 #   features -> benchmark -> register -> score, on the same classic single-node VM as the simulation.
-# The benchmark crosses models x imbalance options (config/tsa_v4dyn.yaml), leave one hour out; every candidate
-# is an MLflow run; the best per assessment time is registered in Unity Catalog (alias challenger, champion
-# only through the gate). Results are provisional until the real-event validation of the dynamic model.
+# The benchmark crosses models x imbalance options x protocols (job parameter config: config/tsa_v41.yaml by
+# default, tuned boosting with faulted-line features; config/tsa_v4dyn.yaml is the untuned v4 matrix); every
+# candidate is an MLflow run; the best per assessment time is registered in Unity Catalog (alias challenger,
+# champion only through the gate). Results are provisional until the real-event validation of the dynamic model.
+# The features task reads the feature-set list of the same config; the line sets need the solved operating
+# point of every case (prep/CASE.op.pkl + CASE.buses.csv on the outputs volume; ANDES is not installed here,
+# so a case without them fails the task instead of re-solving the power flow).
 #
-#   databricks bundle run tsa_ml -p eaib-dev                                  # full benchmark on v4-dyn
+#   databricks bundle run tsa_ml -p eaib-dev                                  # tsa_v41.yaml on the v4.1 events
+#   databricks bundle run tsa_ml -p eaib-dev --params config=tsa_v4dyn.yaml,dataset_job_run_id=684113746510223
 #   databricks bundle run tsa_ml -p eaib-dev --params dataset_job_run_id=834847395904661,events_prefix=smoke2_,table_prefix=smoke_ml_,only_models=logistic_regression\,extra_trees,only_sets=system_pre\,system_clear
 resources:
   jobs:
@@ -18,7 +23,8 @@ resources:
       max_concurrent_runs: 1
       timeout_seconds: 36000
       parameters:
-        - {name: dataset_job_run_id, default: "684113746510223"}
+        - {name: dataset_job_run_id, default: "738439695169033"}
+        - {name: config, default: "tsa_v41.yaml"}
         - {name: events_prefix, default: ""}
         - {name: table_prefix, default: ""}
         - {name: ml_name, default: "{{job.run_id}}"}
@@ -59,13 +65,14 @@ resources:
             - pypi: {package: tensorflow==2.21.0}
             - pypi: {package: skops==0.16.0}
             - pypi: {package: mlflow-skinny==3.18.0}
+            - pypi: {package: optuna==5.0.0}
             - pypi: {package: azure-storage-file-datalake==12.26.1}
             - pypi: {package: pyyaml==6.0.3}
             - pypi: {package: openpyxl==3.1.5}
           timeout_seconds: 3600
           spark_python_task:
             python_file: ../src/ml_task.py
-            parameters: [--mode, features,
+            parameters: [--mode, features, --config, "${workspace.file_path}/config/{{job.parameters.config}}",
                          --catalog, "${var.catalog}", --schema, "${var.schema}",
                          --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
                          --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
@@ -81,7 +88,7 @@ resources:
           timeout_seconds: 28800
           spark_python_task:
             python_file: ../src/ml_task.py
-            parameters: [--mode, benchmark, --config, "${workspace.file_path}/config/tsa_v4dyn.yaml",
+            parameters: [--mode, benchmark, --config, "${workspace.file_path}/config/{{job.parameters.config}}",
                          --catalog, "${var.catalog}", --schema, "${var.schema}",
                          --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
                          --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
@@ -96,7 +103,7 @@ resources:
           timeout_seconds: 3600
           spark_python_task:
             python_file: ../src/ml_task.py
-            parameters: [--mode, register, --config, "${workspace.file_path}/config/tsa_v4dyn.yaml",
+            parameters: [--mode, register, --config, "${workspace.file_path}/config/{{job.parameters.config}}",
                          --catalog, "${var.catalog}", --schema, "${var.schema}",
                          --events-prefix, "{{job.parameters.events_prefix}}", --table-prefix, "{{job.parameters.table_prefix}}",
                          --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",

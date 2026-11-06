@@ -158,3 +158,67 @@ def test_missing_snapshot_stays_missing_and_is_excluded(two_hours) -> None:
     assert not A.drop(index=2).isna().any().any()  # offline machines are still 0, not missing
     keep = complete_events({"aligned": A, "system": S, "pre": aligned_features(events, machines)})
     assert keep.tolist() == [i != 2 for i in range(len(events))]
+
+
+def _chain_grid(n_lines: int):
+    """A chain of ``n_lines`` 380 kV lines with a machine at the last bus."""
+    from tranpy.line_features import CaseGrid
+
+    n = n_lines + 1
+    sheets = {
+        "Bus": pd.DataFrame({"idx": np.arange(1, n + 1), "Vn": 380.0}),
+        "Line": pd.DataFrame(
+            {
+                "idx": [f"L{k}" for k in range(n_lines)],
+                "bus1": np.arange(1, n),
+                "bus2": np.arange(2, n + 1),
+                "Vn1": 380.0,
+                "Vn2": 380.0,
+                "r": 0.01,
+                "x": 0.1,
+                "b": 0.1,
+                "g": 0.0,
+                "b1": 0.0,
+                "g1": 0.0,
+                "b2": 0.0,
+                "g2": 0.0,
+                "trans": 0,
+                "tap": 1.0,
+                "phi": 0.0,
+            }
+        ),
+        "GENROU": pd.DataFrame({"idx": ["M"], "bus": [n], "gen": ["G"], "Sn": 100.0, "M": 6.0}),
+        "PV": pd.DataFrame({"idx": ["G"], "bus": [n], "p0": [0.5]}),
+    }
+    return CaseGrid.from_sheets(sheets, np.ones(n), -0.02 * np.arange(n))
+
+
+def test_line_feature_sets_extend_the_old_ones(two_hours) -> None:
+    from tranpy.ml_events import FEATURE_SETS, GRID_FEATURE_SETS, feature_sets
+
+    events, machines = two_hours
+    events = events.assign(fault_position=[k % 2 for k in range(len(events))])
+    old = feature_sets(events, machines)
+    assert set(old) == {"system_pre", "system_clear", "aligned_pre", "aligned_clear"}
+    grids = {"night_t10": _chain_grid(10), "peak_t20": _chain_grid(10)}
+    sets = feature_sets(events, machines, grids=grids)
+    assert set(sets) == set(FEATURE_SETS) >= set(GRID_FEATURE_SETS)
+    line_cols = {c for c in sets["line_pre"] if c.startswith("line|")}
+    assert line_cols and set(sets["line_pre"]) == line_cols | {
+        "clearing_time_s",
+        "fault_line",
+        "fault_position",
+        "operating_point",
+        "tan_phi",
+    }
+    assert set(sets["system_line_pre"]) == set(sets["system_pre"]) | line_cols
+    assert set(sets["system_line_clear"]) == set(sets["system_clear"]) | line_cols
+    pd.testing.assert_frame_equal(
+        sets["system_line_pre"][list(sets["system_pre"])], sets["system_pre"]
+    )
+    for name in GRID_FEATURE_SETS:
+        assert sets[name].index.equals(events.index)
+        assert not sets[name].isna().any().any()
+        assert isinstance(sets[name]["line|fault_line_cat"].dtype, pd.CategoricalDtype)
+    with pytest.raises(DataError, match="CaseGrid"):
+        feature_sets(events, machines, ["line_pre"])

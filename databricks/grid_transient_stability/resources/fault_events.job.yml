@@ -29,7 +29,11 @@ resources:
         - {name: trace_cand, default: "120"}
         - {name: min_feasible, default: "50"}
         - {name: shards_per_item, default: "3"}
-        - {name: table_prefix, default: ""}
+        - {name: table_prefix, default: "${var.table_prefix}"}
+        # replay: parquet of (case, shard, sample_id) to re-simulate with traces (see case_task.py);
+        # frozen_dyn: FROZEN_DYN table file of the input set (empty = common.FROZEN_DYN)
+        - {name: replay, default: "${var.replay}"}
+        - {name: frozen_dyn, default: "${var.frozen_dyn}"}
       job_clusters:
         - job_cluster_key: sim
           new_cluster:
@@ -89,7 +93,8 @@ resources:
                          --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
                          --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
                          --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
-                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1",
+                         --replay, "{{job.parameters.replay}}", --frozen-dyn, "{{job.parameters.frozen_dyn}}"]
         - task_key: sim_0
           job_cluster_key: sim
           libraries: *simlibs
@@ -106,7 +111,8 @@ resources:
                          --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
                          --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
                          --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
-                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1",
+                         --replay, "{{job.parameters.replay}}", --frozen-dyn, "{{job.parameters.frozen_dyn}}"]
         - task_key: sim_1
           job_cluster_key: sim
           libraries: *simlibs
@@ -123,7 +129,8 @@ resources:
                          --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
                          --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
                          --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
-                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1",
+                         --replay, "{{job.parameters.replay}}", --frozen-dyn, "{{job.parameters.frozen_dyn}}"]
         - task_key: finalize
           job_cluster_key: sim
           libraries: *simlibs
@@ -140,7 +147,8 @@ resources:
                          --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
                          --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
                          --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
-                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1"]
+                         --shards-per-item, "{{job.parameters.shards_per_item}}", --jobs, "${var.jobs}", --threads, "1",
+                         --replay, "{{job.parameters.replay}}", --frozen-dyn, "{{job.parameters.frozen_dyn}}"]
         - task_key: merge
           environment_key: merge
           depends_on: [{task_key: finalize}]
@@ -155,4 +163,5 @@ resources:
                          --git-commit, "${var.git_commit}", --n, "{{job.parameters.n}}", --shard, "{{job.parameters.shard}}",
                          --grid-lines, "{{job.parameters.grid_lines}}", --grid-clr, "{{job.parameters.grid_clr}}",
                          --trace-stable, "{{job.parameters.trace_stable}}", --trace-seed, "{{job.parameters.trace_seed}}",
-                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}"]
+                         --trace-cand, "{{job.parameters.trace_cand}}", --min-feasible, "{{job.parameters.min_feasible}}",
+                         --replay, "{{job.parameters.replay}}"]

@@ -1,9 +1,17 @@
 # Transient-stability classification benchmark on the v4-dyn fault events (tranpy.ml_benchmark).
 # Every model is crossed with every imbalance option; `extra` adds models whose balancing is built in.
-# Evaluation: leave one operating hour out (t10 and t20 of an hour held out together), out-of-fold
-# predictions pooled and reported per stratum. Gate: higher PR-AUC and a miss rate not higher.
+# Evaluation protocols (every candidate runs under each; tranpy.ml_benchmark.PROTOCOLS):
+#   hour    leave one operating hour out (t10 and t20 of an hour held out together): the
+#           generalisation estimate, and the protocol on which the best candidate is selected
+#   random  stratified 5-fold, shuffled with the seed: the usual i.i.d. estimate, reported for
+#           comparison (optimistic when events of one hour are near duplicates)
+#   line    stratified group 5-fold grouped by the faulted line (not run by default)
+# Out-of-fold predictions are pooled and reported per stratum; every pooled metric gets a 95 %
+# stratified bootstrap interval (1000 resamples, this seed) as <metric>_lo / <metric>_hi.
+# Ranking and gate: higher PR-AUC; candidates inside the leader's interval are ties, settled by
+# the lower miss rate (a challenger with a higher miss rate beyond the interval is never promoted).
 seed: 20261104
-split_by: hour
+protocols: [hour, random]
 report_by: [hour, clearing_band, kind, event_type, tan_phi]
 primary_metric: average_precision
 

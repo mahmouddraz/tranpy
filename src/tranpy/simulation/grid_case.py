@@ -409,8 +409,14 @@ high 17 s, i.e. E_k of about 2500 GWs at 300 GW, which gives the 10 mHz/s per GW
 DE_LOAD_SHARE = 0.19
 """Estimate: Germany's share of CE electricity consumption (about 460 of 2400 TWh, ENTSO-E
 Statistical Factsheet 2023, rounded)."""
-DE_FCR_SHARE = 0.19
-"""Estimate: Germany's share of the CE FCR (about 570 of 3000 MW in the 2024 FCR cooperation)."""
+DE_FCR_MW = 564.0
+"""German FCR [regelleistung]: "FCR of 564 MW is currently being tendered in Germany (in 2024),
+in 2022 it was 555 MW and 570 MW in the following year" (German TSOs, "Description of concepts for
+balancing and the balancing markets in Germany", regelleistung.net, sec. 6.2.2). The ENTSO-E
+announcement of the FCR demand for 2024 (8 Dec 2023) gives 589 MW for the LFC block Denmark West /
+Germany."""
+DE_FCR_SHARE = DE_FCR_MW / CE_FCR_MW
+"""Germany's share of the CE FCR (564 of 3000 MW)."""
 
 # [RoCoF] ENTSO-E SPD Inertia TF, "Inertia and Rate of Change of Frequency (RoCoF)", v17,
 #       16 Dec 2020: Table 1 (p. 24) mean H and loading factor LF per production type; eq. 5.5-5.7
@@ -649,6 +655,40 @@ def border_shares(
     return {m: e / total for m, e in energy.items()}
 
 
+def _add_german_governors(
+    ss: Any,
+    governors: list[tuple[str, int, float, float]],
+    frequency_hz: float,
+    fcr_mw: float | None,
+) -> None:
+    """Add the German governors ``(model, k, Sn MVA, P MW)`` (see ``german_fcr_mw``)."""
+    if fcr_mw is None:
+        for gov, k, sn, _ in governors:
+            ss.add(gov, {"idx": f"T{k}", "syn": f"M{k}", "Tn": sn} | dict(CONTROLS[gov]))
+        return
+    total_sn = sum(sn for _, _, sn, _ in governors)
+    if total_sn <= 0:
+        return
+    gain_total = fcr_mw / CE_FCR_FULL_HZ  # MW/Hz
+    for gov, k, sn, p_mw in governors:
+        share = sn / total_sn
+        droop = sn / (frequency_hz * gain_total * share)  # R on the machine base
+        reserve = fcr_mw * share  # MW at full activation
+        values = dict(CONTROLS[gov]) | {"R": droop}
+        if gov == "TGOV1":
+            values |= {"VMAX": (p_mw + reserve) / sn, "VMIN": max(p_mw - reserve, 0.0) / sn}
+        else:
+            # HYGOV in steady state (head 1): P / Tn = At * (gate - qNL), so the gate limits
+            # are the solved gate plus or minus the reserve
+            at, qnl = float(values["At"]), float(values["qNL"])
+            gate = p_mw / sn / at + qnl
+            values |= {
+                "GMAX": gate + reserve / sn / at,
+                "GMIN": max(gate - reserve / sn / at, 0.0),
+            }
+        ss.add(gov, {"idx": f"T{k}", "syn": f"M{k}", "Tn": sn} | values)
+
+
 def build_connected_case(
     tables: Any,
     voltage_pu: Mapping[str, float],
@@ -664,6 +704,7 @@ def build_connected_case(
     frequency_hz: float = 50.0,
     hydro_governor: Literal["hygov", "tgov1"] = "hygov",
     neighbour_equivalent: NeighbourEquivalent | None = None,
+    german_fcr_mw: float | None = DE_FCR_MW,
 ) -> Path:
     """Write connected tables with a solved operating point as an ANDES ``.xlsx`` case.
 
@@ -689,6 +730,16 @@ def build_connected_case(
             proxy for the surge-impedance loading of the border circuits); each node gets the same
             share of the self-regulation (as damping D) and of the FCR (as a TGOV1 governor whose
             valve limits are the solved power plus or minus its FCR share).
+        german_fcr_mw: German FCR in MW at full activation (``CE_FCR_FULL_HZ``), used with
+            ``neighbour_equivalent``. The governors of the German machines together deliver it:
+            each governed unit gets the share ``Sn / sum(Sn)`` of the gain ``german_fcr_mw /
+            CE_FCR_FULL_HZ`` (droop ``R = Sn / (f0 * gain)``) and its valve or gate limits allow
+            plus or minus that share of ``german_fcr_mw`` around the solved power, so the German
+            primary control matches the published FCR [regelleistung] instead of a 5 % droop on
+            every unit. The German machines then get no damping D: the load self-regulation of the
+            whole CE load, the German load included, is the damping of the equivalent. None keeps
+            the earlier settings (5 % droop with the limits of :data:`CONTROLS` on every unit, D =
+            2 pu), which reproduce the cases frozen as v4-dyn.
         min_machine_mva: a terminal bus whose machines are rated below this becomes a constant
             injection at its solved power, so very small units do not drive the stability label.
         frequency_hz: nominal frequency.
@@ -806,6 +857,9 @@ def build_connected_case(
     rows: list[dict[str, Any]] = []
     neighbour_rows: list[dict[str, Any]] = []
     machine_kinetic = 0.0
+    governors: list[tuple[str, int, float, float]] = []
+    fcr_mw = german_fcr_mw if neighbour_equivalent is not None else None
+    german_damping = 0.0 if fcr_mw is not None else _DAMPING_PU
     for k, (mrid, (p_mw, _)) in enumerate(machine_power.items()):
         if mrid not in keep:
             continue
@@ -854,7 +908,7 @@ def build_connected_case(
             "Sn": sn,
             "Vn": vn,
             "M": 2 * float(v["h_s"]),
-            "D": _DAMPING_PU,
+            "D": german_damping,
             "xd1": float(v["xd1"]),
             "ra": float(v["ra"]),
         }
@@ -884,13 +938,14 @@ def build_connected_case(
         if controls:
             ss.add("SEXS", {"idx": f"E{k}", "syn": f"M{k}"} | dict(CONTROLS["SEXS"]))
             gov = "HYGOV" if group == "hydro" and hydro_governor == "hygov" else "TGOV1"
-            ss.add(gov, {"idx": f"T{k}", "syn": f"M{k}", "Tn": sn} | dict(CONTROLS[gov]))
+            governors.append((gov, k, sn, p_mw))
         rows.append(
             {
                 "machine": f"M{k}", "bus": mrid, "sn_mva": sn, "p_mw": p_mw, "small": False,
                 "group": group,
             }
         )  # fmt: skip
+    _add_german_governors(ss, governors, frequency_hz, fcr_mw)
     foreign = [m for m in neighbour_power if m in keep]
     largest = max(foreign, key=lambda m: abs(neighbour_power[m]), default=None)
     if largest is None:

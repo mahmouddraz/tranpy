@@ -29,10 +29,10 @@ variables:
     default: grid_transient_stability
   inputs:
     description: Volume folder with wheels/, work/ and SHA256SUMS.
-    default: /Volumes/energyai_dbw_dev/grid_transient_stability/inputs/v4dyn
+    default: /Volumes/energyai_dbw_dev/grid_transient_stability/inputs/v41dyn
   outputs:
     description: Volume folder for the per-run case outputs.
-    default: /Volumes/energyai_dbw_dev/grid_transient_stability/outputs/v4dyn
+    default: /Volumes/energyai_dbw_dev/grid_transient_stability/outputs/v41dyn
   spark_version:
     description: Databricks Runtime of the job cluster (17.3 LTS = Python 3.12.3; numpy 2.5.4 / pandas 3.1.0 need >= 3.12).
     default: 17.3.x-scala2.13
@@ -63,10 +63,19 @@ variables:
     default: /Volumes/energyai_dbw_dev/grid_transient_stability/outputs/ml
   ml_git_commit:
     description: tranpy commit of the ML wheel (plus uncommitted files).
-    default: uncommitted (ml pipeline on f6b5745)
+    default: 863a45c + uncommitted steps 1-3 (CI, protocols, line features, tuning; wheel sha256 87761afb; UC tag split fix, SIME first-swing rules, ml_windows)
   git_commit:
     description: tranpy commit the wheel was built from (plus uncommitted files).
-    default: f6b5745 (bccf92f model code plus the compact loader)
+    default: 863a45c + uncommitted v4.1 German FCR (grid_case.py sha256 27b6bade...)
+  table_prefix:
+    description: Prefix of the Delta tables the fault_events merge writes (default job parameter).
+    default: ""
+  replay:
+    description: fault_events replay parquet (case, shard, sample_id) on the volume; empty = full run.
+    default: ""
+  frozen_dyn:
+    description: FROZEN_DYN table file of the input set checked by the tasks; empty = common.FROZEN_DYN.
+    default: ""
 
 targets:
   dev:
@@ -74,3 +83,24 @@ targets:
     default: true
     workspace:
       host: https://adb-936064419514239.19.azuredatabricks.net
+  # Replay of the v4.1 stored trace sample with the fixed trace writer (FROZEN_DYN_v41_traces.md):
+  # separate input set, output folder, table prefix and job names, so the dev target (and the
+  # tsa_ml job reading outputs/v41dyn and the unprefixed tables) stays as it is.
+  #   databricks bundle deploy -t traces -p eaib-dev
+  #   databricks bundle run fault_events -t traces -p eaib-dev --no-wait
+  traces:
+    mode: development
+    presets:
+      name_prefix: "[traces ${workspace.current_user.short_name}] "
+    workspace:
+      host: https://adb-936064419514239.19.azuredatabricks.net
+    variables:
+      inputs: /Volumes/energyai_dbw_dev/grid_transient_stability/inputs/v41dyn_traces
+      outputs: /Volumes/energyai_dbw_dev/grid_transient_stability/outputs/v41dyn_traces
+      replay: /Volumes/energyai_dbw_dev/grid_transient_stability/inputs/v41dyn_traces/replay/trace_sample_v41.parquet
+      frozen_dyn: FROZEN_DYN_v41_traces.md
+      table_prefix: v41t_
+      git_commit: 863a45c + uncommitted v4.1 German FCR (grid_case.py sha256 27b6bade...) + replay of the stored trace sample of run 738439695169033 with the fixed trace writer (FROZEN_DYN_v41_traces.md)
+      # 2,328 events x ~7.4 s / (2 slots x 4 workers) ~ 36 min of simulation per slot (3x margin)
+      sim_timeout_s: "7200"
+      job_timeout_s: "14400"

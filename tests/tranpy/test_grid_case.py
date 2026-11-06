@@ -436,3 +436,53 @@ def test_entsoe_hourly_neighbours_hold_their_own_energy_and_stay_flat(tmp_path) 
     assert system.TDS.run()
     omega = system.dae.ts.x[:, list(system.GENROU.omega.a) + list(system.GENCLS.omega.a)]
     assert abs(omega - 1.0).max() < 1e-6
+
+
+@pytest.mark.filterwarnings("ignore")
+@pytest.mark.parametrize("hydro_governor", ["hygov", "tgov1"])
+def test_german_governors_deliver_the_published_fcr(tmp_path, hydro_governor) -> None:  # type: ignore[no-untyped-def]
+    andes = pytest.importorskip("andes")
+    from tranpy.simulation.grid_case import CE_FCR_FULL_HZ, DE_FCR_MW
+
+    common = (
+        _connected(),
+        {"a": 1.02, "b": 1.0, "x": 1.0},
+        {"a": (200.0, 30.0)},
+        {"a": (50.0, 0.0)},
+        {"x": -10.0},
+    )
+    eq = continental_europe_equivalent(50_000.0)
+    path = build_connected_case(
+        *common, tmp_path / "fcr.xlsx", neighbour_equivalent=eq, hydro_governor=hydro_governor
+    )
+    system = andes.load(str(path), setup=False, no_output=True, default_config=True)
+    german = system.GENROU.as_df()
+    assert (german["D"] == 0).all()
+    gains, reserve = 0.0, 0.0
+    for name in ("TGOV1", "HYGOV"):
+        model = getattr(system, name)
+        if not model.n:
+            continue
+        gov = model.as_df()
+        gov = gov[gov["syn"].isin(german["idx"])]
+        gains += float((gov["Tn"] / (50.0 * gov["R"])).sum())
+        if name == "TGOV1":
+            p0 = 200.0  # the solved machine power of the fixture
+            reserve += float((gov["VMAX"] * gov["Tn"] - p0).sum())
+    assert gains == pytest.approx(DE_FCR_MW / CE_FCR_FULL_HZ)
+    if reserve:
+        assert reserve == pytest.approx(DE_FCR_MW)
+    system.setup()
+    assert system.PFlow.run()
+    system.TDS.config.tf = 10.0
+    system.TDS.config.no_tqdm = 1
+    assert system.TDS.run()
+    omega = system.dae.ts.x[:, list(system.GENROU.omega.a) + list(system.GENCLS.omega.a)]
+    assert abs(omega - 1.0).max() < 1e-6
+
+    legacy = build_connected_case(
+        *common, tmp_path / "legacy.xlsx", neighbour_equivalent=eq, german_fcr_mw=None
+    )
+    old = andes.load(str(legacy), setup=False, no_output=True, default_config=True)
+    assert (old.GENROU.as_df()["D"] == 2.0).all()
+    assert set(old.TGOV1.as_df().query("syn in @german['idx']")["R"]) <= {0.05}

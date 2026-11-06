@@ -25,6 +25,7 @@ __all__ = ["log_candidate", "register_model_version"]
 CHALLENGER = "challenger"
 CHAMPION = "champion"
 _METRICS_TAG = "cv_metrics"
+_CI_TAG = "cv_metrics_ci"
 
 
 def _mlflow() -> Any:
@@ -50,9 +51,31 @@ def log_candidate(
                 "threshold_metric": cand.imbalance.threshold or "fixed_0.5",
                 **{f"param_{k}": v for k, v in cand.params.items()},
                 **{f"sampler_{k}": v for k, v in cand.imbalance.sampler_params.items()},
+                "tuned": result.tuned,
+                **(
+                    {f"tuning_{k}": result.tuning[k] for k in ("n_trials", "inner_folds", "metric")}
+                    if result.tuning
+                    else {}
+                ),
             }
         )
         mlflow.log_metrics(result.metrics())
+        if result.tuning:
+            # every trial of every outer fold, and the parameters refitted per fold
+            mlflow.log_metric("tuning_time_s", float(result.tuning["time_s"]))
+            mlflow.log_text(result.tuning["trials"].to_csv(index=False), "tuning_trials.csv")
+            mlflow.log_text(
+                json.dumps(
+                    {
+                        "inner_groups": result.tuning["inner_groups"],
+                        "best_params": result.tuning["best_params"],
+                        "best_value": result.tuning["best_value"],
+                    },
+                    indent=1,
+                    default=str,
+                ),
+                "tuning_best_params.json",
+            )
         folds = pd.DataFrame(
             [
                 {"held_out": g, "threshold": t, **s.as_dict()}
@@ -70,6 +93,22 @@ def _gate_metrics(primary_metric: str) -> list[str]:
     return list(dict.fromkeys([*keys, "mcc", "balanced_accuracy", "brier"]))
 
 
+def _gate_bounds(primary_metric: str) -> list[str]:
+    # the interval bounds of the gate metrics, so the champion carries its CI into the next gate
+    return [f"{m}_{b}" for m in dict.fromkeys((primary_metric, "miss_rate")) for b in ("lo", "hi")]
+
+
+def _metric_tags(metrics: Mapping[str, float], primary_metric: str) -> dict[str, str]:
+    """The gate metrics as two Unity Catalog tags (values hold at most 256 characters)."""
+    tags = {}
+    groups = {_METRICS_TAG: _gate_metrics(primary_metric), _CI_TAG: _gate_bounds(primary_metric)}
+    for tag, keys in groups.items():
+        values = {k: round(float(metrics[k]), 4) for k in keys if k in metrics}
+        if values:
+            tags[tag] = json.dumps(values, separators=(",", ":"))
+    return tags
+
+
 def _version_metrics(client: Any, name: str, alias: str) -> dict[str, float] | None:
     try:
         version = client.get_model_version_by_alias(name, alias)
@@ -78,7 +117,10 @@ def _version_metrics(client: Any, name: str, alias: str) -> dict[str, float] | N
             return None
         raise
     raw = version.tags.get(_METRICS_TAG)
-    return None if raw is None else {k: float(v) for k, v in json.loads(raw).items()}
+    if raw is None:
+        return None
+    merged = {**json.loads(raw), **json.loads(version.tags.get(_CI_TAG, "{}"))}
+    return {k: float(v) for k, v in merged.items()}
 
 
 def register_model_version(
@@ -118,11 +160,8 @@ def register_model_version(
     promote, reason = promotion_decision(metrics, champion, primary_metric=primary_metric)
     for key, value in {
         **dict(tags),
-        # Unity Catalog tag values hold at most 1000 characters: the gate metrics only
-        # (all metrics are in the cross-validation run)
-        _METRICS_TAG: json.dumps(
-            {k: round(float(metrics[k]), 6) for k in _gate_metrics(primary_metric) if k in metrics}
-        ),
+        # the gate metrics only (all metrics are in the cross-validation run)
+        **_metric_tags(metrics, primary_metric),
         "gate": "promoted" if promote else "kept_champion",
         "gate_reason": reason,
     }.items():

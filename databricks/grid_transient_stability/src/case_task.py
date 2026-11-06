@@ -45,6 +45,12 @@ Volume layout under OUT-ROOT/CASE:
 Every stage skips work that is already on the volume with matching hashes, so a failed or
 interrupted task is resumed by re-running it (task retry, repair run, or a new job run with the same
 run_name).
+
+Replay (--replay PATH, a parquet with columns case, shard, sample_id: the stored trace sample of an
+earlier run): prep is unchanged; the sim items cover only the shards that hold replayed events and
+gen.py (replay=PATH) simulates exactly those events, all traced; finalize is a no-op (run.py's
+counts, quota and failure limits are those of a full run) and merge_task.py --replay reads the
+shards directly. --frozen-dyn names the FROZEN_DYN table of the input set (common.stage).
 """
 
 import argparse
@@ -111,6 +117,8 @@ def args():
     a.add_argument(
         "--retries", type=int, default=2, help="gen.py retries per item (as run.py's --retries)"
     )
+    a.add_argument("--replay", default="", help="parquet (case, shard, sample_id) to re-simulate")
+    a.add_argument("--frozen-dyn", default="", help="FROZEN_DYN table file (common.FROZEN_DYN)")
     return a.parse_args()
 
 
@@ -156,12 +164,40 @@ def tags(A):
     return t
 
 
+def replay_shards(A):
+    """{case: set of shard tags} holding replayed events, or None without --replay."""
+    if not A.replay:
+        return None
+    import pandas as pd
+
+    R = pd.read_parquet(A.replay, columns=["case", "shard"])
+    out = {}
+    for c, t in zip(R["case"], R["shard"], strict=True):
+        out.setdefault(str(c), set()).add(str(t))
+    common.log(
+        "replay",
+        A.replay,
+        "sha256",
+        common.sha256(A.replay),
+        "rows",
+        len(R),
+        "shards",
+        sum(len(v) for v in out.values()),
+        "cases",
+        len(out),
+    )
+    return out
+
+
 def items(A):
     """Work items in a fixed order: per case, chunks of --shards-per-item random shards, then the
-    grid sweep."""
+    grid sweep. With --replay only the shards that hold replayed events."""
+    rs = replay_shards(A)
     out = []
     for c in common.CASES:
         t = tags(A)
+        if rs is not None:
+            t = [x for x in t if x in rs.get(c, ())]
         r = [x for x in t if x != "grid"]
         k = max(1, A.shards_per_item)
         out += [(c, r[i : i + k]) for i in range(0, len(r), k)]
@@ -218,7 +254,7 @@ def stage(A):
             prefix="tranpy_", dir="/local_disk0/tmp" if Path("/local_disk0/tmp").is_dir() else None
         )
     )
-    home, work, rec = common.stage(A.inputs, root)
+    home, work, rec = common.stage(A.inputs, root, A.frozen_dyn or None)
     common.check_pickles(work)
     # generate the ANDES code once into the staged HOME, before parallel processes would race for it
     t = time.time()
@@ -323,6 +359,8 @@ def children(A, mode, cases, staged):
         "jobs",
         "threads",
         "shards_per_item",
+        "replay",
+        "frozen_dyn",
     ):
         base += ["--" + k.replace("_", "-"), str(getattr(A, k))]
 
@@ -514,6 +552,8 @@ def sim_item(A, home, work, root, case, mine):
         if t not in todo:
             wjson({"run_id": rid, "tag": t, "kept": 0, "placeholder": True}, D / f"{t}.json")
     sf = ["store=compact", f"trace_seed={A.trace_seed}", f"trace_cand={A.trace_cand}"]
+    if A.replay:
+        sf.append(f"replay={A.replay}")
     cmd = [
         sys.executable,
         "-W",
@@ -584,7 +624,12 @@ def sim_item(A, home, work, root, case, mine):
 
 def sim(A):
     env = common.check_environment()
-    root, home, work, _ = stage(A)
+    root, home, work, rec = stage(A)
+    if A.replay:  # no finalize in a replay: the merge reads the staging record from here
+        wjson(
+            dict(slot=A.slot, replay=A.replay, replay_sha256=common.sha256(A.replay), **env, **rec),
+            Path(A.out_root) / f"staging_slot{A.slot}.json",
+        )
     allit = [it for it in items(A) if A.cases == "all" or it[0] in A.cases.split(",")]
     mine = allit[A.slot :: A.slots]
     common.log(
@@ -694,6 +739,10 @@ def main():
     A = args()
     if A.mode == "prep":
         driver(A, "prep1")
+    elif A.mode == "finalize" and A.replay:
+        common.log(
+            "finalize: replay run, nothing to finalize (merge_task.py --replay reads shards)"
+        )
     elif A.mode == "finalize":
         driver(A, "finalize1")
     elif A.mode == "prep1":

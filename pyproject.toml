@@ -42,6 +42,7 @@ neural = ["tensorflow>=2.16"]
 boosting = ["xgboost>=2.0", "lightgbm>=4.0"]
 imbalance = ["imbalanced-learn>=0.14"]
 mlflow = ["mlflow-skinny>=3.0"]
+tuning = ["optuna>=4"]
 plot = ["matplotlib>=3.8"]
 persistence = ["skops>=0.10"]
 andes = ["andes>=2.0"]
@@ -98,7 +99,7 @@ files = ["src"]
 warn_unreachable = true
 
 [[tool.mypy.overrides]]
-module = ["shap.*", "imblearn.*", "mlflow.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "andes.*", "powerfactory", "matplotlib.*", "pypowsybl.*", "databricks.*", "pyspark.*"]
+module = ["shap.*", "imblearn.*", "mlflow.*", "lime.*", "dalex.*", "xgboost.*", "lightgbm.*", "tensorflow.*", "keras.*", "sklearn.*", "scipy.*", "skops.*", "optuna.*", "andes.*", "powerfactory", "matplotlib.*", "pypowsybl.*", "databricks.*", "pyspark.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]

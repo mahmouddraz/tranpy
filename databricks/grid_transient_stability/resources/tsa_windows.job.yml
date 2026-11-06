@@ -1,0 +1,100 @@
+# Accuracy versus assessment time on the re-traced fault events (src/windows_task.py):
+#   features -> benchmark, on the same classic single-node VM as the ML benchmark (one F8 cluster at a
+#   time: the subscription's F-family quota is 10 vCPUs). Reads the merged traces of a re-trace run of
+#   the fault_events job (target traces, outputs/v41dyn_traces/<run>/_delta_stage/traces), the per-case
+#   machine tables of the dataset run and the strata + line_pre features of an ML run; writes
+#   ${var.ml_outputs}/<windows_name>/ and the Delta tables tsa_windows / tsa_windows_strata.
+#
+#   databricks bundle run tsa_windows -p eaib-dev --no-wait
+#   databricks bundle run tsa_windows -p eaib-dev --params only_instants=pre\,clear+0.1s,only_models=lightgbm\,lstm_network,table_prefix=smoke_
+resources:
+  jobs:
+    tsa_windows:
+      name: tranpy transient-stability assessment-time benchmark
+      description: >-
+        Window features and sequence tables at every assessment instant of the re-traced events, tuned
+        LightGBM and Keras sequence networks under the hour / random / line protocols with bootstrap
+        intervals; results in ${var.catalog}.${var.schema}.tsa_windows.
+      tags:
+        project: tranpy
+      max_concurrent_runs: 1
+      timeout_seconds: 28800
+      parameters:
+        - {name: traces_job_run_id, default: "588561814210793"}
+        - {name: traces_outputs, default: "/Volumes/energyai_dbw_dev/grid_transient_stability/outputs/v41dyn_traces"}
+        - {name: dataset_job_run_id, default: "738439695169033"}
+        - {name: ml_run, default: "1086973316840813"}
+        - {name: config, default: "tsa_v41_windows.yaml"}
+        - {name: table_prefix, default: ""}
+        - {name: windows_name, default: "windows_{{job.run_id}}"}
+        - {name: only_instants, default: ""}
+        - {name: only_models, default: ""}
+      job_clusters:
+        - job_cluster_key: ml
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.node_type}
+            driver_node_type_id: ${var.node_type}
+            num_workers: 0
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: "local[*]"
+            custom_tags:
+              ResourceClass: SingleNode
+              project: tranpy
+            data_security_mode: SINGLE_USER
+            single_user_name: ${workspace.current_user.userName}
+            runtime_engine: STANDARD
+            azure_attributes:
+              availability: ON_DEMAND_AZURE
+      tasks:
+        - task_key: features
+          job_cluster_key: ml
+          libraries: &wlibs
+            - whl: ${var.ml_inputs}/wheels/tranpy_ai-0.2.0.dev0-py3-none-any.whl
+            - pypi: {package: numpy==2.5.4}
+            - pypi: {package: pandas==3.1.0}
+            - pypi: {package: scipy==1.18.1}
+            - pypi: {package: pyarrow==26.0.1}
+            - pypi: {package: scikit-learn==1.9.1}
+            - pypi: {package: imbalanced-learn==0.14.2}
+            - pypi: {package: sklearn-compat==0.1.6}
+            - pypi: {package: xgboost==3.4.1}
+            - pypi: {package: lightgbm==4.7.0}
+            - pypi: {package: tensorflow==2.21.0}
+            - pypi: {package: skops==0.16.0}
+            - pypi: {package: mlflow-skinny==3.18.0}
+            - pypi: {package: optuna==5.0.0}
+            - pypi: {package: azure-storage-file-datalake==12.26.1}
+            - pypi: {package: pyyaml==6.0.3}
+            - pypi: {package: openpyxl==3.1.5}
+          timeout_seconds: 3600
+          spark_python_task:
+            python_file: ../src/windows_task.py
+            parameters: [--mode, features, --config, "${workspace.file_path}/config/{{job.parameters.config}}",
+                         --catalog, "${var.catalog}", --schema, "${var.schema}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --traces, "{{job.parameters.traces_outputs}}/{{job.parameters.traces_job_run_id}}/_delta_stage/traces",
+                         --traces-job-run-id, "{{job.parameters.traces_job_run_id}}",
+                         --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
+                         --outputs, "${var.outputs}/{{job.parameters.dataset_job_run_id}}",
+                         --ml-features, "${var.ml_outputs}/{{job.parameters.ml_run}}/features",
+                         --windows-dir, "${var.ml_outputs}/{{job.parameters.windows_name}}",
+                         --only-instants, "{{job.parameters.only_instants}}",
+                         --git-commit, "${var.ml_git_commit}", --job-run-id, "{{job.run_id}}"]
+        - task_key: benchmark
+          job_cluster_key: ml
+          libraries: *wlibs
+          depends_on: [{task_key: features}]
+          timeout_seconds: 21600
+          spark_python_task:
+            python_file: ../src/windows_task.py
+            parameters: [--mode, benchmark, --config, "${workspace.file_path}/config/{{job.parameters.config}}",
+                         --catalog, "${var.catalog}", --schema, "${var.schema}", --table-prefix, "{{job.parameters.table_prefix}}",
+                         --traces, "{{job.parameters.traces_outputs}}/{{job.parameters.traces_job_run_id}}/_delta_stage/traces",
+                         --traces-job-run-id, "{{job.parameters.traces_job_run_id}}",
+                         --dataset-job-run-id, "{{job.parameters.dataset_job_run_id}}",
+                         --outputs, "${var.outputs}/{{job.parameters.dataset_job_run_id}}",
+                         --ml-features, "${var.ml_outputs}/{{job.parameters.ml_run}}/features",
+                         --windows-dir, "${var.ml_outputs}/{{job.parameters.windows_name}}",
+                         --only-instants, "{{job.parameters.only_instants}}", --only-models, "{{job.parameters.only_models}}",
+                         --git-commit, "${var.ml_git_commit}", --job-run-id, "{{job.run_id}}"]

@@ -5,7 +5,7 @@ work directory as Path.home()/"Library/Caches/tranpy/work", so a task stages the
 under a local HOME with that layout and points HOME there; run.py's REPO (only used as the working
 directory of its subprocesses) is replaced by a local directory. Every staged file is checked
 against SHA256SUMS on the volume and against the sha256 tables of FROZEN_MODEL_v4final.md and
-FROZEN_DYN_v4.md before anything runs.
+FROZEN_DYN (FROZEN_DYN_v41.md) before anything runs.
 """
 
 import hashlib
@@ -45,7 +45,8 @@ HOURS_V4G = [
 ]
 TANS = (0.1, 0.2)
 CASES = [f"{h}_t{round(t * 100):02d}" for h in HOURS_V4G for t in TANS]  # run.py's case order
-WHEEL_FILES = {  # FROZEN_DYN_v4.md path -> path inside the installed package
+FROZEN_DYN = "FROZEN_DYN_v41.md"  # v4.1: German FCR at the published 564 MW (see that file)
+WHEEL_FILES = {  # FROZEN_DYN path -> path inside the installed package
     "src/tranpy/simulation/neighbour_inertia_entsoe.csv": (
         "tranpy/simulation/neighbour_inertia_entsoe.csv"
     ),
@@ -93,11 +94,14 @@ def frozen_table(md_file):
     return dict(re.findall(r"^\| (.+?) \| ([0-9a-f]{64}) \|$", Path(md_file).read_text(), re.M))
 
 
-def stage(inputs, root):
+def stage(inputs, root, frozen_dyn=None):
     """Copy the uploaded work tree to ROOT/home/Library/Caches/tranpy/work and verify all hashes.
 
+    frozen_dyn names the FROZEN_DYN table of the input set (default FROZEN_DYN; the v4.1 trace
+    replay set uses FROZEN_DYN_v41_traces.md, whose table carries the fixed trace writer).
     Returns (home, work, record)."""
     inputs = Path(inputs)
+    frozen_dyn = frozen_dyn or FROZEN_DYN
     sums = {}
     for line in (inputs / "SHA256SUMS").read_text().splitlines():
         h, p = line.split(None, 1)
@@ -120,7 +124,7 @@ def stage(inputs, root):
         sys.exit(f"staged files differ from SHA256SUMS (have, want): {bad}")
     # the frozen tables, checked against the staged copies
     fm = frozen_table(work / "FROZEN_MODEL_v4final.md")
-    fd = frozen_table(work / "FROZEN_DYN_v4.md")
+    fd = frozen_table(work / frozen_dyn)
     if len(fm) != 4:
         sys.exit(f"FROZEN_MODEL_v4final.md: expected 4 hashes, found {len(fm)}")
     bad = {}
@@ -146,13 +150,14 @@ def stage(inputs, root):
         sys.exit(f"FROZEN HASH MISMATCH (have, want): {bad}")
     log(
         f"staged {len(got)} files to {work}; SHA256SUMS ok; "
-        f"frozen model ({len(fm)}) and dyn ({len(fd)}) hashes ok"
+        f"frozen model ({len(fm)}) and dyn ({frozen_dyn}: {len(fd)}) hashes ok"
     )
     return (
         home,
         work,
         {
             "sha256sums_checked": len(got),
+            "frozen_dyn_file": frozen_dyn,
             "frozen_model": fm,
             "frozen_dyn": fd,
             "staged_sha256": got,

@@ -21,6 +21,11 @@ trace_sample: one row per unstable or gen.py-traced event with the selection rea
   stored traces must be exactly unstable + stable_quota, and the stable_quota rows plus the cases'
   shortfalls must add up to --trace-stable; otherwise the run fails.
 runs: one manifest row per job run: hashes, versions, counts, failure categories, limits, problems.
+Replay (--replay PATH, the parquet the sim tasks replayed, see case_task.py): the cases have no
+  final/ folder; the verified shards under OUT-ROOT/CASE/shards (shards_ok sidecars) hold exactly
+  the replayed events, all traced. events and traces are written as above for them; trace_sample
+  carries the replay rows (reason, ranks of the original sample) with the replayed label and
+  trace_stored; a replayed id that was not kept or not traced is a problem (status failed).
   traced_events counts the events flag `traced`; trace_stored_events counts the stored sample.
 The failure limits are run.py's: per case and kind and over all cases, dynamic or numerical failures
 above --max-dyn-pct FAIL with at least --min-feasible feasible events, otherwise FLAG. Rows of the
@@ -65,9 +70,178 @@ def limit_problems(h, k, c, max_pct, min_feasible):
     return out
 
 
+def events_table(t, case, shard, headers):
+    """The compact events parquet table as an events-table slice (snap as a list column)."""
+    hdr = json.loads(t.schema.metadata[b"tranpy"])
+    headers.setdefault(case, {}).update(
+        events={
+            k: hdr[k]
+            for k in (
+                "format",
+                "version",
+                "label_names",
+                "gen_map",
+                "snap_instants",
+                "snap_vars",
+                "snap_columns",
+            )
+        }
+    )
+    snap = t["snap"].combine_chunks()
+    t = t.drop_columns(["snap"]).append_column(
+        "snap",
+        pa.ListArray.from_arrays(
+            pa.array(np.arange(len(snap) + 1, dtype=np.int32) * snap.type.list_size),
+            snap.values,
+        ),
+    )
+    t = t.append_column("case", pa.array([case] * len(t))).append_column(
+        "shard", pa.array([shard] * len(t))
+    )
+    return t.replace_schema_metadata(None)
+
+
+def traces_table(t, case, shard, headers):
+    """The compact traces parquet table as a traces-table slice (values as a list column)."""
+    hdr = json.loads(t.schema.metadata[b"tranpy"])
+    ch = hdr["channel_names"]
+    headers.setdefault(case, {}).update(traces={"channel_names": ch, "grid": hdr["grid"]})
+    X = np.column_stack([t[c].to_numpy() for c in ch]).astype(np.float32)
+    vals = pa.FixedSizeListArray.from_arrays(pa.array(X.ravel()), len(ch))
+    vals = pa.ListArray.from_arrays(
+        pa.array(np.arange(len(t) + 1, dtype=np.int32) * len(ch)), vals.values
+    )
+    return pa.table(
+        {
+            "sample_id": t["sample_id"],
+            "time": t["time"],
+            "values": vals,
+            "case": pa.array([case] * len(t)),
+            "shard": pa.array([shard] * len(t)),
+        }
+    )
+
+
+TS_TYPES = {
+    "sample_id": pa.int64(),
+    "label": pa.int32(),
+    "trace_stored": pa.bool_(),
+    "candidate_rank": pa.int32(),
+    "quota_rank": pa.int32(),
+}
+
+
+def write_trace_sample(ts_rows, stage, case, job_run_id):
+    cols = {k: [x[k] for x in ts_rows] for k in TRACE_SAMPLE_FIELDS}
+    tsr = pa.table({k: pa.array(v, TS_TYPES.get(k, pa.string())) for k, v in cols.items()})
+    tsr = tsr.append_column("job_run_id", pa.array([job_run_id] * len(tsr)))
+    pq.write_table(tsr, stage / "trace_sample" / f"{case}.parquet", compression="zstd")
+
+
+def replay_cases(A, out_root, stage, problems, tot, cases, headers, shard_sha):
+    """Collect the replayed shards (case_task.py sim items with --replay) of every case."""
+    import pandas as pd
+
+    R = pd.read_parquet(A.replay)
+    R["sample_id"] = R["sample_id"].astype("int64")
+    rsha = hashlib.sha256(Path(A.replay).read_bytes()).hexdigest()
+    log("replay", A.replay, "sha256", rsha, "rows", len(R))
+    tot.update(replay_rows=len(R), replay_missing=0, replay_label_changed=0)
+    for case in CASES:
+        rc = R[R["case"] == case]
+        if rc.empty:
+            continue
+        C = out_root / case
+        ev, tr, kept, labels = [], [], set(), {}
+        for shard in sorted(set(rc["shard"].astype(str))):
+            ok = C / "shards_ok" / f"{shard}.json"
+            if not ok.is_file():
+                problems.append(f"{case}/{shard}: replayed shard not on the volume")
+                continue
+            S = json.loads(ok.read_text())
+            for f, want in S["files"].items():
+                have = hashlib.sha256((C / "shards" / f).read_bytes()).hexdigest()
+                if have != want:
+                    problems.append(f"{case}/shards/{f}: sha256 differs from shards_ok")
+                shard_sha[f"{case}/shards/{f}"] = have
+                if f.endswith(".events.parquet"):
+                    t = events_table(pq.read_table(C / "shards" / f), case, shard, headers)
+                    ev.append(t)
+                    labels.update(
+                        zip(t["sample_id"].to_pylist(), t["label"].to_pylist(), strict=True)
+                    )
+                elif f.endswith(".traces.parquet"):
+                    tr.append(traces_table(pq.read_table(C / "shards" / f), case, shard, headers))
+            J = json.loads((C / "shards" / f"{shard}.json").read_text())
+            kept |= {int(i) for i in J.get("kept_ids", [])}
+            for cat, n in (J.get("failed_by") or {}).items():
+                tot[cat] += n
+            tot["requested"] += J.get("req", 0)
+            tot["kept"] += J.get("kept", 0)
+            tot["feasible"] += J.get("req", 0) - sum(
+                (J.get("failed_by") or {}).get(c, 0) for c in ("infeasible", "island")
+            )
+        want_ids = {int(i) for i in rc["sample_id"]}
+        missing = sorted(want_ids - kept)
+        traced = {int(i) for x in tr for i in x["sample_id"].to_pylist()}
+        untraced = sorted((want_ids & kept) - traced)
+        if missing:
+            problems.append(f"{case}: {len(missing)} replayed events not kept: {missing[:10]}")
+        if untraced:
+            problems.append(
+                f"{case}: {len(untraced)} replayed events without trace: {untraced[:10]}"
+            )
+        extra = sorted(kept - want_ids)
+        if extra:
+            problems.append(
+                f"{case}: {len(extra)} events kept that were not replayed: {extra[:10]}"
+            )
+        tot["replay_missing"] += len(missing)
+        if ev:
+            e = pa.concat_tables(ev)
+            e = e.append_column("job_run_id", pa.array([A.job_run_id] * len(e)))
+            pq.write_table(e, stage / "events" / f"{case}.parquet", compression="zstd")
+            tot["events"] += len(e)
+            tot["unstable"] += int(np.sum(e["label"].to_numpy()))
+            tot["traced_events"] += int(np.sum(e["traced"].to_numpy()))
+        if tr:
+            r = pa.concat_tables(tr)
+            r = r.append_column("job_run_id", pa.array([A.job_run_id] * len(r)))
+            pq.write_table(r, stage / "traces" / f"{case}.parquet", compression="zstd")
+            tot["trace_rows"] += len(r)
+        ts_rows = []
+        for x in rc.sort_values("sample_id").itertuples(index=False):
+            i = int(x.sample_id)
+            if i in labels and int(x.label) != int(labels[i]):
+                tot["replay_label_changed"] += 1
+            ts_rows.append(
+                {
+                    "case": case,
+                    "sample_id": i,
+                    "shard": str(x.shard),
+                    "kind": None if pd.isna(x.kind) else str(x.kind),
+                    "label": int(labels[i]) if i in labels else int(x.label),
+                    "reason": str(x.reason),
+                    "trace_stored": i in traced,
+                    "candidate_rank": None if pd.isna(x.candidate_rank) else int(x.candidate_rank),
+                    "quota_rank": None if pd.isna(x.quota_rank) else int(x.quota_rank),
+                }
+            )
+        write_trace_sample(ts_rows, stage, case, A.job_run_id)
+        tot["trace_stored_events"] += len(traced)
+        tot["stable_quota"] += sum(r["reason"] == "stable_quota" for r in ts_rows)
+        cases[case] = {
+            "replay": {"rows": len(rc), "kept": len(want_ids & kept), "missing": len(missing)}
+        }
+    return rsha
+
+
 def main():
     a = argparse.ArgumentParser()
     a.add_argument("--out-root", required=True)
+    a.add_argument(
+        "--replay", default="", help="replay parquet (case_task.py --replay); shards only"
+    )
     a.add_argument("--catalog", required=True)
     a.add_argument("--schema", required=True)
     a.add_argument("--job-run-id", required=True)
@@ -106,7 +280,14 @@ def main():
     tot.update(requested=0, kept=0, feasible=0, events=0, unstable=0, traced_events=0, trace_rows=0)
     tot.update(trace_stored_events=0, stable_quota=0, stable_extra=0, stable_shortfall=0)
     dbx = None
-    for case in CASES:
+    rsha = None
+    if A.replay:
+        rsha = replay_cases(A, out_root, stage, problems, tot, cases, headers, shard_sha)
+        st = sorted(out_root.glob("staging_slot*.json"))
+        if st:
+            d = json.loads(st[0].read_text())
+            dbx = {"python": d.get("python"), "versions": d.get("versions"), "staging": d}
+    for case in CASES if not A.replay else []:
         F = out_root / case / "final"
         mf = F / "run_manifest.json"
         if not (out_root / case / "final.json").exists() or not mf.exists():
@@ -182,56 +363,11 @@ def main():
                 problems.append(f"{s}: sha256 differs from the run manifest")
             shard_sha[f"{case}/final/{s}"] = have
             t = pq.read_table(f)
-            hdr = json.loads(t.schema.metadata[b"tranpy"])
             shard = Path(s).name.split(".")[0]
             if s.endswith(".events.parquet"):
-                headers.setdefault(case, {}).update(
-                    events={
-                        k: hdr[k]
-                        for k in (
-                            "format",
-                            "version",
-                            "label_names",
-                            "gen_map",
-                            "snap_instants",
-                            "snap_vars",
-                            "snap_columns",
-                        )
-                    }
-                )
-                snap = t["snap"].combine_chunks()
-                t = t.drop_columns(["snap"]).append_column(
-                    "snap",
-                    pa.ListArray.from_arrays(
-                        pa.array(np.arange(len(snap) + 1, dtype=np.int32) * snap.type.list_size),
-                        snap.values,
-                    ),
-                )
-                t = t.append_column("case", pa.array([case] * len(t))).append_column(
-                    "shard", pa.array([shard] * len(t))
-                )
-                ev.append(t.replace_schema_metadata(None))
+                ev.append(events_table(t, case, shard, headers))
             else:
-                ch = hdr["channel_names"]
-                headers.setdefault(case, {}).update(
-                    traces={"channel_names": ch, "grid": hdr["grid"]}
-                )
-                X = np.column_stack([t[c].to_numpy() for c in ch]).astype(np.float32)
-                vals = pa.FixedSizeListArray.from_arrays(pa.array(X.ravel()), len(ch))
-                vals = pa.ListArray.from_arrays(
-                    pa.array(np.arange(len(t) + 1, dtype=np.int32) * len(ch)), vals.values
-                )
-                tr.append(
-                    pa.table(
-                        {
-                            "sample_id": t["sample_id"],
-                            "time": t["time"],
-                            "values": vals,
-                            "case": pa.array([case] * len(t)),
-                            "shard": pa.array([shard] * len(t)),
-                        }
-                    )
-                )
+                tr.append(traces_table(t, case, shard, headers))
         if ev:
             e = pa.concat_tables(ev)
             e = e.append_column("job_run_id", pa.array([A.job_run_id] * len(e)))
@@ -264,18 +400,8 @@ def main():
         tot["stable_quota"] += quota_n
         tot["stable_extra"] += sum(x["reason"] == "extra" for x in ts_rows)
         tot["stable_shortfall"] += short
-        cols = {k: [x[k] for x in ts_rows] for k in TRACE_SAMPLE_FIELDS}
-        types = {
-            "sample_id": pa.int64(),
-            "label": pa.int32(),
-            "trace_stored": pa.bool_(),
-            "candidate_rank": pa.int32(),
-            "quota_rank": pa.int32(),
-        }
-        tsr = pa.table({k: pa.array(v, types.get(k, pa.string())) for k, v in cols.items()})
-        tsr = tsr.append_column("job_run_id", pa.array([A.job_run_id] * len(tsr)))
-        pq.write_table(tsr, stage / "trace_sample" / f"{case}.parquet", compression="zstd")
-    if cases and tot["stable_quota"] + tot["stable_shortfall"] != A.trace_stable:
+        write_trace_sample(ts_rows, stage, case, A.job_run_id)
+    if cases and not A.replay and tot["stable_quota"] + tot["stable_shortfall"] != A.trace_stable:
         problems.append(
             f"stable traces {tot['stable_quota']} + shortfall {tot['stable_shortfall']} "
             f"!= --trace-stable {A.trace_stable}"
@@ -327,6 +453,11 @@ def main():
                 argv=(dbx or {}).get("argv"),
                 trace_stable_total=A.trace_stable,
                 out_root=str(out_root),
+                replay=A.replay or None,
+                replay_sha256=rsha,
+                replay_rows=tot.get("replay_rows"),
+                replay_missing=tot.get("replay_missing"),
+                replay_label_changed=tot.get("replay_label_changed"),
                 **want,
             )
         ),
