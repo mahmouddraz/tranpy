@@ -62,3 +62,6 @@ adrc/
 
 # Generated results
 examples/results/
+
+# Grid map viewer: GeoJSON written by scripts/export_grid_gis.py (not committed)
+apps/grid_map/data/

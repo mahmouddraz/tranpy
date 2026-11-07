@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>German Grid Model</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="map" aria-label="Map of the German transmission grid model"></div>
+
+  <aside id="panel">
+    <header>
+      <h1>German transmission grid</h1>
+      <p id="model-version" class="muted">Model v4final · 380/220 kV</p>
+    </header>
+
+    <section>
+      <div class="segmented" role="radiogroup" aria-label="Colouring">
+        <button type="button" data-mode="voltage" class="active">By voltage</button>
+        <button type="button" data-mode="tso">By TSO</button>
+      </div>
+      <div class="segmented small" role="radiogroup" aria-label="Basemap">
+        <button type="button" data-basemap="light" class="active">Light</button>
+        <button type="button" data-basemap="dark">Dark</button>
+      </div>
+    </section>
+
+    <section>
+      <label class="search">
+        <span class="sr-only">Search</span>
+        <input id="search" type="search" placeholder="Search name, EIC, bus or ANDES id" autocomplete="off">
+      </label>
+      <ul id="results"></ul>
+    </section>
+
+    <section>
+      <h2>Layers</h2>
+      <div id="layers"></div>
+    </section>
+
+    <section>
+      <h2>Legend</h2>
+      <div id="legend"></div>
+    </section>
+
+    <section>
+      <h2>Summary by control area</h2>
+      <div id="summary"></div>
+    </section>
+
+    <footer class="muted" id="sources"></footer>
+  </aside>
+
+  <script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+  <script src="style.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

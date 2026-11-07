@@ -1,0 +1,177 @@
+{
+  "defaultScales": [
+    20000000,
+    10000000,
+    7500000,
+    6000000,
+    5000000,
+    4000000,
+    3000000,
+    2000000,
+    1500000,
+    1000000,
+    750000,
+    500000,
+    250000,
+    100000,
+    50000,
+    25000,
+    10000,
+    5000
+  ],
+  "defaultPrintGrid": [
+    {
+      "s": 10000000,
+      "x": 1000000,
+      "y": 1000000
+    },
+    {
+      "s": 1000000,
+      "x": 100000,
+      "y": 100000
+    },
+    {
+      "s": 100000,
+      "x": 10000,
+      "y": 10000
+    }
+  ],
+  "defaultWMSVersion": "1.3.0",
+  "defaultBackgroundLayers": [],
+  "defaultSearchProviders": [
+    "coordinates"
+  ],
+  "defaultMapCrs": "EPSG:3857",
+  "defaultTheme": "grid_model",
+  "themes": {
+    "items": [
+      {
+        "id": "grid_model",
+        "title": "German transmission grid (model v4final)",
+        "url": "/ows/grid_model",
+        "attribution": "Grid model v4final (tranpy); MaStR",
+        "attributionUrl": "",
+        "backgroundLayers": [
+          {
+            "name": "esri_light_gray",
+            "printLayer": "esri_light_gray",
+            "visibility": true
+          },
+          {
+            "name": "basemap_de_grey",
+            "printLayer": "basemap_de_grey"
+          },
+          {
+            "name": "osm",
+            "printLayer": "osm"
+          }
+        ],
+        "searchProviders": [
+          "coordinates",
+          {
+            "provider": "qgis",
+            "key": "substations",
+            "label": "Substations",
+            "params": {
+              "title": "Substations",
+              "featureCount": 20,
+              "resultTitle": "{name} ({max_kv} kV, {tso})",
+              "expression": {
+                "substations": "\"name\" LIKE '%$TEXT$%' OR \"site\" LIKE '%$TEXT$%' OR \"mrid\" LIKE '%$TEXT$%'"
+              }
+            }
+          },
+          {
+            "provider": "qgis",
+            "key": "lines",
+            "label": "Lines",
+            "params": {
+              "title": "Lines",
+              "featureCount": 20,
+              "resultTitle": "{name} ({voltage_kv} kV)",
+              "expression": {
+                "lines": "\"name\" LIKE '%$TEXT$%' OR \"mrid\" LIKE '%$TEXT$%' OR \"eic\" LIKE '%$TEXT$%'"
+              }
+            }
+          },
+          {
+            "provider": "qgis",
+            "key": "plants",
+            "label": "Power plants",
+            "params": {
+              "title": "Power plants",
+              "featureCount": 20,
+              "resultTitle": "{name} ({capacity_mw} MW)",
+              "expression": {
+                "plants": "\"name\" LIKE '%$TEXT$%' OR \"mastr_id\" LIKE '%$TEXT$%'"
+              }
+            }
+          },
+          {
+            "provider": "qgis",
+            "key": "buses",
+            "label": "Buses",
+            "params": {
+              "title": "Buses",
+              "featureCount": 20,
+              "resultTitle": "{bus} (ANDES {andes_idx})",
+              "expression": {
+                "buses": "\"bus\" LIKE '%$TEXT$%' OR \"names\" LIKE '%$TEXT$%'"
+              }
+            }
+          },
+          "nominatim"
+        ],
+        "mapCrs": "EPSG:3857",
+        "extent": [
+          600000,
+          5950000,
+          1700000,
+          7400000
+        ],
+        "printResolutions": [
+          150,
+          300
+        ],
+        "defaultPrintLayout": "A4 Landscape",
+        "extraLegendParameters": "LAYERTITLE=FALSE",
+        "skipEmptyFeatureAttributes": true,
+        "layerTreeHiddenSublayers": [
+          "esri_light_gray",
+          "basemap_de_grey",
+          "osm"
+        ]
+      }
+    ],
+    "backgroundLayers": [
+      {
+        "name": "esri_light_gray",
+        "title": "Grey (Esri World Light Gray)",
+        "type": "xyz",
+        "url": "https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}",
+        "maxNativeZoom": 16,
+        "attribution": "Esri, HERE, Garmin, \u00a9 OpenStreetMap contributors",
+        "attributionUrl": "https://www.esri.com/",
+        "thumbnail": "img/mapthumbs/default.jpg"
+      },
+      {
+        "name": "basemap_de_grey",
+        "title": "basemap.de grey (BKG, Germany only)",
+        "type": "xyz",
+        "url": "https://sgx.geodatenzentrum.de/wmts_basemapde/tile/1.0.0/de_basemapde_web_raster_grau/default/GLOBAL_WEBMERCATOR/{z}/{y}/{x}.png",
+        "attribution": "\u00a9 basemap.de / BKG (CC BY 4.0)",
+        "attributionUrl": "https://basemap.de",
+        "thumbnail": "img/mapthumbs/default.jpg"
+      },
+      {
+        "name": "osm",
+        "title": "OpenStreetMap",
+        "type": "osm",
+        "source": "osm",
+        "attribution": "\u00a9 OpenStreetMap contributors",
+        "attributionUrl": "https://www.openstreetmap.org/copyright",
+        "thumbnail": "img/mapthumbs/mapnik.jpg"
+      }
+    ]
+  }
+}

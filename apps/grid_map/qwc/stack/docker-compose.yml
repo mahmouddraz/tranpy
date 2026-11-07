@@ -1,0 +1,169 @@
+# tranpy German grid web GIS (QWC2). Derived from qwc-docker docker-compose-example.yml.
+# Start/stop: docker compose -p tranpy-qwc up -d / down   (project name is also set below)
+name: 'tranpy-qwc'
+
+x-qwc-service-variables: &qwc-service-variables
+  JWT_SECRET_KEY: $JWT_SECRET_KEY
+  JWT_COOKIE_CSRF_PROTECT: 'True'
+  JWT_COOKIE_SAMESITE: 'Strict'
+  SERVICE_UID: '1003'
+  SERVICE_GID: '1003'
+
+x-common: &common
+  restart: unless-stopped
+  networks: [tranpy-qwc-net]
+  logging:
+    driver: json-file
+    options: {max-size: "10m", max-file: "3"}
+
+networks:
+  tranpy-qwc-net:
+    name: tranpy-qwc-net
+
+services:
+  qwc-postgis:
+    <<: *common
+    image: sourcepole/qwc-base-db:18
+    environment:
+      POSTGRES_PASSWORD: $POSTGRES_PASSWORD
+    volumes:
+      - ./volumes/db:/var/lib/postgresql/docker
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+    cpus: 1
+
+  qwc-config-db-migrate:
+    image: sourcepole/qwc-base-db-migrate:latest-2026-lts
+    networks: [tranpy-qwc-net]
+    depends_on:
+      qwc-postgis: {condition: service_healthy}
+    volumes:
+      - ./pg_service.conf:/tmp/pg_service.conf:ro
+
+  qwc-qgis-server:
+    <<: *common
+    image: sourcepole/qwc-qgis-server:3.44
+    environment:
+      FCGID_EXTRA_ENV: 'PRINT_LAYOUT_DIR'
+      PRINT_LAYOUT_DIR: '/layouts'
+      ENABLED_PLUGINS: '["filter_geom", "get_translations", "print_templates", "split_categorized", "clear_capabilities"]'
+      FCGID_MAX_NUMBER_PROCESSES: '4'
+    volumes:
+      - ./volumes/qgs-resources:/data:ro
+      - ./pg_service.conf:/etc/postgresql-common/pg_service.conf:ro
+      - ./volumes/print-layouts:/layouts:ro
+    cpus: 4
+    mem_limit: 4g
+
+  qwc-config-service:
+    <<: *common
+    image: sourcepole/qwc-config-generator:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      INPUT_CONFIG_PATH: '/srv/qwc_service/config-in'
+      OUTPUT_CONFIG_PATH: '/srv/qwc_service/config-out'
+    volumes:
+      - ./volumes/config-in:/srv/qwc_service/config-in:ro
+      - ./volumes/config:/srv/qwc_service/config-out
+      - ./volumes/qwc2:/qwc2
+      - ./volumes/qgs-resources:/data
+      - ./volumes/print-layouts:/layouts:ro
+      - ./pg_service.conf:/srv/pg_service.conf:ro
+    cpus: 1
+
+  qwc-auth-service:
+    <<: *common
+    image: sourcepole/qwc-db-auth:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/auth'
+    volumes:
+      - ./pg_service.conf:/srv/pg_service.conf:ro
+      - ./volumes/config:/srv/qwc_service/config:ro
+    cpus: 0.5
+
+  qwc-feature-info-service:
+    <<: *common
+    image: sourcepole/qwc-feature-info-service:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/api/v1/featureinfo'
+    volumes:
+      - ./pg_service.conf:/srv/pg_service.conf:ro
+      - ./volumes/config:/srv/qwc_service/config:ro
+      - ./volumes/info-templates:/info_templates:ro
+    cpus: 1
+
+  qwc-legend-service:
+    <<: *common
+    image: sourcepole/qwc-legend-service:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/api/v1/legend'
+    volumes:
+      - ./volumes/config:/srv/qwc_service/config:ro
+      - ./volumes/legends:/legends
+    cpus: 0.5
+
+  qwc-map-viewer:
+    <<: *common
+    image: sourcepole/qwc-map-viewer:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/'
+    volumes:
+      - ./pg_service.conf:/srv/pg_service.conf:ro
+      - ./volumes/config:/srv/qwc_service/config:ro
+      - ./volumes/qwc2/assets:/qwc2/assets:ro
+    cpus: 1
+
+  qwc-ogc-service:
+    <<: *common
+    image: sourcepole/qwc-ogc-service:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/ows'
+    volumes:
+      - ./volumes/config:/srv/qwc_service/config:ro
+    cpus: 1
+
+  qwc-permalink-service:
+    <<: *common
+    image: sourcepole/qwc-permalink-service:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/api/v1/permalink'
+    volumes:
+      - ./pg_service.conf:/srv/pg_service.conf:ro
+      - ./volumes/config:/srv/qwc_service/config:ro
+    cpus: 0.5
+
+  qwc-print-service:
+    <<: *common
+    image: sourcepole/qwc-print-service:latest-2026-lts
+    environment:
+      <<: *qwc-service-variables
+      SERVICE_MOUNTPOINT: '/api/v1/print'
+    volumes:
+      - ./volumes/config:/srv/qwc_service/config:ro
+    cpus: 0.5
+
+  qwc-api-gateway:
+    <<: *common
+    image: nginx:1.29
+    ports:
+      - "0.0.0.0:8088:80"
+    volumes:
+      - ./api-gateway/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      - qwc-qgis-server
+      - qwc-config-service
+      - qwc-auth-service
+      - qwc-feature-info-service
+      - qwc-legend-service
+      - qwc-map-viewer
+      - qwc-ogc-service
+      - qwc-permalink-service
+      - qwc-print-service
+    cpus: 0.5
