@@ -21,9 +21,9 @@ frozen model changes without the owner's decision; approved fixes go into the v5
 |---|---|---|---|
 | 01 | Future assets (commissioned after 2021) and dead-end busbars | Merzen 380 kV (Amprion: planned, full commissioning 2028, BBPlG project 6) | investigating |
 | 02 | Tee topology inconsistent with real routes | BLUDNZ W / DELLM O at Bürs (`~/data/grid/bursa_corridor_findings.md`) | findings ready; owner decision pending (option A recommended) |
-| 03 | Circuit count per tower line vs model | OSM line 4132: 380/380/220/110/30 kV circuits | queued (after the tower-line layer) |
-| 04 | Missing or estimated parameters | Bürs–Meiningen/Walgau/Westtirol length 0; NSACHS N reactance estimated | queued |
-| 05 | Substation locations | schematic points (Würgassen, …), snapped clusters (Meitingen, …) | queued |
+| 03 | Circuit count per tower line vs model | OSM line 4132: 380/380/220/110/30 kV circuits | findings done; display fixes 1–2 applied 2026-11-08 (61 export circuits drawn on their section, straight circuits 71 → 15, circuit length on tower lines 93.0 → 95.1 %; mismatch rule `circuits_max`, < 0.5 km skipped, `neighbour_pickup`: flags 9,703 → 1,190); model proposals 3–4 wait for the owner (v5) |
+| 04 | Missing or estimated parameters | Bürs–Meiningen/Walgau/Westtirol length 0; NSACHS N reactance estimated | findings ready (143 rows: 45 fix proposed, 86 keep, 12 unresolved); owner decision pending (HERBTG W tee, 321 status, Bürs tie convention) |
+| 05 | Substation locations | schematic points (Würgassen, …), snapped clusters (Meitingen, …) | findings ready 2026-11-08 (26 occurrences, X = 500 m): 9 model/topology (worst: Herbertingen–Hoheneck–Metzingen tee, 1 km stub modelled as 61.8 km), 17 display only; owner decision pending |
 
 ## Visualization track (parallel, display only)
 Tower-line layer from OSM ways (voltages, circuits, ref, operator; popup lists carried

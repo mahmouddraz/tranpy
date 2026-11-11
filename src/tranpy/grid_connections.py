@@ -712,20 +712,28 @@ def catchment_shares(
             share = np.hstack([share, np.zeros((len(frame), wide - count))])
             count = wide
             keys = pd.MultiIndex.from_arrays([frame["zone"], frame["cell"]])
-            share = spill_over_cap(
+            mva = here["mva"].to_numpy(dtype=float)
+            pools = co_located_pools(here[["lon", "lat"]].to_numpy() * _KM, POOL_KM)
+            share = pooled_spill(
+                spill_over_cap,
                 sizes.loc[keys, "load"].to_numpy(),
                 share,
                 near,
-                here["mva"].to_numpy(dtype=float) * cap / load_factor,
+                mva * cap / load_factor,
+                pools,
+                mva,
             )
             if backfeed:
                 load = sizes.loc[keys, "load"].to_numpy()
                 generation = sizes.loc[keys].drop(columns="load").sum(axis=1).to_numpy()
-                share = spill_backfeed(
+                share = pooled_spill(
+                    spill_backfeed,
                     generation - load,
                     share,
                     near,
-                    here["mva"].to_numpy(dtype=float) * cap / load_factor,
+                    mva * cap / load_factor,
+                    pools,
+                    mva,
                 )
         for i, cell in enumerate(frame["cell"]):
             for j in range(count):
@@ -741,6 +749,74 @@ def catchment_shares(
                     )
     out = pd.DataFrame(rows)
     out["share"] = out["share"] / out.groupby(["zone", "cell"])["share"].transform("sum")
+    return out
+
+
+POOL_KM = 0.3
+"""Sites of one control area closer than this (km) form one spill candidate (I5): twin yards
+at one location share their room, so a tiny change elsewhere cannot flip load between them."""
+
+
+def co_located_pools(xy_km: npt.NDArray[Any], radius_km: float = POOL_KM) -> npt.NDArray[Any]:
+    """Pool id per site: sites within ``radius_km`` of each other (transitively) share an id.
+
+    Ids are numbered by the lowest site index of each pool, so they do not depend on anything
+    but the site order itself.
+    """
+    n = len(xy_km)
+    parent = np.arange(n)
+
+    def root(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = int(parent[i])
+        return i
+
+    if n > 1:
+        for i, j in sorted(cKDTree(xy_km).query_pairs(radius_km)):
+            a, b = root(i), root(j)
+            if a != b:
+                parent[max(a, b)] = min(a, b)
+    roots = np.array([root(i) for i in range(n)])
+    _, ids = np.unique(roots, return_inverse=True)
+    return np.asarray(ids)
+
+
+def pooled_spill(
+    spill: Any,
+    amount: npt.NDArray[Any],
+    share: npt.NDArray[Any],
+    near: npt.NDArray[Any],
+    limit: npt.NDArray[Any],
+    pools: npt.NDArray[Any],
+    mva: npt.NDArray[Any],
+) -> npt.NDArray[Any]:
+    """Run ``spill`` (:func:`spill_over_cap` or :func:`spill_backfeed`) on co-located pools.
+
+    ``near`` must list every site of the area per cell (nearest first). Each pool is one
+    candidate with the summed limit, placed at its nearest member; the pooled result is split
+    back to the members by ``mva``. With singleton pools this is exactly ``spill``.
+    """
+    if len(np.unique(pools)) == len(pools):
+        return np.asarray(spill(amount, share, near, limit))
+    n_pools = int(pools.max()) + 1
+    pool_limit = np.bincount(pools, weights=limit, minlength=n_pools)
+    pool_mva = np.bincount(pools, weights=mva, minlength=n_pools)
+    weight = np.where(
+        pool_mva[pools] > 0, mva / np.where(pool_mva[pools] > 0, pool_mva[pools], 1.0), 0.0
+    )
+    rows = near.shape[0]
+    pnear = np.zeros((rows, n_pools), dtype=int)
+    pshare = np.zeros((rows, n_pools))
+    for i in range(rows):
+        order = list(dict.fromkeys(pools[near[i]]))
+        pnear[i] = order
+        np.add.at(pshare[i], [order.index(p) for p in pools[near[i]]], share[i])
+    pshare = spill(amount, pshare, pnear, pool_limit)
+    out = np.zeros_like(share, dtype=float)
+    for i in range(rows):
+        by_pool = dict(zip(pnear[i], pshare[i], strict=True))
+        out[i] = [by_pool[pools[s]] * weight[s] for s in near[i]]
     return out
 
 
@@ -814,6 +890,11 @@ def spill_backfeed(
     return spill_over_cap(back, share, near, np.asarray(limit, dtype=float) + absorbed)
 
 
+TIE_BREAK_KM = 0.01
+"""Largest tie-break distance (km) added in the capacity transport: equal-cost choices go to
+the site earlier in the stable site order, so the allocation does not jump between them."""
+
+
 def _transport(
     total: npt.NDArray[Any],
     kinds: npt.NDArray[Any],
@@ -828,7 +909,12 @@ def _transport(
     """
     sparse = require("scipy.sparse", "grid")
     n, k = km.shape
-    cost = (km * total[:, None]).ravel() + 1e-6
+    # deterministic tie-break (I6): equal-cost options (sites at one point, symmetric catchments)
+    # make the LP degenerate, and tiny input changes then flip whole cells between sites. A
+    # small extra distance that grows with the site's position in the (stable, I3) site order
+    # makes the optimum unique; at most TIE_BREAK_KM per MW, far below any real distance.
+    rank = near / max(len(mva) - 1, 1)
+    cost = ((km + TIE_BREAK_KM * rank) * total[:, None]).ravel() + 1e-6
     equal = sparse.csr_matrix((np.ones(n * k), (np.repeat(np.arange(n), k), np.arange(n * k))))
     blocks = []
     rooms = []
@@ -869,6 +955,23 @@ def _merge_sites(plants: pd.DataFrame) -> pd.Series:
     return plants["fuel"].astype(str) + "@" + x + "_" + y
 
 
+def nearest_site(tree: Any, xy_km: npt.NDArray[Any], tol_km: float = 1e-6) -> npt.NDArray[Any]:
+    """Index of the nearest site per point; exact ties go to the lowest index (I6).
+
+    Twin sites at one point (e.g. Herbertingen 380 in TransnetBW, Herbertingen Amprion 220 in
+    Amprion) are equally near. A plain KD-tree query returns either, depending on the tree's
+    shape, so removing an unrelated site could move whole population cells to another control
+    area. The site order is stable (I3), so the lowest index is a fixed choice.
+    """
+    n = tree.n
+    k = min(4, n)
+    km, idx = tree.query(xy_km, k=k)
+    km = np.asarray(km).reshape(len(xy_km), k)
+    idx = np.asarray(idx).reshape(len(xy_km), k)
+    tied = km <= km[:, :1] + tol_km
+    return np.asarray(np.where(tied, idx, n).min(axis=1))
+
+
 def connect(
     tables: Any,
     infeed: pd.DataFrame,
@@ -888,7 +991,13 @@ def connect(
     par = parameters or ConnectionParameters()
     bus = tables.busbar_section.set_index("mrid")
     vl_sub = tables.voltage_level.set_index("mrid")["substation_mrid"]
-    sites = infeed.sort_values("kv_hv", ascending=False).drop_duplicates("site").copy()
+    # deterministic site order (I3): the greedy spill works through the sites in this order, so it
+    # must not depend on the row order of ``infeed``
+    sites = (
+        infeed.sort_values(["kv_hv", "site"], ascending=[False, True], kind="stable")
+        .drop_duplicates("site")
+        .copy()
+    )
     sites["lon"] = sites["bus_hv"].map(bus["lon"])
     sites["lat"] = sites["bus_hv"].map(bus["lat"])
     sites["zone"] = sites["bus_hv"].map(bus["name"]).map(areas)
@@ -1010,10 +1119,10 @@ def connect(
     people = population.assign(mw=population["population"].astype(float))
     tree = cKDTree(sites[["lon", "lat"]].to_numpy() * _KM)
     people["zone"] = sites["zone"].to_numpy()[
-        tree.query(people[["lon", "lat"]].to_numpy() * _KM)[1]
+        nearest_site(tree, people[["lon", "lat"]].to_numpy() * _KM)
     ]
     embedded_cells = cells.assign(
-        zone=sites["zone"].to_numpy()[tree.query(cells[["lon", "lat"]].to_numpy() * _KM)[1]]
+        zone=sites["zone"].to_numpy()[nearest_site(tree, cells[["lon", "lat"]].to_numpy() * _KM)]
     )
     load_scale: Any = float(tables.energy_consumer["p_mw"].sum()) / float(people["mw"].sum())
     if rule == "capped":

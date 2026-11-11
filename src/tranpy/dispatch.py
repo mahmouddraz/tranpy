@@ -90,6 +90,9 @@ class HourData:
     load: pd.Series  # area
     exports: pd.Series  # zone, positive out of Germany
     pumping: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))  # area
+    # measured physical flow per (zone, German TSO) border segment, positive out of Germany
+    # (ENTSO-E A11 between control areas); empty: split by line capacity only
+    tso_exports: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
 
 
 @dataclass
@@ -200,7 +203,6 @@ def dispatch_hour(
     ext = tables.external_network_injection.copy()
     ext["p_mw"] = 0.0
     country = ext["node"].map(nodes.set_index("node")["country"])
-    weights = _border_weights(tables, ext["node"])
     unplaced = {}
     border = country.map(COUNTRY_ZONES)
     converters = []
@@ -216,7 +218,12 @@ def dispatch_hour(
         if len(chosen) == 0:
             unplaced[str(name)] = float(value)
             continue
-        ext.loc[chosen, "p_mw"] = -float(value) * weights.loc[chosen] / weights.loc[chosen].sum()
+        ext.loc[chosen, "p_mw"] = -border_split(
+            float(value),
+            _tso_border_weights(tables, ext.loc[chosen, "node"]),
+            hour.tso_exports,
+            str(name),
+        )
     load = pd.concat([load, *converters], ignore_index=True)
     return Dispatch(
         replace(
@@ -346,9 +353,78 @@ def _pump_loads(
     return rows.assign(p_mw=power.loc[active], q_mvar=0.0)
 
 
-def _border_weights(tables: CimTables, border_nodes: pd.Series) -> pd.Series:
-    """Rated capacity of the lines at each foreign node: a border's flow is split by it."""
+GERMAN_TSOS: Mapping[str, str] = {
+    "TENNET": "TenneT",
+    "50HERTZ": "50Hertz",
+    "AMPRION": "Amprion",
+    "TRANSNETBW": "TransnetBW",
+}
+"""German TSO of a tie line, from the line's ``tso`` text (upper case, spaces removed)."""
+
+
+def _line_tso(text: Any) -> str:
+    key = str(text).upper().replace(" ", "")
+    return next((v for k, v in GERMAN_TSOS.items() if k in key), "other")
+
+
+def _tso_border_weights(tables: CimTables, border_nodes: pd.Series) -> pd.DataFrame:
+    """Rated MVA of the in-operation lines at each foreign node, one column per German TSO.
+
+    The rows follow ``border_nodes``; a line counts for the TSO named in its ``tso`` field.
+    """
     line = tables.ac_line_segment
+    if "status" in line:
+        line = line[line["status"].fillna("in_operation").eq("in_operation")]
+    bus = tables.external_network_injection.set_index("node")["bus_mrid"]
+    mva = line["rated_current_a"].astype(float) * line["nominal_voltage_kv"].astype(float)
+    owner = line["tso"].map(_line_tso) if "tso" in line else pd.Series("other", index=line.index)
+    rows = {}
+    for idx, node in border_nodes.items():
+        at = line["bus1_mrid"].eq(bus[node]) | line["bus2_mrid"].eq(bus[node])
+        rows[idx] = mva[at].groupby(owner[at]).sum()
+    out = pd.DataFrame(rows).T.reindex(border_nodes.index).fillna(0.0)
+    return out if len(out.columns) else pd.DataFrame({"other": 1.0}, index=border_nodes.index)
+
+
+def border_split(
+    total_mw: float, weights: pd.DataFrame, tso_flows: pd.Series, zone: str
+) -> pd.Series:
+    """Export of one neighbouring zone per foreign node (MW, positive out of Germany).
+
+    ``weights``: rated MVA per foreign node (rows) and German TSO (columns). Without measured
+    per-TSO flows the total is split by the summed capacity, as before. With them
+    (``tso_flows`` indexed by (zone, TSO), ENTSO-E A11 between control areas), each measured
+    TSO segment is spread over the nodes by that TSO's line capacity, and the rest
+    (``total_mw`` minus the measured segments) by the summed capacity, so the zone total stays
+    ``total_mw``. Segment signs may differ: that is the loop flow through the neighbour.
+    """
+    cap = weights.sum(axis=1).clip(lower=1.0)
+    plain = total_mw * cap / cap.sum()
+    if tso_flows is None or len(tso_flows) == 0:
+        return plain
+    measured = {}
+    for tso in weights.columns:
+        key = (zone, tso)
+        if key in tso_flows.index and pd.notna(tso_flows[key]) and weights[tso].sum() > 0:
+            measured[tso] = float(tso_flows[key])
+    if len(measured) < 2:
+        return plain
+    split = pd.Series(0.0, index=weights.index)
+    for tso, mw in measured.items():
+        split += mw * weights[tso] / weights[tso].sum()
+    rest = total_mw - sum(measured.values())
+    return split + rest * cap / cap.sum()
+
+
+def _border_weights(tables: CimTables, border_nodes: pd.Series) -> pd.Series:
+    """Rated capacity of the in-operation lines at each foreign node; it splits a border's flow.
+
+    Lines with another status (out of service, decommissioned, duplicate) carry no flow and are
+    left out; a table without a ``status`` column counts every line.
+    """
+    line = tables.ac_line_segment
+    if "status" in line:
+        line = line[line["status"].fillna("in_operation").eq("in_operation")]
     bus = tables.external_network_injection.set_index("node")["bus_mrid"]
     mva = line["rated_current_a"].astype(float) * line["nominal_voltage_kv"].astype(float)
     weights = []

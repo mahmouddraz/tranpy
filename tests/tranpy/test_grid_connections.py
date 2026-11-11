@@ -668,3 +668,170 @@ def test_two_level_site_gets_a_110_kv_bus_per_level(split: bool) -> None:
     assert at["lumped/r"] == pytest.approx(60.0) and at["lumped/r/220"] == pytest.approx(40.0)
     pv = machines.groupby("bus_mrid")["p_mw"].sum()
     assert pv["lumped/r/220"] == pytest.approx(100.0)
+
+
+@pytest.mark.parametrize("seed", [1, 2, 3])
+def test_capped_allocation_does_not_depend_on_infeed_row_order(seed: int) -> None:
+    """Permuting the infeed rows gives the identical allocation (I3: stable site order).
+
+    Forty sites of one voltage share a control area, and the load is larger than the capped room
+    of the nearest sites, so the greedy spill runs; its result must not follow the row order.
+    """
+    from tranpy.grid_connections import connect
+    from tranpy.grid_layers import CimTables
+
+    rng = np.random.default_rng(0)
+    n = 40
+    names = [f"s{i:02d}" for i in range(n)]
+    lons = 10.0 + rng.uniform(0.0, 2.0, n)
+    lats = 50.0 + rng.uniform(0.0, 1.0, n)
+    empty = pd.DataFrame()
+    tables = CimTables(
+        substation=pd.DataFrame({"mrid": [f"sub{x}" for x in names]}),
+        voltage_level=pd.DataFrame(
+            {
+                "mrid": [f"v{x}" for x in names],
+                "site": names,
+                "kv": [380] * n,
+                "substation_mrid": [f"sub{x}" for x in names],
+                "nominal_voltage_kv": [380.0] * n,
+            }
+        ),
+        busbar_section=pd.DataFrame(
+            {
+                "mrid": [f"b{x}" for x in names],
+                "name": [f"{x}|380" for x in names],
+                "voltage_level_mrid": [f"v{x}" for x in names],
+                "lon": lons,
+                "lat": lats,
+            }
+        ),
+        ac_line_segment=empty,
+        power_transformer=pd.DataFrame(columns=["mrid"]),
+        synchronous_machine=pd.DataFrame(
+            {
+                "mrid": ["wind"],
+                "bus_mrid": ["bs00"],
+                "node": ["s00|380"],
+                "fuel": ["Windenergie (Onshore-Anlage)"],
+                "max_p_mw": [3000.0],
+                "min_p_mw": [0.0],
+                "p_mw": [600.0],
+                "in_service": [True],
+                "voltage_control": [False],
+                "target_v_pu": [1.0],
+                "data_quality": ["x"],
+            }
+        ),
+        energy_consumer=pd.DataFrame(
+            {
+                "mrid": ["l"],
+                "bus_mrid": ["bs00"],
+                "node": ["s00|380"],
+                "p_mw": [6000.0],
+                "q_mvar": [0.0],
+            }
+        ),
+        external_network_injection=empty,
+        model_info=empty,
+    )
+    infeed = pd.DataFrame(
+        {
+            "site": names,
+            "bus_hv": [f"b{x}" for x in names],
+            "kv_hv": [380.0] * n,
+            "mva": [200.0] * n,
+            "units": [2] * n,
+            "rating_source": ["t"] * n,
+        }
+    )
+    cells = pd.DataFrame(
+        {
+            "lon": 10.0 + rng.uniform(0.0, 2.0, 60),
+            "lat": 50.0 + rng.uniform(0.0, 1.0, 60),
+            "fuel": ["Windenergie (Onshore-Anlage)"] * 60,
+            "mw": [50.0] * 60,
+        }
+    )
+    people = pd.DataFrame(
+        {"lon": [10.5, 11.0, 11.5], "lat": [50.5, 50.2, 50.8], "population": [5.0, 1.0, 1.0]}
+    )
+    plants = pd.DataFrame(columns=["mastr_id", "voltage_level", "lon", "lat"])
+    attachments = pd.DataFrame(columns=["mastr_id", "node", "fuel", "capacity_mw"])
+    areas = pd.Series({f"{x}|380": "z" for x in names})
+    par = ConnectionParameters(load_cap=0.8, backfeed_cap=True, load_cap_tan_phi=0.0)
+
+    def allocation(rows: pd.DataFrame) -> pd.Series:
+        out, _, _ = connect(tables, rows, plants, attachments, cells, people, areas, par, "capped")
+        parts = [
+            out.synchronous_machine.groupby("bus_mrid")["p_mw"].sum().rename("gen"),
+            out.energy_consumer.groupby("bus_mrid")["p_mw"].sum().rename("load"),
+        ]
+        return pd.concat(parts, axis=1).fillna(0.0).sort_index().stack()
+
+    reference = allocation(infeed)
+    order = np.random.default_rng(seed).permutation(n)
+    permuted = allocation(infeed.iloc[order].reset_index(drop=True))
+    pd.testing.assert_series_equal(permuted, reference)
+
+
+def test_pooled_spill_keeps_twin_split_when_an_unrelated_site_goes() -> None:
+    """Twin sites at one point share their room and split by MVA (I5).
+
+    Removing a far, unrelated site must not move load between the twins.
+    """
+    from tranpy.grid_connections import co_located_pools, pooled_spill, spill_over_cap
+
+    xy = np.array([[0.0, 0.0], [0.05, 0.0], [5.0, 0.0], [9.0, 0.0], [400.0, 0.0]])
+    assert co_located_pools(xy).tolist() == [0, 0, 1, 2, 3]
+    mva = np.array([200.0, 400.0, 300.0, 300.0, 300.0])
+    load = np.array([500.0, 300.0])
+    # each cell starts on its nearest site; candidates nearest first
+    near = np.array([[0, 1, 2, 3, 4], [1, 0, 2, 3, 4]])
+    share = np.zeros((2, 5))
+    share[:, 0] = 1.0
+
+    def twins(sites: list[int]) -> np.ndarray:
+        keep = np.array(sites)
+        index = {s: k for k, s in enumerate(sites)}
+        sub_near = np.array([[index[s] for s in row if s in index] for row in near])
+        sub_share = np.zeros((2, len(sites)))
+        sub_share[:, 0] = 1.0
+        out = pooled_spill(
+            spill_over_cap,
+            load,
+            sub_share,
+            sub_near,
+            mva[keep] * 0.8,
+            co_located_pools(xy[keep]),
+            mva[keep],
+        )
+        held = np.zeros(len(sites))
+        np.add.at(held, sub_near.ravel(), (out * load[:, None]).ravel())
+        return held[[index[0], index[1]]]
+
+    with_all = twins([0, 1, 2, 3, 4])
+    without_far = twins([0, 1, 2, 3])
+    np.testing.assert_allclose(with_all, without_far)
+    assert with_all[1] == pytest.approx(2.0 * with_all[0])
+    assert share.sum() == 2.0
+
+
+def test_nearest_site_breaks_exact_ties_by_site_order() -> None:
+    """Twin sites at one point: the nearest site is always the lower index (I6).
+
+    Removing unrelated sites (which reshapes the KD-tree) must not move points from one twin to
+    the other; with twins in two control areas that would move population between the areas.
+    """
+    from scipy.spatial import cKDTree
+
+    from tranpy.grid_connections import nearest_site
+
+    rng = np.random.default_rng(3)
+    others = rng.uniform(50.0, 400.0, (30, 2))
+    twins = np.array([[10.0, 10.0], [10.0, 10.0]])
+    points = twins[0] + rng.uniform(-3.0, 3.0, (200, 2))
+    for keep in (30, 29, 17):
+        xy = np.vstack([twins, others[:keep]])
+        got = nearest_site(cKDTree(xy), points)
+        assert set(got.tolist()) == {0}

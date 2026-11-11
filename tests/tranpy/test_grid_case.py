@@ -10,17 +10,22 @@ from tranpy.simulation.grid_case import (
     CE_FCR_FULL_HZ,
     DYNAMIC_VALUES,
     ENTSOE_INERTIA,
+    FUEL_PRODUCTION_TYPE,
     MACHINE_VALUES,
+    MACHINE_VALUES_V41,
     NEIGHBOUR_INERTIA,
     _main_component,
     border_shares,
     border_short_circuit_gva,
     build_connected_case,
     build_grid_case,
+    bus_inertia_s,
     continental_europe_equivalent,
     entsoe_kinetic_energy_mws,
     fuel_class,
+    hour_outages,
     line_parameters,
+    with_outages,
 )
 from tranpy_core.errors import DataError
 
@@ -127,10 +132,53 @@ def _connected() -> SimpleNamespace:
     return t
 
 
-def test_machine_values_keep_the_genrou_order() -> None:
-    v = MACHINE_VALUES
+@pytest.mark.parametrize("v", [MACHINE_VALUES, MACHINE_VALUES_V41])
+def test_machine_values_keep_the_genrou_order(v: pd.DataFrame) -> None:
     assert (v["xd"] > v["xd1"]).all() and (v["xd1"] >= v["xd2"]).all()
     assert (v["td10"] > v["td20"]).all()
+
+
+def test_thermal_values_are_kundur_example_3_1() -> None:
+    v = MACHINE_VALUES.loc["thermal"]
+    assert (v["xd"], v["xq"], v["xd1"], v["xq1"], v["xd2"]) == (1.81, 1.76, 0.30, 0.65, 0.23)
+    assert (v["td10"], v["tq10"], v["td20"], v["tq20"]) == (8.0, 1.0, 0.03, 0.07)
+    hydro = ["xd", "xq", "xd1", "xq1", "xd2", "td10", "tq10", "td20", "tq20"]
+    assert MACHINE_VALUES.loc["hydro", hydro].equals(MACHINE_VALUES_V41.loc["hydro", hydro])
+
+
+@pytest.mark.parametrize(
+    ("fuel", "h_s"),
+    [
+        ("Braunkohle", 3.8),
+        ("Steinkohle", 4.2),
+        ("Erdgas", 4.2),
+        ("andere Gase", 4.2),
+        ("Mineralölprodukte", 4.3),
+        ("nicht biogener Abfall", 3.8),
+        ("Biomasse", 3.3),
+        ("Wasser", 2.7),
+        ("Pumpspeicher", 3.5),
+        ("Geothermie", 3.5),
+        ("Wärme", 3.8),  # not in the table: ENTSO-E "Other"
+    ],
+)
+def test_bus_inertia_follows_entsoe_table_1(fuel: str, h_s: float) -> None:
+    plants = pd.DataFrame({"fuel": [fuel], "rating_mva": [100.0]})
+    assert bus_inertia_s(plants) == pytest.approx(h_s)
+
+
+def test_bus_inertia_is_rating_weighted_and_ignores_inverters() -> None:
+    plants = pd.DataFrame(
+        {
+            "fuel": ["Braunkohle", "Pumpspeicher", "Windenergie (Onshore-Anlage)", "Erdgas"],
+            "rating_mva": [300.0, 100.0, 500.0, None],
+            "max_p_mw": [None, None, None, 80.0],  # rating 100 MVA at 0.8
+        }
+    )
+    expected = (3.8 * 300 + 3.5 * 100 + 4.2 * 100) / 500
+    assert bus_inertia_s(plants) == pytest.approx(expected)
+    assert bus_inertia_s(plants.iloc[[2]]) is None
+    assert set(FUEL_PRODUCTION_TYPE.values()) <= set(ENTSOE_INERTIA)
 
 
 @pytest.mark.filterwarnings("ignore")
@@ -482,8 +530,55 @@ def test_german_governors_deliver_the_published_fcr(tmp_path, hydro_governor) ->
     assert abs(omega - 1.0).max() < 1e-6
 
     legacy = build_connected_case(
-        *common, tmp_path / "legacy.xlsx", neighbour_equivalent=eq, german_fcr_mw=None
+        *common,
+        tmp_path / "legacy.xlsx",
+        neighbour_equivalent=eq,
+        german_fcr_mw=None,
+        machine_data="v41",
     )
     old = andes.load(str(legacy), setup=False, no_output=True, default_config=True)
     assert (old.GENROU.as_df()["D"] == 2.0).all()
     assert set(old.TGOV1.as_df().query("syn in @german['idx']")["R"]) <= {0.05}
+
+
+def _outage_tables() -> SimpleNamespace:
+    from dataclasses import make_dataclass
+
+    T = make_dataclass("T", ["ac_line_segment"])
+    lines = pd.DataFrame(
+        {
+            "mrid": ["a", "b", "c"],
+            "status": ["in_operation", None, "decommissioned"],
+            "status_evidence": ["", "", "old"],
+        }
+    )
+    return T(lines)
+
+
+def test_with_outages_switches_off_only_in_operation_rows() -> None:
+    tables = _outage_tables()
+    out = with_outages(tables, ["b", "c"]).ac_line_segment.set_index("mrid")
+    assert out.loc["a", "status"] == "in_operation"
+    assert out.loc["b", "status"] == "out_of_service"
+    assert "A78" in out.loc["b", "status_evidence"]
+    assert out.loc["c", "status"] == "decommissioned"
+    assert out.loc["c", "status_evidence"] == "old"
+    # the input stays unchanged (the base model is never modified)
+    before = tables.ac_line_segment["status"].fillna("unset").tolist()
+    assert before == ["in_operation", "unset", "decommissioned"]
+    with pytest.raises(DataError):
+        with_outages(tables, ["zz"])
+
+
+def test_hour_outages_reads_one_hour(tmp_path) -> None:
+    path = tmp_path / "out.csv"
+    pd.DataFrame(
+        {
+            "hour": ["h1", "h1", "h2"],
+            "time": ["2026-01-22 07:00:00+00:00"] * 2 + ["2026-01-22 08:00:00+00:00"],
+            "circuit": ["x", "y", "x"],
+        }
+    ).to_csv(path, index=False)
+    assert hour_outages(path, pd.Timestamp("2026-01-22 08:00", tz="UTC")) == ["x"]
+    assert hour_outages(path, pd.Timestamp("2026-01-22 07:00", tz="UTC")) == ["x", "y"]
+    assert hour_outages(path, pd.Timestamp("2026-01-22 09:00", tz="UTC")) == []

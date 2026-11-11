@@ -3,8 +3,10 @@
 Dynamic data per plant is not published, so every dynamic value here is an estimate:
 
 * the plants of one bus are aggregated into one synchronous machine (GENCLS) and one inverter;
-* inertia and transient reactance per fuel come from the ranges in Kundur, *Power System
-  Stability and Control* (1994), Tables 3.2 and 4.3; damping is assumed;
+* :func:`build_grid_case`: inertia and transient reactance per fuel from the ranges in Kundur,
+  *Power System Stability and Control* (1994), Tables 3.2 and 4.3; damping is assumed;
+* :func:`build_connected_case` (default since v5): H per fuel from ENTSO-E [RoCoF] Table 1,
+  GENROU reactances from Kundur (1994) Example 3.1/3.2, D = 0 (see :data:`MACHINE_VALUES`);
 * committed machine rating is ``dispatched power / machine_loading``, since the model has no
   unit commitment;
 * inverters (solar, wind, storage) sit on a stub bus as REGCA1 converters without inertia and
@@ -19,8 +21,8 @@ Dynamic data per plant is not published, so every dynamic value here is an estim
 
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import dataclass
+from collections.abc import Iterable, Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -34,17 +36,22 @@ __all__ = [
     "BORDER_SHORT_CIRCUIT",
     "CONTROLS",
     "DYNAMIC_VALUES",
+    "FUEL_PRODUCTION_TYPE",
     "MACHINE_VALUES",
+    "MACHINE_VALUES_V41",
     "NeighbourEquivalent",
     "border_shares",
     "border_short_circuit_gva",
     "build_connected_case",
     "build_grid_case",
+    "bus_inertia_s",
     "continental_europe_equivalent",
     "entsoe_kinetic_energy_mws",
     "fuel_class",
+    "hour_outages",
     "line_parameters",
     "neighbour_kinetic_energy",
+    "with_outages",
 ]
 
 _BASE_MVA = 100.0
@@ -65,7 +72,7 @@ _HYDRO = ("Wasser", "Pumpspeicher")
 _EXTERNAL_MVA = 3000.0
 
 
-MACHINE_VALUES = pd.DataFrame(
+MACHINE_VALUES_V41 = pd.DataFrame(
     [
         ("thermal", 4.5, 1.8, 1.7, 0.30, 0.55, 0.25, 0.15, 6.0, 0.8, 0.035, 0.05, 0.003),
         ("hydro", 3.0, 1.0, 0.65, 0.30, 0.65, 0.25, 0.15, 6.0, 0.5, 0.035, 0.05, 0.003),
@@ -75,10 +82,111 @@ MACHINE_VALUES = pd.DataFrame(
         "td10", "tq10", "td20", "tq20", "ra",
     ],
 ).set_index("machine_class")  # fmt: skip
-"""GENROU values on the machine base: assumed within typical ranges, not plant data.
+"""GENROU values of the v4.1 cases (``machine_data="v41"``): assumed within typical ranges.
 
-ANDES requires ``xq2 = xd2``. The textbook page references are still to be confirmed.
+One H per class regardless of fuel and size. ANDES requires ``xq2 = xd2``.
 """
+
+# Default machine data (``machine_data="entsoe_kundur"``, adopted for v5 after test e10/F1b,
+# docs/machine_params_test.md):
+# * thermal (steam and gas turbine) reactances and time constants: Kundur, Power System Stability
+#   and Control (1994), Example 3.1/3.2, the 555 MVA 2-pole unit (xd 1.81, xq 1.76, x'd 0.30,
+#   x'q 0.65, x''d 0.23, xl 0.15, ra 0.003, T'd0 8.0 s, T'q0 1.0 s, T''d0 0.03 s, T''q0 0.07 s);
+#   ANDES requires x''q = x''d, so x''q is 0.23 instead of 0.25;
+# * hydro: the v4.1 values, all inside the hydro ranges of Kundur (1994) Table 4.3;
+# * H per fuel from [RoCoF] Table 1 (:data:`ENTSOE_INERTIA`, see :func:`bus_inertia_s`), the
+#   same source as the Continental Europe neighbour equivalents; the ``h_s`` column is only the
+#   fallback for a bus without a synchronous plant of known fuel ([RoCoF] "Other", 3.8 s);
+# * D = 0: GENROU models the damper windings explicitly (Kundur 1994 ch. 5; IEEE Std 1110-2019),
+#   so an extra damping term would count it twice.
+MACHINE_VALUES = pd.DataFrame(
+    [
+        ("thermal", 3.8, 1.81, 1.76, 0.30, 0.65, 0.23, 0.15, 8.0, 1.0, 0.03, 0.07, 0.003),
+        ("hydro", 3.8, 1.0, 0.65, 0.30, 0.65, 0.25, 0.15, 6.0, 0.5, 0.035, 0.05, 0.003),
+    ],
+    columns=[
+        "machine_class", "h_s", "xd", "xq", "xd1", "xq1", "xd2", "xl",
+        "td10", "tq10", "td20", "tq20", "ra",
+    ],
+).set_index("machine_class")  # fmt: skip
+"""Default GENROU values on the machine base (sources in the comment above)."""
+
+FUEL_PRODUCTION_TYPE: Mapping[str, str] = {
+    "Braunkohle": "B02",  # Fossil Brown coal/Lignite
+    "Steinkohle": "B05",  # Fossil Hard coal
+    "Erdgas": "B04",  # Fossil Gas
+    "andere Gase": "B03",  # Fossil Coal-derived gas (blast-furnace, coke-oven and other gases)
+    "Grubengas": "B03",  # coal-mine gas
+    "Mineralölprodukte": "B06",  # Fossil Oil
+    "nicht biogener Abfall": "B17",  # Waste
+    "Biomasse": "B01",  # Biomass
+    "Klärschlamm": "B01",  # sewage sludge, a biomass fuel
+    "Geothermie": "B09",  # Geothermal
+    "Wasser": "B11",  # Hydro Run-of-river and poundage (German river hydro)
+    "Pumpspeicher": "B10",  # Hydro Pumped Storage
+}
+"""ENTSO-E production type of each synchronous fuel of the plant register; any other
+synchronous fuel (heat, hydrogen, gas or water pressure expansion, solar thermal) is "Other"
+(B20)."""
+_OTHER_TYPE = "B20"
+
+
+OUTAGE_EVIDENCE = "ENTSO-E A78 unavailability of transmission infrastructure, published outage"
+
+
+def hour_outages(path: str | Path, when: pd.Timestamp) -> list[str]:
+    """Circuit mrids published as out in the hour starting at ``when`` (UTC).
+
+    ``path``: the versioned outage CSV written by ``scripts/a78_outages.py`` (hour, time,
+    circuit, a78_mrid, reason, ...). An hour without rows has no published outage.
+    """
+    frame = pd.read_csv(path)
+    at = pd.to_datetime(frame["time"], utc=True).eq(pd.Timestamp(when).tz_convert("UTC"))
+    return sorted(frame.loc[at, "circuit"].astype(str).unique())
+
+
+def with_outages(tables: Any, circuits: Iterable[str], evidence: str = OUTAGE_EVIDENCE) -> Any:
+    """Model with ``circuits`` (``ac_line_segment.mrid``) switched off for one hour.
+
+    The rows keep their values and get status ``out_of_service``; every builder that reads only
+    in-operation lines then leaves them out. Only in-operation rows change. An mrid that is not
+    in the model is an error, so a stale outage list cannot pass silently.
+    """
+    wanted = set(map(str, circuits))
+    lines = tables.ac_line_segment.copy()
+    missing = wanted - set(lines["mrid"].astype(str))
+    if missing:
+        raise DataError(f"outage circuits not in the model: {sorted(missing)}")
+    status = lines["status"].fillna("in_operation") if "status" in lines else "in_operation"
+    hit = lines["mrid"].astype(str).isin(wanted) & pd.Series(status, index=lines.index).eq(
+        "in_operation"
+    )
+    lines.loc[hit, "status"] = "out_of_service"
+    if "status_evidence" in lines:
+        lines.loc[hit, "status_evidence"] = evidence
+    return replace(tables, ac_line_segment=lines)
+
+
+def bus_inertia_s(plants: pd.DataFrame) -> float | None:
+    """H in s of the machine of one bus: [RoCoF] Table 1 H per fuel, weighted by rating.
+
+    The aggregate's kinetic energy is the sum over its plants, so its H on the summed rating is
+    the rating-weighted mean. Rating is ``rating_mva``, else ``max_p_mw / 0.8``, else equal
+    weights. Inverter fuels are left out; None if no synchronous plant is left.
+    """
+    sync = plants[~plants["fuel"].astype(str).str.startswith(_INVERTER)]
+    if sync.empty:
+        return None
+    rating = pd.Series(float("nan"), index=sync.index)
+    if "rating_mva" in sync:
+        rating = pd.to_numeric(sync["rating_mva"], errors="coerce")
+    if "max_p_mw" in sync:
+        rating = rating.fillna(pd.to_numeric(sync["max_p_mw"], errors="coerce") / 0.8)
+    rating = rating.where(rating > 0)
+    weight = rating.fillna(1.0) if rating.isna().all() else rating.fillna(0.0)
+    h = sync["fuel"].map(lambda f: ENTSOE_INERTIA[FUEL_PRODUCTION_TYPE.get(str(f), _OTHER_TYPE)][0])
+    return float((h * weight).sum() / weight.sum())
+
 
 CONTROLS: Mapping[str, Mapping[str, float]] = {
     "SEXS": {"TATB": 0.1, "TB": 10.0, "K": 100.0, "TE": 0.05, "EMIN": 0.0, "EMAX": 5.0},
@@ -705,6 +813,7 @@ def build_connected_case(
     hydro_governor: Literal["hygov", "tgov1"] = "hygov",
     neighbour_equivalent: NeighbourEquivalent | None = None,
     german_fcr_mw: float | None = DE_FCR_MW,
+    machine_data: Literal["entsoe_kundur", "v41"] = "entsoe_kundur",
 ) -> Path:
     """Write connected tables with a solved operating point as an ANDES ``.xlsx`` case.
 
@@ -743,10 +852,15 @@ def build_connected_case(
         min_machine_mva: a terminal bus whose machines are rated below this becomes a constant
             injection at its solved power, so very small units do not drive the stability label.
         frequency_hz: nominal frequency.
+        machine_data: ``entsoe_kundur`` (default, v5): :data:`MACHINE_VALUES` with H per fuel
+            from [RoCoF] Table 1 (:func:`bus_inertia_s`) and D = 0; ``v41`` reproduces the v4.1
+            cases (:data:`MACHINE_VALUES_V41`, one H per class, D as before).
 
     Raises:
         SimulationError: if the AC power flow does not converge.
     """
+    if machine_data not in ("entsoe_kundur", "v41"):
+        raise DataError(f"unknown machine_data {machine_data!r}")
     _load_openmp_libraries_first()
     andes = require("andes", "andes")
     vl_kv = dict(
@@ -860,6 +974,9 @@ def build_connected_case(
     governors: list[tuple[str, int, float, float]] = []
     fcr_mw = german_fcr_mw if neighbour_equivalent is not None else None
     german_damping = 0.0 if fcr_mw is not None else _DAMPING_PU
+    values_table = MACHINE_VALUES_V41 if machine_data == "v41" else MACHINE_VALUES
+    if machine_data != "v41":
+        german_damping = 0.0  # damper windings are modelled (see MACHINE_VALUES)
     for k, (mrid, (p_mw, _)) in enumerate(machine_power.items()):
         if mrid not in keep:
             continue
@@ -883,7 +1000,7 @@ def build_connected_case(
             )
             continue
         group = str(here["group"].mode().iloc[0]) if len(here) else "thermal"
-        group = group if group in MACHINE_VALUES.index else "thermal"
+        group = group if group in values_table.index else "thermal"
         vn = kv[mrid]
         ss.add(
             "PV",
@@ -900,7 +1017,10 @@ def build_connected_case(
                 "qmin": -10 * sn / _BASE_MVA,
             },
         )
-        v: dict[Any, Any] = MACHINE_VALUES.loc[group].to_dict()
+        v: dict[Any, Any] = values_table.loc[group].to_dict()
+        if machine_data != "v41":
+            h_bus = bus_inertia_s(here)
+            v["h_s"] = float(v["h_s"]) if h_bus is None else h_bus
         common = {
             "idx": f"M{k}",
             "bus": ids[mrid],

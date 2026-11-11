@@ -1,0 +1,57 @@
+case,buses,machines,mw,cut_outages
+high_solar,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,8,209,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+low_load,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,7,103,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+low_load,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,3,181,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+low_load,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,7,163,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20251205T18,70347de4-dc37-54d8-932d-186b8ea072f0;lumped/freiberg/nord,12,56,Dresden/Süd - Freiberg/Nord 592 + Freiberg/Nord - Röhrsdorf 594
+v5_20251206T02,70347de4-dc37-54d8-932d-186b8ea072f0;lumped/freiberg/nord,11,59,Dresden/Süd - Freiberg/Nord 592 + Freiberg/Nord - Röhrsdorf 594
+v5_20251207T08,70347de4-dc37-54d8-932d-186b8ea072f0;lumped/freiberg/nord,10,99,Dresden/Süd - Freiberg/Nord 592 + Freiberg/Nord - Röhrsdorf 594
+v5_20251210T10,70347de4-dc37-54d8-932d-186b8ea072f0;lumped/freiberg/nord,10,88,Dresden/Süd - Freiberg/Nord 592 + Freiberg/Nord - Röhrsdorf 594
+v5_20260413T15,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,8,42,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260417T00,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,8,22,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260419T16,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,9,89,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260420T02,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,8,26,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260423T22,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,7,36,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260423T22,8e27c1a1-a11c-530a-a8a3-993d60c67390;ab2826da-7072-5778-8a42-b27f6d30bbf0;lumped/reuter;lumped/teufelsbruch;term/bbf754f,16,385,Reuter - Charlottenburg 904 + Reuter - Mitte 903 + Wolmirstedt - Teufelsbruch 493 + Wustermark - Teufelsbruch 498
+v5_20260428T17,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,8,63,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260429T08,32cf11e2-87f7-59f1-b24a-21128a319f01;lumped/stalldorf,9,208,Grafenrheinfeld - Stalldorf rt (416) + Kupferzell - Stalldorf rot
+v5_20260429T08,9804b247-94cd-5bce-a4b6-0d4e906ba9f9;b3cc68de-cf6b-5fdc-8b05-4b8e60149305;bba07a17-ec6a-5131-a7d6-654ef29081d9;c49ab2fa-,39,1174,Brunsbuettel - Suederdonn blau + Brunsbuettel - Suederdonn gelb + Husum/N - Klixbuell/S schwarz
+v5_20260509T16,0e0264fe-ee89-5ebe-b7ad-5df6e8b08d05;lumped/jardelund,9,59,Handewitt - Jardelund blau + Handewitt - Jardelund gruen + Jardelund - Kassoe 1 + Jardelund - Kassoe 2
+v5_20260519T02,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,9,69,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260519T02,0e0264fe-ee89-5ebe-b7ad-5df6e8b08d05;lumped/jardelund,9,33,Handewitt - Jardelund blau + Handewitt - Jardelund gruen + Jardelund - Kassoe 1 + Jardelund - Kassoe 2
+v5_20260601T03,0e0264fe-ee89-5ebe-b7ad-5df6e8b08d05;lumped/jardelund,7,47,Handewitt - Jardelund blau + Handewitt - Jardelund gruen + Jardelund - Kassoe 1 + Jardelund - Kassoe 2
+v5_20260603T19,0e0264fe-ee89-5ebe-b7ad-5df6e8b08d05;lumped/jardelund,7,134,Handewitt - Jardelund blau + Handewitt - Jardelund gruen + Jardelund - Kassoe 1 + Jardelund - Kassoe 2
+v5_20260610T10,0e0264fe-ee89-5ebe-b7ad-5df6e8b08d05;lumped/jardelund,7,138,Handewitt - Jardelund blau + Handewitt - Jardelund gruen + Jardelund - Kassoe 1 + Jardelund - Kassoe 2
+v5_20260703T10,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,5,401,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260703T10,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,9,259,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260706T20,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,4,451,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260706T20,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,8,97,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260731T09,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,9,179,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260802T18,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,11,74,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260805T09,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,8,173,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260822T20,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,7,111,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260822T20,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,3,198,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260822T20,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,7,186,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260826T18,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,8,92,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260826T18,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,4,137,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260826T18,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,8,134,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260827T20,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,7,140,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260827T20,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,3,250,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260827T20,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,7,236,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260831T05,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,11,86,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260831T05,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,6,130,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260831T05,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,12,115,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260906T05,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,7,196,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260906T05,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,14,153,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260912T14,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,9,125,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260912T14,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,5,192,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260912T14,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,9,119,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260913T05,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,9,81,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+v5_20260913T05,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,5,119,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260913T05,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,9,105,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3
+v5_20260922T09,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,6,239,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+v5_20260922T09,0e0264fe-ee89-5ebe-b7ad-5df6e8b08d05;f7dcf58c-3fc5-57dd-aff0-66e7835ad745;lumped/jardelund,8,42,Handewitt - Jardelund blau + Handewitt - Jardelund gruen + Handewitt - Kassoe 1 + Handewitt - Kassoe 2
+v5_20260930T05,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,10,116,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+very_light_night,a0f08399-1e2f-5dcb-ba97-31ba5ae634de;dd2cc106-a41f-55c9-835b-4b73b7cda18b;lumped/hagenwerder,7,99,Hagenwerder - Schmölln 553 + Hagenwerder - Schmölln 554
+very_light_night,a5c476e1-84f7-5c54-822b-706fb2568743;lumped/heinersdorf,3,171,Eisenhüttenstadt (Abzweig) - Heinersdorf 548-4 + Heinersdorf - Neuenhagen 444
+very_light_night,b09b2edb-d633-5e6b-a04d-d81058416e70;lumped/eisenhuttenstadt;term/9ff54e14-965c-5e94-811f-5bd1767f1d56/A;term/eisenhutte,7,161,Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 547-3 + Eisenhüttenstadt (Abzweig) - Eisenhüttenstadt 548-3

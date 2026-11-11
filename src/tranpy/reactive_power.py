@@ -195,3 +195,30 @@ def read_compensation(
             "target_v_pu": target_v_pu,
         }
     )
+
+
+def boundary_q_limits(
+    lines: pd.DataFrame,
+    injections: pd.DataFrame,
+    *,
+    share: float = 0.33,
+    floor_mvar: float = 50.0,
+) -> dict[str, float]:
+    """Reactive limit (Mvar, symmetric) of each boundary injection from its in-operation lines.
+
+    The limit is ``share`` of the summed thermal rating (sqrt(3) * kV * A) of the lines that end
+    on the injection's bus, but at least ``floor_mvar``. Lines whose ``status`` is not
+    ``in_operation`` are left out (a table without the column counts every line).
+    """
+    if "status" in lines:
+        lines = lines[lines["status"].fillna("in_operation").eq("in_operation")]
+    mva = (
+        (lines["rated_current_a"].astype(float) * lines["nominal_voltage_kv"].astype(float))
+        * np.sqrt(3)
+        / 1000.0
+    )
+    limits = {}
+    for mrid, bus in zip(injections["mrid"], injections["bus_mrid"], strict=True):
+        at = lines["bus1_mrid"].eq(bus) | lines["bus2_mrid"].eq(bus)
+        limits[mrid] = max(share * float(np.nansum(mva[at])), floor_mvar)
+    return limits

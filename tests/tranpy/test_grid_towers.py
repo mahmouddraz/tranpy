@@ -68,6 +68,10 @@ def test_tower_circuit_count_from_tags() -> None:
     assert tower_circuits_220_380("380000;110000", None, "6;6") == 2
     assert tower_circuits_220_380("380000;220000;110000", None, "6;3;6") == 3
     assert math.isnan(tower_circuits_220_380("380000;110000", 4, "12"))  # tags do not say
+    # circuits=1 left on a two-circuit line: the upper count takes cables / 3
+    assert tower_circuits_220_380("380000", 1, "6") == 1
+    assert tower_circuits_220_380("380000", 1, "6", upper=True) == 2
+    assert tower_circuits_220_380("380000;110000", "1;2", "6;6", upper=True) == 2
 
 
 def test_circuits_side_by_side_on_shared_tower_line() -> None:
@@ -97,3 +101,78 @@ def test_circuits_side_by_side_on_shared_tower_line() -> None:
     assert t.loc[1, "model_names"] == "A 380; B 220"
     assert t.loc[2, "model_eics"] == "EB" and t.loc[2, "mismatch"] == ""
     assert t.loc[3, "model_circuits"] == 1 and t.loc[3, "mismatch"] == "model_fewer"
+
+
+def test_mismatch_rule() -> None:
+    towers = _towers()
+    # trunk tagged as one 380 kV circuit: the 220 kV circuit B is a pickup, not an extra
+    towers.loc[0, ["voltages", "circuits_tag", "cables"]] = ["380000", 1.0, "3"]
+    towers["circuits_max"] = towers["circuits_tag"]
+    _, t = split_by_towers(_lines(), towers)
+    t = t.set_index("osm_id")
+    assert t.loc[1, "other_voltage_circuits"] == 1
+    assert t.loc[1, "mismatch"] == "neighbour_pickup"
+    short = _towers().assign(geometry=[geom.LineString([(8.0, 52.0), (8.004, 52.0)])] * 3)
+    _, t = split_by_towers(_lines(), short)
+    assert (t["mismatch"] == "").all()  # ways under 0.5 km get no flag
+
+
+def test_parallel_circuits_side_by_side_up_to_the_station_edge() -> None:
+    import pandas as pd
+
+    from tranpy.grid_stations import layout_stations
+
+    lines = _lines().assign(bus1=["w|380", "y|220", "c1|380"], bus2=["z|380", "w|220", "c2|380"])
+    pieces, towers = split_by_towers(lines, _towers())
+    station = geom.box(7.998, 51.999, 8.002, 52.001)  # ~270 m x 220 m around the trunk end
+    footprints = gpd.GeoDataFrame({"site": ["w"], "source": ["osm"]}, geometry=[station], crs=4326)
+    layers = {
+        "lines": pieces,
+        "tower_lines": towers,
+        "substations": gpd.GeoDataFrame(
+            {
+                "site": ["w"],
+                "name": ["W"],
+                "kind": ["substation"],
+                "symbol": ["coupling"],
+                "max_kv": [380.0],
+                "voltages_kv": ["220/380"],
+                "transformers": [0],
+                "tso": ["TenneT"],
+            },
+            geometry=[geom.Point(8.0, 52.0)],
+            crs=4326,
+        ),
+        "transformers": gpd.GeoDataFrame(
+            pd.DataFrame(columns=["site", "kv_hv", "kv_lv", "slot", "site_transformers"]),
+            geometry=[],
+            crs=4326,
+        ),
+        "buses": pd.DataFrame({"bus": ["w|380", "w|220"], "site": ["w", "w"]}),
+    }
+    out = layout_stations(layers, footprints)
+    got = out["lines"]
+    assert set(got["mrid"]) == set(pieces["mrid"])  # no circuit lost
+    metric = got.to_crs(3035)
+    box = gpd.GeoSeries([station], crs=4326).to_crs(3035).iat[0]
+    assert len(out["station_levels"]) == 0  # plain box: no busbars or links on the map
+    for mrid in "ab":
+        mine = metric[(got["mrid"] == mrid) & (got["station_end"] == "w")]
+        assert len(mine) == 1
+        coords = list(mine.geometry.iat[0].coords)
+        end = min(map(geom.Point, (coords[0], coords[-1])), key=box.exterior.distance)
+        assert box.exterior.distance(end) < 1.0  # ends on the box edge
+        assert mine.geometry.iat[0].intersection(box).length < 1.0
+    # no merged bundle: the trunk keeps both circuits side by side up to the station
+    assert "bundle" not in got
+    trunk = got[got["tower_way"] == "1"]
+    assert len(trunk) and set(trunk["circuits"]) == {2}
+    # a footprint that no circuit end reaches (500 m off) becomes a box at the circuit ends
+    away = gpd.GeoDataFrame(
+        {"site": ["w"], "source": ["osm"]},
+        geometry=[geom.box(8.006, 52.004, 8.009, 52.006)],
+        crs=4326,
+    )
+    moved = layout_stations(layers, away)
+    assert moved["station_footprints"]["source"].iat[0] == "box at circuit ends"
+    assert set(moved["lines"]["station_end"]) >= {"w"}

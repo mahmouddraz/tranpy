@@ -393,7 +393,7 @@
   </renderer-v2>
   <labeling type="rule-based">
     <rules key="{labels-root}">
-      <rule key="{label-0}" description="Line name (one per circuit)" scalemaxdenom="550000" scalemindenom="1">
+      <rule key="{label-0}" description="Line name (one per circuit)" scalemaxdenom="550000" scalemindenom="1" filter="&quot;label_piece&quot;">
         <settings calloutType="simple">
           <text-style fieldName="&quot;name&quot;" isExpression="1" fontFamily="Sans Serif" fontSize="7.0" fontSizeUnit="Point" fontWeight="50" textColor="33,33,33,255" textOpacity="1" fontItalic="0" namedStyle="Regular" multilineHeight="1" allowHtml="0">
             <text-buffer bufferDraw="1" bufferSize="0.8" bufferSizeUnits="MM" bufferColor="255,255,255,230" bufferOpacity="0.9" bufferJoinStyle="128" bufferNoFill="1" />
@@ -403,7 +403,7 @@
           <rendering obstacle="1" obstacleFactor="1" obstacleType="1" upsidedownLabels="0" displayAll="0" mergeLines="1" labelPerPart="0" limitNumLabels="0" maxNumLabels="2000" fontLimitPixelSize="0" scaleVisibility="0" drawLabels="1" />
         </settings>
       </rule>
-      <rule key="{label-1}" description="Circuits in the corridor" scalemaxdenom="4500000" scalemindenom="1" filter="&quot;circuit_no&quot; = 0 AND &quot;circuits&quot; &gt;= 2 AND @map_scale &gt; 550000">
+      <rule key="{label-1}" description="Circuits on the tower line" scalemaxdenom="4500000" scalemindenom="1" filter="&quot;circuit_no&quot; = 0 AND &quot;circuits&quot; &gt;= 2 AND @map_scale &gt; 550000">
         <settings calloutType="simple">
           <text-style fieldName="&quot;circuits&quot; || '×'" isExpression="1" fontFamily="Sans Serif" fontSize="7.0" fontSizeUnit="Point" fontWeight="50" textColor="33,33,33,255" textOpacity="1" fontItalic="0" namedStyle="Regular" multilineHeight="1" allowHtml="0">
             <text-buffer bufferDraw="1" bufferSize="0.8" bufferSizeUnits="MM" bufferColor="255,255,255,230" bufferOpacity="0.9" bufferJoinStyle="128" bufferNoFill="1" />

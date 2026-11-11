@@ -236,3 +236,82 @@ def test_line_ratings_follow_season_and_hour() -> None:
     assert hourly_line_ratings(copied, circuits, may)["rated_current_a"].iloc[0] == 900.0
     with pytest.raises(ValueError, match="unknown rating basis"):
         hourly_line_ratings(lines, circuits, may, basis="max")
+
+
+def test_border_weights_ignore_lines_not_in_operation() -> None:
+    tables = _tables()
+    lines = pd.concat(
+        [
+            tables.ac_line_segment.assign(status="in_operation"),
+            pd.DataFrame(
+                {
+                    "bus1_mrid": ["bx1"],
+                    "bus2_mrid": ["b1"],
+                    "rated_current_a": [5000.0],
+                    "nominal_voltage_kv": [380.0],
+                    "status": ["decommissioned"],
+                }
+            ),
+        ],
+        ignore_index=True,
+    )
+    weights = dispatch._border_weights(
+        replace(tables, ac_line_segment=lines), pd.Series(["x1", "x2"])
+    )
+    assert weights.tolist() == pytest.approx([380_000.0, 1_140_000.0])
+
+
+def test_border_split_follows_measured_tso_segments_and_keeps_the_total() -> None:
+    """Per-TSO border split: measured segments (opposite signs allowed) plus capacity rest."""
+    from tranpy.dispatch import border_split
+
+    # Hradec: 50Hertz lines 3300 MVA + TenneT 1300 MVA; Prestice: TenneT 1500 MVA
+    weights = pd.DataFrame(
+        {"50Hertz": [3300.0, 0.0], "TenneT": [1300.0, 1500.0]}, index=["hradec", "prestice"]
+    )
+    flows = pd.Series({("CZ", "50Hertz"): 1326.0, ("CZ", "TenneT"): -259.0})
+    split = border_split(1067.0, weights, flows, "CZ")
+    assert split.sum() == pytest.approx(1067.0)
+    tenne_t = -259.0
+    assert split["prestice"] == pytest.approx(tenne_t * 1500.0 / 2800.0)
+    assert split["hradec"] == pytest.approx(1326.0 + tenne_t * 1300.0 / 2800.0)
+    # without measured segments: plain capacity split
+    plain = border_split(1067.0, weights, pd.Series(dtype=float), "CZ")
+    assert plain["hradec"] == pytest.approx(1067.0 * 4600.0 / 6100.0)
+    # one measured segment only: capacity split (a single TSO border carries the whole zone)
+    single = border_split(1067.0, weights, pd.Series({("CZ", "TenneT"): 500.0}), "CZ")
+    pd.testing.assert_series_equal(single, plain)
+
+
+def test_border_split_missing_tso_value_falls_back_to_capacity_split() -> None:
+    """A segment without a published A11 value (NaN) is missing, never 0 MW."""
+    from tranpy.dispatch import border_split
+
+    weights = pd.DataFrame(
+        {"TenneT": [3000.0, 0.0], "Amprion": [0.0, 2000.0]}, index=["meeden", "maasbracht"]
+    )
+    plain = border_split(-4000.0, weights, pd.Series(dtype=float), "NL")
+    missing = pd.Series({("NL", "TenneT"): float("nan"), ("NL", "Amprion"): -1500.0})
+    pd.testing.assert_series_equal(border_split(-4000.0, weights, missing, "NL"), plain)
+    zero = pd.Series({("NL", "TenneT"): 0.0, ("NL", "Amprion"): -1500.0})
+    # a published 0 MW is a measured value: Amprion -1500 plus its capacity share of the rest
+    assert border_split(-4000.0, weights, zero, "NL")["maasbracht"] == pytest.approx(-2500.0)
+
+
+def test_segment_flow_marks_unpublished_hours_missing() -> None:
+    """fetch_tso_border_flows: an hour missing in either direction is NaN, not 0 MW."""
+    import importlib.util
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parents[2] / "scripts" / "fetch_tso_border_flows.py"
+    spec = importlib.util.spec_from_file_location("fetch_tso_border_flows", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    hours = pd.Series(pd.to_datetime(["2026-01-01 00:00", "2026-01-01 01:00"], utc=True))
+    out = pd.Series([100.0], index=pd.DatetimeIndex(hours[:1]))
+    back = pd.Series([30.0], index=pd.DatetimeIndex(hours[:1]))
+    flow = module.segment_flow(out, back, hours)
+    assert flow.iloc[0] == pytest.approx(70.0)
+    assert pd.isna(flow.iloc[1])  # neither direction published: missing, not 0 MW
+    one_way = module.segment_flow(pd.Series(dtype=float), back, hours)
+    assert one_way.iloc[0] == pytest.approx(-30.0) and pd.isna(one_way.iloc[1])

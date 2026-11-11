@@ -8,6 +8,7 @@ import pytest
 
 from tranpy.reactive_power import (
     RULES,
+    boundary_q_limits,
     embedded_reactive_capability,
     load_tan_phi,
     read_compensation,
@@ -193,3 +194,19 @@ def test_powsybl_compensation_and_target_q() -> None:
     # the shunt injects 50 Mvar at 1 pu, scaled with the square of the solved voltage
     v = network.get_buses()["v_mag"].min() / 380.0
     assert -shunt["q"].iloc[0] == pytest.approx(50.0 * v**2, rel=0.02)
+
+
+def test_boundary_q_limits_ignore_lines_not_in_operation() -> None:
+    lines = pd.DataFrame(
+        {
+            "bus1_mrid": ["x", "x", "y"],
+            "bus2_mrid": ["a", "b", "c"],
+            "rated_current_a": [1000.0, 4000.0, 10.0],
+            "nominal_voltage_kv": [220.0, 220.0, 220.0],
+            "status": ["in_operation", "out_of_service", "in_operation"],
+        }
+    )
+    ext = pd.DataFrame({"mrid": ["ex", "ey"], "bus_mrid": ["x", "y"]})
+    limits = boundary_q_limits(lines, ext)
+    assert limits["ex"] == pytest.approx(0.33 * 220.0 * 1000.0 * np.sqrt(3) / 1000.0)
+    assert limits["ey"] == 50.0

@@ -1,0 +1,113 @@
+{
+ "circuits": 1019,
+ "by_quality": {
+  "verified": 435,
+  "schematic": 584
+ },
+ "by_voltage_kv": {
+  "380.0": {
+   "verified": 292,
+   "schematic": 349,
+   "verified_km": 11904.4,
+   "schematic_km": 13082.1
+  },
+  "220.0": {
+   "verified": 143,
+   "schematic": 235,
+   "verified_km": 4717.8,
+   "schematic_km": 6131.7
+  }
+ },
+ "by_tso": {
+  "Amprion": {
+   "verified": 126,
+   "schematic": 291,
+   "verified_km": 2908.8,
+   "schematic_km": 8083.3
+  },
+  "TenneT": {
+   "verified": 130,
+   "schematic": 168,
+   "verified_km": 4144.0,
+   "schematic_km": 7051.8
+  },
+  "50Hertz": {
+   "verified": 138,
+   "schematic": 51,
+   "verified_km": 7752.1,
+   "schematic_km": 2269.3
+  },
+  "TransnetBW": {
+   "verified": 41,
+   "schematic": 74,
+   "verified_km": 1817.1,
+   "schematic_km": 1809.9
+  }
+ },
+ "reasons": [
+  [
+   "way_no_tag",
+   368
+  ],
+  [
+   "not_on_osm_graph",
+   151
+  ],
+  [
+   "route_note",
+   137
+  ],
+  [
+   "no_osm_way",
+   137
+  ],
+  [
+   "ratio_outside",
+   78
+  ],
+  [
+   "no_terminal",
+   72
+  ],
+  [
+   "way_model_more",
+   53
+  ],
+  [
+   "way_model_fewer",
+   33
+  ],
+  [
+   "inside_station_only",
+   25
+  ],
+  [
+   "no_path_strict",
+   20
+  ],
+  [
+   "straight_piece",
+   18
+  ],
+  [
+   "not_in_network",
+   10
+  ],
+  [
+   "gaps",
+   8
+  ],
+  [
+   "drawn_not_once",
+   7
+  ],
+  [
+   "no_loop",
+   5
+  ],
+  [
+   "hvdc",
+   2
+  ]
+ ]
+}

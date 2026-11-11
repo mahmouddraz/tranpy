@@ -246,7 +246,8 @@ Rule = tuple[str, str, str, list[tuple[str, dict[str, Any], dict[str, str]]], in
 _LINE_WIDTH = 'CASE WHEN "voltage_kv" >= 300 THEN 0.6 ELSE 0.4 END'
 """Width per circuit (mm); parallel circuits are drawn side by side (offset)."""
 _LINE_OFFSET = '(coalesce("circuit_no", 0) - (coalesce("circuits", 1) - 1) / 2.0) * 0.8'
-"""Offset (mm) of a circuit (piece) from the centre line of its tower line."""
+"""Side offset (mm) of a circuit piece (slot ``circuit_no`` of ``circuits``, to the right of
+the drawn direction); OSM-graph pieces get their slot from ``grid_bundles.piece_slots``."""
 TOWER_COLOUR = "#9e9e9e"
 """Physical tower lines (OpenStreetMap ``power=line``): thin grey casing under the circuits."""
 _PLANT_SIZE = 'max(1.8, least(1.2 + 0.16 * sqrt(coalesce("capacity_mw", 0)), 8.0))'
@@ -284,7 +285,7 @@ def _line_rules(mode: str) -> list[Rule]:
             rules.append(
                 (
                     f"{label} (route not mapped: dotted)",
-                    f"{live} AND {cond} AND \"route_quality\" = 'straight'",
+                    f"{live} AND {cond} AND \"route_quality\" IN ('straight', 'unrouted')",
                     "line",
                     [_line(VOLTAGE_COLOURS[kv], 0.5, style="dot")],
                     None,
@@ -293,7 +294,7 @@ def _line_rules(mode: str) -> list[Rule]:
             rules.append(
                 (
                     label,
-                    f"{live} AND {cond} AND \"route_quality\" <> 'straight'",
+                    f"{live} AND {cond} AND \"route_quality\" NOT IN ('straight', 'unrouted')",
                     "line",
                     [
                         _line("#ffffff", 1.1, alpha=0.9, width_expr=_LINE_WIDTH + " + 0.45"),
@@ -540,6 +541,80 @@ def _transformer_rules(mode: str) -> list[Rule]:
     return rules
 
 
+_STATION_SCALE = 70_000
+"""Station boxes from about zoom 13."""
+
+
+def _station_footprint_rules(mode: str) -> list[Rule]:
+    """One plain box per station: light fill and outline in the colour of its highest
+    voltage (or its TSO); dashed when it is a fixed box (no OpenStreetMap footprint)."""
+    if mode == "voltage":
+        classes = [
+            (f"{kv} kV station", f, VOLTAGE_COLOURS[kv])
+            for kv, f in (("380", '"max_kv" >= 300'), ("220", '"max_kv" < 300'))
+        ]
+    else:
+        classes = [(tso, f"\"tso\" = '{tso}'", TSO_COLOURS[tso]) for tso in TSO_CODES]
+        classes.append(
+            ("Other", f'"tso" NOT IN ({", ".join(repr(t) for t in TSO_CODES)})', NEUTRAL)
+        )
+    rules: list[Rule] = []
+    for label, flt, colour in classes:
+        for kind, src, style in (
+            ("footprint (OpenStreetMap)", "\"source\" <> 'box'", "solid"),
+            ("box (no footprint)", "\"source\" = 'box'", "dash"),
+        ):
+            rules.append(
+                (
+                    f"{label}, {kind}",
+                    f"({flt}) AND {src}",
+                    "fill",
+                    [_fill(colour, 0.15, colour, 0.5, style=style)],
+                    _STATION_SCALE,
+                )
+            )
+    return rules
+
+
+def _station_level_rules(mode: str) -> list[Rule]:
+    """Busbars and links (no features since the plain-box layout; kept for old exports)."""
+    stub = "\"part\" = 'stub'"
+    rules: list[Rule] = [
+        (
+            "Busbar",
+            f"NOT ({stub})",
+            "line",
+            [_line("#263238", 1.6, offset=False)],
+            _STATION_SCALE,
+        )
+    ]
+    for kv, flt in (("380", '"voltage_kv" >= 300'), ("220", '"voltage_kv" < 300')):
+        colour = VOLTAGE_COLOURS[kv] if mode == "voltage" else "#607d8b"
+        rules.append(
+            (
+                f"{kv} kV link from the edge port to the busbar",
+                f"{stub} AND {flt}",
+                "line",
+                [_line(colour, 0.2, alpha=0.75, offset=False)],
+                _STATION_SCALE,
+            )
+        )
+    return rules
+
+
+def _station_transformer_rules(mode: str) -> list[Rule]:
+    """Transformer symbols inside the footprint (no features since the plain-box layout)."""
+    rules = []
+    for label, flt, kind, layers, _ in _transformer_rules(mode):
+        shifts = ("-0.5,0", "0.5,0") if len(layers) == 2 else ("0,0",) * len(layers)
+        flat = [
+            (cls, {**values, "offset": dx}, {k: v for k, v in dd.items() if k != "offset"})
+            for (cls, values, dd), dx in zip(layers, shifts, strict=True)
+        ]
+        rules.append((label, flt, kind, flat, _STATION_SCALE))
+    return rules
+
+
 def _plant_connection_rules(mode: str) -> list[Rule]:
     return [
         (
@@ -679,6 +754,10 @@ Label = tuple[str, str, int, float, str, str]
 """(description, field expression, max scale denominator, font size pt, placement, filter)."""
 
 _LABELS: dict[str, list[Label]] = {
+    # the station name outside its box, so it never covers the box
+    "station_footprints": [("Station name", '"name"', _STATION_SCALE, 7.0, "outside", "")],
+    "station_levels": [],
+    "station_transformers": [],
     "lines": [
         ("Line name (one per circuit)", '"name"', _ZOOM_SCALE[10], 7.0, "line", '"label_piece"'),
         (
@@ -744,6 +823,9 @@ _LABELS: dict[str, list[Label]] = {
 _RULES = {
     "lines": _line_rules,
     "tower_lines": _tower_rules,
+    "station_footprints": _station_footprint_rules,
+    "station_levels": _station_level_rules,
+    "station_transformers": _station_transformer_rules,
     "plant_connections": _plant_connection_rules,
     "plant_aggregates": _plant_aggregate_rules,
     "substations": _substation_rules,
@@ -786,7 +868,7 @@ def _labeling(parent: ET.Element, labels: list[Label]) -> None:
             fontWeight="50",
             textColor="33,33,33,255",
             textOpacity="1",
-            fontItalic="0" if placement != "polygon" else "1",
+            fontItalic="1" if placement == "polygon" else "0",
             namedStyle="Regular",
             multilineHeight="1",
             allowHtml="0",
@@ -811,7 +893,7 @@ def _labeling(parent: ET.Element, labels: list[Label]) -> None:
             plussign="0",
             reverseDirectionSymbol="0",
         )
-        code = {"point": "6", "line": "2", "polygon": "1"}[placement]
+        code = {"point": "6", "line": "2", "polygon": "1", "outside": "8"}[placement]
         ET.SubElement(
             settings,
             "placement",
@@ -867,11 +949,13 @@ def layer_style(layer: str, mode: str) -> ET.Element:
             rule.set("scalemaxdenom", str(max_scale))
             rule.set("scalemindenom", "1")
         symbols.append(_symbol(kind, str(i), layers))
-    _labeling(root, _LABELS[layer])
+    _labeling(root, _LABELS.get(layer, []))
     ET.SubElement(root, "layerGeometryType").text = {
         "lines": "1",
         "tower_lines": "1",
         "plant_connections": "1",
+        "station_levels": "1",
+        "station_footprints": "2",
         "control_areas": "2",
         "bidding_zones": "2",
     }.get(layer, "0")
@@ -905,6 +989,8 @@ _GEOMETRY = {
     "lines": "Line",
     "tower_lines": "Line",
     "plant_connections": "Line",
+    "station_levels": "Line",
+    "station_footprints": "Polygon",
     "control_areas": "Polygon",
     "bidding_zones": "Polygon",
 }
@@ -913,6 +999,9 @@ _TITLES = {
     "tower_lines": "Tower lines (OpenStreetMap)",
     "substations": "Substations",
     "transformers": "Transformers",
+    "station_footprints": "Station footprints",
+    "station_levels": "Station voltage levels",
+    "station_transformers": "Transformers in stations",
     "plants": "Power plants (MaStR)",
     "plant_aggregates": "Small plants (summed per bus and fuel)",
     "plant_connections": "Plant connections",
@@ -932,15 +1021,21 @@ _VISIBLE = {
     "bidding_zones",
     "control_areas",
     "transformers",
+    "station_footprints",
+    "station_levels",
+    "station_transformers",
 }
 _ORDER = (
     "neighbours",
     "plants",
     "plant_aggregates",
+    "station_transformers",
     "transformers",
     "substations",
     "buses",
+    "station_levels",
     "lines",
+    "station_footprints",
     "tower_lines",
     "plant_connections",
     "control_areas",
@@ -1052,7 +1147,8 @@ def write_qgis_project(
     meta = ET.SubElement(root, "projectMetadata")
     ET.SubElement(meta, "title").text = title
     ET.SubElement(meta, "abstract").text = (
-        "Frozen grid model v4final (380/220 kV). Route geometry © OpenStreetMap contributors "
+        "German grid model (380/220 kV; file and sha256 in the metadata layer). "
+        "Route geometry © OpenStreetMap contributors "
         "(ODbL) via PyPSA-Eur; borders Natural Earth (public domain); electrical data JAO "
         "Core Static Grid Model; plants Marktstammdatenregister (dl-de/by-2-0). Basemap "
         + BASEMAP["attribution"]

@@ -89,11 +89,14 @@ LAYERS = [
     ("neighbours", "Neighbouring networks", True),
     ("plants", "Power plants (MaStR)", True),
     ("plant_aggregates", "Small plants (summed per bus and fuel)", True),
+    ("station_transformers", "Transformers in stations", True),
     ("transformers", "Transformers", True),
     ("substations", "Substations", True),
     ("buses", "Buses (model / ANDES ids)", False),
     ("plant_connections", "Plant connections", True),
+    ("station_levels", "Station voltage levels", True),
     ("lines", "Lines (AC circuits, HVDC)", True),
+    ("station_footprints", "Station footprints", True),
     ("tower_lines", "Tower lines (OpenStreetMap)", True),
     ("control_areas", "TSO control areas (approximate)", True),
     ("bidding_zones", "Bidding zones", True),
@@ -207,7 +210,27 @@ def add_layout(project: QgsProject, name: str, size: str) -> None:
     project.layoutManager().addLayout(layout)
 
 
+def _model_label(gpkg: str) -> str:
+    """Model file and sha256 (first 12) from the GeoPackage ``metadata`` table, or ''."""
+    import sqlite3
+
+    try:
+        con = sqlite3.connect(gpkg)
+        rows = dict(con.execute("select key, value from metadata").fetchall())
+        con.close()
+    except sqlite3.Error:
+        return ""
+    name = str(rows.get("source_file", "")).removesuffix(".pkl").removeprefix("model_")
+    sha = str(rows.get("source_sha256", ""))[:12]
+    return f"{name}, sha256 {sha}" if name else ""
+
+
 def main(gpkg: str, styles_dir: str, out: str) -> None:
+    global TITLE, ATTRIBUTION
+    label = _model_label(gpkg)
+    if label:  # name the exported model (file and sha) instead of the default
+        TITLE = f"German transmission grid (model {label})"
+        ATTRIBUTION = ATTRIBUTION.replace("Grid model v4final", f"Grid model {label}")
     app = QgsApplication([], False)
     app.initQgis()
     project = QgsProject.instance()

@@ -64,7 +64,13 @@ from tranpy.vocabulary import Variable
 from tranpy_core._optional import require
 from tranpy_core.errors import ConfigurationError, SimulationError
 
-__all__ = ["DEFAULT_CASES", "MIN_FAULT_REACTANCE_PU", "AndesEngine"]
+__all__ = [
+    "DEFAULT_CASES",
+    "MIN_FAULT_REACTANCE_PU",
+    "AndesEngine",
+    "clamped_governors",
+    "shift_governor_limits",
+]
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +108,77 @@ def _load_openmp_libraries_first() -> None:
             importlib.import_module(name)
 
 
+_GOVERNOR_LIMITS = {"TGOV1": ("VMAX", "VMIN"), "HYGOV": ("GMAX", "GMIN")}
+
+
+def shift_governor_limits(ss: Any, pv_base: npt.ArrayLike, *, slack: bool = False) -> None:
+    """Move each governor's limits by its unit's change of PV setpoint (set-up system).
+
+    With ``slack=True`` (call after the power flow) only the governors of slack machines move,
+    by the solved slack power minus its case setpoint ``Slack.p0``: the slack takes up the
+    mismatch of non-uniform ``load_factors`` and of losses, so its solved power leaves the
+    band built around the base dispatch.
+
+    ``pv_base`` is ``PV.p0`` before the scenario scaled it. Limits are on the system base after
+    ``setup`` (ANDES ``power=True``), like ``p0``: the TGOV1 valve limits move by the setpoint
+    change dp, the HYGOV gate limits by dp / At (steady state P = At * (gate - qNL)). A lower
+    limit that was not negative stays at 0 or above; a negative one (a neighbour equivalent that
+    imports) is shifted unclipped.
+    """
+    if slack:
+        solved = np.asarray(ss.Slack.p.v, dtype=float) - np.asarray(ss.Slack.p0.v, dtype=float)
+        dp = dict(zip(ss.Slack.idx.v, solved, strict=True))
+    else:
+        base = np.asarray(pv_base, dtype=float)
+        dp = dict(zip(ss.PV.idx.v, np.asarray(ss.PV.p0.v, dtype=float) - base, strict=True))
+    gen_of: dict[Any, Any] = {}
+    for name in _MACHINES:
+        model = getattr(ss, name)
+        gen_of.update(zip(model.idx.v, model.gen.v, strict=True))
+    for name, (upper, lower) in _GOVERNOR_LIMITS.items():
+        gov = getattr(ss, name, None)
+        if gov is None or not gov.n:
+            continue
+        hi, lo = gov.params[upper].v, gov.params[lower].v
+        at = np.asarray(gov.At.v, dtype=float) if name == "HYGOV" else np.ones(gov.n)
+        for k, syn in enumerate(gov.syn.v):
+            d = dp.get(gen_of.get(syn), 0.0) / at[k]
+            if d:
+                hi[k] += d
+                lo[k] = lo[k] + d if lo[k] < 0 else max(lo[k] + d, 0.0)
+
+
+def clamped_governors(ss: Any) -> list[tuple[str, Any, str]]:
+    """(model, idx, limit) of each governor variable held at a limit after ``TDS.init``."""
+    out: list[tuple[str, Any, str]] = []
+    for name in _GOVERNOR_LIMITS:
+        gov = getattr(ss, name, None)
+        if gov is None or not gov.n:
+            continue
+        for item in gov.discrete.values():
+            for row in item.get_limit_report():
+                out.append((name, row["idx"], str(row["limit_name"])))
+    return out
+
+
+def _record_init_clamps(ss: Any) -> list[tuple[str, Any, str]]:
+    """List that ``TDS.run`` fills with :func:`clamped_governors` at its initialisation test.
+
+    The check runs inside ANDES' own initialisation test (``TDS.test_init``), so ``TDS.run``
+    keeps its usual path (a separate ``TDS.init`` call would make it resume and drop t = 0).
+    """
+    found: list[tuple[str, Any, str]] = []
+    test_init = ss.TDS.test_init
+
+    def checked() -> bool:
+        ok = bool(test_init())
+        found.extend(clamped_governors(ss))
+        return ok
+
+    ss.TDS.test_init = checked
+    return found
+
+
 @dataclass
 class AndesEngine:
     """Run fault scenarios with ANDES.
@@ -115,6 +192,11 @@ class AndesEngine:
         n_jobs: parallel worker processes.
         record_buses: ``"all"`` or ``"generators"`` (only buses with a generator; for
             large grids, where recording every bus would not fit in memory).
+        shift_governor_limits: after a scenario scales the dispatch (``operating_point`` or
+            ``load_factors``), move each governor's limits (TGOV1 VMAX/VMIN, HYGOV GMAX/GMIN) with
+            its unit's setpoint, so the band the case builder set around the solved power stays
+            around the scaled power and no governor starts clamped at a limit. False reproduces
+            the v4.1 events (limits fixed at the base dispatch; test e10, hygov check).
     """
 
     system_name: str = "new_england"
@@ -124,6 +206,7 @@ class AndesEngine:
     name_width: int = 2
     n_jobs: int = 1
     record_buses: Literal["all", "generators"] = "all"
+    shift_governor_limits: bool = True
     _lines: list[Any] = field(default_factory=list, init=False, repr=False)
     _loads: list[Any] = field(default_factory=list, init=False, repr=False)
     _frequency_hz: float = field(default=50.0, init=False, repr=False)
@@ -345,6 +428,7 @@ class AndesEngine:
         ):  # events stored in the case file are not part of the scenario
             ss.Toggle.u.v[k] = 0
         load_pos = ss.PQ.idx.v.index(self._loads[scenario.load_index])
+        pv_base = np.array(ss.PV.p0.v, dtype=float)
         if scenario.load_factors is not None:
             if len(scenario.load_factors) != len(self._loads):
                 raise ConfigurationError(
@@ -363,6 +447,8 @@ class AndesEngine:
             ss.PV.p0.v[:] *= scenario.operating_point
         ss.PQ.p0.v[load_pos] *= 1.0 + scenario.load_change_pct / 100.0
         ss.PQ.q0.v[load_pos] *= 1.0 + scenario.load_change_pct / 100.0
+        if self.shift_governor_limits:
+            shift_governor_limits(ss, pv_base)
         if not ss.PFlow.run() or float(np.min(ss.Bus.v.v)) < MIN_PREFAULT_VOLTAGE_PU:
             logger.info("scenario %d: infeasible pre-fault operating point", scenario.scenario_id)
             return SimulationResult(
@@ -372,11 +458,21 @@ class AndesEngine:
                 channel_names=("not simulated|infeasible operating point",),
                 completed=False,
             )
+        if self.shift_governor_limits:
+            shift_governor_limits(ss, pv_base, slack=True)
         ss.TDS.config.tf = self.simulation_time_s
         ss.TDS.config.tstep = self.step_s
         ss.TDS.config.no_tqdm = 1
         ss.TDS.config.criteria = 0
+        clamped = _record_init_clamps(ss)
         ss.TDS.run()
+        if clamped:
+            logger.warning(
+                "scenario %d: %d governor(s) clamped at a limit at initialisation: %s",
+                scenario.scenario_id,
+                len(clamped),
+                ", ".join(f"{m} {i} {lim}" for m, i, lim in clamped[:5]),
+            )
         return self._result(ss, scenario)
 
     def _result(self, ss: Any, scenario: FaultScenario) -> SimulationResult:

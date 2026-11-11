@@ -25,6 +25,7 @@ from tranpy_core._optional import require
 __all__ = [
     "MATCH_M",
     "MIN_RUN_M",
+    "SHORT_WAY_KM",
     "TOWER_COLUMNS",
     "assign_runs",
     "read_tower_ways",
@@ -42,6 +43,10 @@ SAMPLE_M = 25.0
 MIN_RUN_M = 150.0
 """Shorter stretches on a way (crossings, station entries) do not count, unless they cover
 half of a way that is itself short."""
+SHORT_WAY_KM = 0.5
+"""Ways shorter than this (station entries, crossings) get no mismatch flag."""
+PARALLEL_SHARE = 0.3
+"""A way with this share of its length within :data:`MATCH_M` of another way runs parallel."""
 TOWER_COLUMNS = (
     "osm_id",
     "name",
@@ -51,6 +56,7 @@ TOWER_COLUMNS = (
     "max_kv",
     "mixed_voltage",
     "circuits_tag",
+    "circuits_max",
     "cables",
     "location",
     "construction",
@@ -81,27 +87,36 @@ def _kv_parts(voltages: str) -> list[int]:
     return out
 
 
-def tower_circuits_220_380(voltages: str, circuits: Any, cables: Any) -> float:
+def tower_circuits_220_380(
+    voltages: str, circuits: Any, cables: Any, *, upper: bool = False
+) -> float:
     """OpenStreetMap count of 220/380 kV circuits on a way (NaN when the tags do not say).
 
     ``voltage``, ``cables`` and ``circuits`` are aligned ``;`` lists in OpenStreetMap. A way of
     only 220/380 kV counts ``circuits`` (or ``cables`` / 3); a mixed-voltage way counts the
-    cables of its 220/380 kV parts when the lists align, else it is unknown.
+    cables of its 220/380 kV parts when the lists align, else it is unknown. With ``upper``
+    it counts the larger of ``circuits`` and ``cables`` / 3 (per part when the lists align):
+    ``circuits`` is often left at 1 on a two-circuit line, while ``cables`` also counts
+    unstrung or 110 kV positions, so the upper count only bounds the circuits from above.
     """
     kv = _kv_parts(voltages)
     hv = [k in TOWER_KV for k in kv]
     circ = [_number(c) for c in _text(circuits).split(";")] if _text(circuits) else []
-    cab = [_number(c) for c in _text(cables).split(";")] if _text(cables) else []
+    cab = [_number(c) // 3 for c in _text(cables).split(";")] if _text(cables) else []
     if all(hv):
-        if circ and len(circ) in (1, len(kv)) and all(np.isfinite(circ)):
-            return float(sum(circ))
-        if cab and len(cab) in (1, len(kv)) and all(np.isfinite(cab)):
-            return float(sum(c // 3 for c in cab))
+        counts = [
+            float(sum(parts))
+            for parts in (circ, cab)
+            if parts and len(parts) in (1, len(kv)) and all(np.isfinite(parts))
+        ]
+        if not counts:
+            return float("nan")
+        return max(counts) if upper else counts[0]
+    aligned = [p for p in (circ, cab) if len(p) == len(kv) and all(np.isfinite(p))]
+    if not aligned:
         return float("nan")
-    for parts, per in ((circ, 1.0), (cab, 3.0)):
-        if len(parts) == len(kv) and all(np.isfinite(parts)):
-            return float(sum(p // per for p, h in zip(parts, hv, strict=True) if h))
-    return float("nan")
+    use = aligned if upper else aligned[:1]
+    return float(sum(max(p[i] for p in use) for i, h in enumerate(hv) if h))
 
 
 def read_tower_ways(path: str | Path, *, overpass: Sequence[str | Path] = ()) -> Any:
@@ -160,6 +175,10 @@ def read_tower_ways(path: str | Path, *, overpass: Sequence[str | Path] = ()) ->
     ways["mixed_voltage"] = [any(k not in TOWER_KV for k in v) for v in kv]
     ways["circuits_tag"] = [
         tower_circuits_220_380(v, c, b)
+        for v, c, b in zip(ways["voltages"], ways["circuits_raw"], ways["cables"], strict=True)
+    ]
+    ways["circuits_max"] = [
+        tower_circuits_220_380(v, c, b, upper=True)
         for v, c, b in zip(ways["voltages"], ways["circuits_raw"], ways["cables"], strict=True)
     ]
     ways = ways[[*TOWER_COLUMNS, "geometry"]].reset_index(drop=True)
@@ -238,7 +257,12 @@ def split_by_towers(lines: Any, towers: Any) -> tuple[Any, Any]:
         ``circuits`` the slot on its tower line, ``tower_way`` the OpenStreetMap way ids,
         ``piece``, ``pieces``, ``label_piece`` for the longest piece) and the tower lines with
         the circuits they carry (``model_circuits``, ``model_names``, ``model_eics``,
-        ``model_kv``) and ``mismatch`` against ``circuits_tag``.
+        ``model_kv``) and ``mismatch``: ``model_fewer`` below ``circuits_tag``,
+        ``model_more`` above ``circuits_max`` (the larger of ``circuits`` and ``cables`` / 3);
+        none on ways shorter than :data:`SHORT_WAY_KM`; ``neighbour_pickup`` when the extra
+        circuits are of a voltage the way does not carry (``other_voltage_circuits``) or the
+        way runs within :data:`MATCH_M` of another way (``parallel_way``), i.e. the circuit
+        was picked up from a neighbour.
     """
     gpd = require("geopandas", "grid")
     shapely = require("shapely", "grid")
@@ -323,11 +347,37 @@ def split_by_towers(lines: Any, towers: Any) -> tuple[Any, Any]:
     out["model_eics"] = ["; ".join(_text(lines["eic"].iat[i]) for i in m) for m in on_way]
     out["model_kv"] = ["; ".join(f"{kv[i]:g}" for i in m) for m in on_way]
     tag = out["circuits_tag"].astype(float)
+    upper = np.fmax(out["circuits_max"].astype(float), tag) if "circuits_max" in out else tag
     model = out["model_circuits"]
     out["length_km"] = (shapely.length(ways_m) / 1000.0).round(3)
+    way_kv = [set(_kv_parts(v)) for v in out["voltages"].map(_text)]
+    out["other_voltage_circuits"] = [
+        sum(1 for i in m if round(kv[i] * 1000) not in way_kv[w]) for w, m in enumerate(on_way)
+    ]
+    out["parallel_way"] = ""
+    more = np.flatnonzero((model > upper).to_numpy() & (out["length_km"] >= SHORT_WAY_KM))
+    tree = shapely.STRtree(ways_m)
+    ids = out["osm_id"].astype("int64").to_numpy()
+    parallel = out.columns.get_loc("parallel_way")
+    for m in more.tolist():
+        for j in tree.query(shapely.buffer(ways_m[m], MATCH_M)).tolist():
+            if j == m:
+                continue
+            band = shapely.buffer(ways_m[j], MATCH_M)
+            if shapely.length(shapely.intersection(ways_m[m], band)) >= PARALLEL_SHARE * way_len[m]:
+                out.iat[m, parallel] = str(ids[j])
+                break
+    pickup = (model - out["other_voltage_circuits"] <= upper) | (out["parallel_way"] != "")
     out["mismatch"] = np.select(
-        [model == 0, tag.isna(), model < tag, model > tag],
-        ["no_model_circuit", "no_tag", "model_fewer", "model_more"],
+        [
+            out["length_km"] < SHORT_WAY_KM,
+            model == 0,
+            tag.isna(),
+            model < tag,
+            (model > upper) & pickup,
+            model > upper,
+        ],
+        ["", "no_model_circuit", "no_tag", "model_fewer", "neighbour_pickup", "model_more"],
         "",
     )
     return pieces, out
@@ -343,6 +393,8 @@ def empty_tower_lines() -> Any:
         "model_names",
         "model_eics",
         "model_kv",
+        "other_voltage_circuits",
+        "parallel_way",
         "mismatch",
     ]
     return gpd.GeoDataFrame(
